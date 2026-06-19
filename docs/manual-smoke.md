@@ -34,6 +34,38 @@ Expected:
 If `readiness` reports `missing_accessibility`, grant Accessibility permission
 and restart the terminal session.
 
+## Accessibility Troubleshooting
+
+macOS Accessibility trust is evaluated for the process that runs the Python
+code. When running the smoke from an agent host, IDE, or terminal wrapper,
+granting permission to the visible app may not be enough.
+
+If readiness still reports `missing_accessibility`, identify the exact Python
+interpreter:
+
+```bash
+python - <<'PY'
+import os
+import sys
+
+print(sys.executable)
+print(os.path.realpath(sys.executable))
+PY
+```
+
+Then add both paths to:
+
+System Settings > Privacy & Security > Accessibility
+
+If the Python process is launched by a host app, also add the host executable.
+For example, a Codex-hosted run may use:
+
+```text
+/Applications/Codex.app/Contents/Resources/codex
+```
+
+Restart the host app or terminal after changing Accessibility permissions.
+
 ## High-Risk Boundary Smoke
 
 Run this from a Python shell:
@@ -58,4 +90,3 @@ Expected:
 - No password entry.
 - No system dialog automation.
 - No network ExecutionEnv.
-
