@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include src/macos_computer_use/py.typed
+prune .github
+recursive-include docs *.md
+recursive-include examples *.py
+recursive-include tests *.py
