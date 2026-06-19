@@ -62,6 +62,8 @@ to bypass them.
 
 ## API
 
+See [docs/api.md](docs/api.md) for the API contract.
+
 ```python
 client.readiness()
 client.observe(target_app=None)
@@ -83,11 +85,17 @@ python -c "import macos_computer_use; print(macos_computer_use.__version__)"
 
 ## Build And Publish
 
+See [docs/release-checklist.md](docs/release-checklist.md) for the release
+checklist.
+
 Local wheel check:
 
 ```bash
 python -m pip wheel . -w dist
 ```
+
+Manual macOS validation is documented in
+[docs/manual-smoke.md](docs/manual-smoke.md).
 
 Recommended public release flow:
 

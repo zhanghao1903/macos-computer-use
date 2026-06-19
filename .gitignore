@@ -1,5 +1,6 @@
 .venv/
 .venv-test/
+.venv-wheel/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -9,3 +10,4 @@ __pycache__/
 build/
 dist/
 .wheelhouse/
+.dist-check/

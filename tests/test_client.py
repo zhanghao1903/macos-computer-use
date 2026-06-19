@@ -140,6 +140,36 @@ class ClientTests(unittest.TestCase):
 
         self.assertEqual(result.status, ComputerUseStatus.NEEDS_USER)
 
+    def test_click_blocks_stale_snapshot(self) -> None:
+        runner = FakeRunner()
+        runner.queue(stdout="TextEdit\nCurrent\n")
+        client = MacOSComputerUseClient(
+            allowed_apps=("TextEdit",),
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        result = client.click(
+            "OK",
+            target_app="TextEdit",
+            snapshot_id="frontmost:TextEdit:Old",
+        )
+
+        self.assertEqual(result.status, ComputerUseStatus.BLOCKED)
+        self.assertEqual(result.metadata["expected"], "frontmost:TextEdit:Old")
+
+    def test_disabled_backend_returns_not_available(self) -> None:
+        client = MacOSComputerUseClient(
+            allowed_apps=("TextEdit",),
+            enabled=False,
+            probe=FakeProbe(),
+            runner=FakeRunner(),
+        )
+
+        result = client.open_app("TextEdit")
+
+        self.assertEqual(result.status, ComputerUseStatus.NOT_AVAILABLE)
+
 
 if __name__ == "__main__":
     unittest.main()
