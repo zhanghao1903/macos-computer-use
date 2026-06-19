@@ -8,6 +8,8 @@ from macos_computer_use.models import (
     ComputerUseReadiness,
     ComputerUseReadinessStatus,
     ComputerUseResult,
+    RiskDecision,
+    RiskLevel,
 )
 
 
@@ -37,6 +39,28 @@ class ModelTests(unittest.TestCase):
 
         self.assertTrue(readiness.ready)
         self.assertEqual(readiness.to_dict()["status"], "ready")
+
+    def test_result_to_dict_serializes_nested_risk(self) -> None:
+        result = ComputerUseResult.blocked(
+            ComputerUseOperation.CLICK,
+            "confirmation required",
+            risk=RiskDecision(
+                level=RiskLevel.HIGH,
+                requires_confirmation=True,
+                risk_label="external_message",
+                reason="Send action.",
+                action_fingerprint="abc",
+            ),
+            metadata={"confirmation_required": True},
+        )
+
+        data = result.to_dict()
+
+        self.assertEqual(data["risk"]["level"], "high")  # type: ignore[index]
+        self.assertEqual(
+            data["risk"]["requires_confirmation"],  # type: ignore[index]
+            True,
+        )
 
 
 if __name__ == "__main__":

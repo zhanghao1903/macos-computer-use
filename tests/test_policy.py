@@ -30,6 +30,16 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(risk.level, RiskLevel.LOW)
         self.assertFalse(risk.requires_confirmation)
 
+    def test_coordinate_click_is_disabled_by_default(self) -> None:
+        risk = SafetyPolicy().classify(
+            ComputerUseOperation.CLICK,
+            coordinate_click=True,
+        )
+
+        self.assertEqual(risk.level, RiskLevel.HIGH)
+        self.assertFalse(risk.requires_confirmation)
+        self.assertEqual(risk.risk_label, "coordinate_click_disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

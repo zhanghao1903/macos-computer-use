@@ -27,7 +27,8 @@ Use this checklist before publishing `macos-computer-use`.
 2. Publish to TestPyPI.
 3. Install from TestPyPI in a clean macOS virtual environment.
 4. Run import and TextEdit smoke.
-5. Publish to PyPI.
-6. Create GitHub release notes from `CHANGELOG.md`.
+5. Configure PyPI trusted publishing for `.github/workflows/release.yml`.
+6. Create a GitHub Release to publish to PyPI.
+7. Create GitHub release notes from `CHANGELOG.md`.
 
 Prefer PyPI trusted publishing. Do not commit tokens.

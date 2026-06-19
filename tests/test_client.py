@@ -170,6 +170,17 @@ class ClientTests(unittest.TestCase):
 
         self.assertEqual(result.status, ComputerUseStatus.NOT_AVAILABLE)
 
+    def test_wait_blocks_negative_duration(self) -> None:
+        client = MacOSComputerUseClient(
+            allowed_apps=("TextEdit",),
+            probe=FakeProbe(),
+            runner=FakeRunner(),
+        )
+
+        result = client.wait(seconds=-1)
+
+        self.assertEqual(result.status, ComputerUseStatus.BLOCKED)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -86,7 +86,8 @@ python -c "import macos_computer_use; print(macos_computer_use.__version__)"
 ## Build And Publish
 
 See [docs/release-checklist.md](docs/release-checklist.md) for the release
-checklist.
+checklist and [docs/publishing.md](docs/publishing.md) for the PyPI release
+flow.
 
 Local wheel check:
 
