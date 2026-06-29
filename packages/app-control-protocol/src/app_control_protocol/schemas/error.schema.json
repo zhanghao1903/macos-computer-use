@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app-control.local/schemas/app_control.error.v1.schema.json",
+  "title": "App Control ToolError",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["failureKind", "message", "retryable"],
+  "properties": {
+    "failureKind": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "recoveryHint": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "operation": { "type": "string", "minLength": 1 },
+    "evidence": { "$ref": "#/$defs/jsonObject" }
+  },
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        { "$ref": "#/$defs/jsonObject" }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    }
+  }
+}

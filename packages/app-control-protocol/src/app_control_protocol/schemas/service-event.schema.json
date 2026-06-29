@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app-control.local/schemas/app_control.service.event.v1.schema.json",
+  "title": "App Control Local Service Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "requestId", "status", "success", "event"],
+  "properties": {
+    "schema": { "const": "app_control.service.event.v1" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "status": { "const": "event" },
+    "success": { "const": true },
+    "event": { "$ref": "#/$defs/event" }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": ["schema", "commandId", "seq", "type"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "const": "app_control.event.v1" },
+        "commandId": { "type": "string", "minLength": 1 },
+        "seq": { "type": "integer", "minimum": 0 },
+        "type": {
+          "type": "string",
+          "enum": ["started", "progress", "observation", "warning", "error"]
+        }
+      }
+    }
+  }
+}

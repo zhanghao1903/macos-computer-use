@@ -1,0 +1,49 @@
+"""Protocol-first WeChat Desktop semantic tools."""
+
+from app_control_protocol import AppControlClient
+
+from .adapter import build_wechat_tool
+from .commands import (
+    WECHAT_TOOL,
+    draft_message_command,
+    focus_contact_command,
+    observe_current_chat_command,
+    open_wechat_command,
+    read_visible_messages_command,
+    send_message_command,
+    submit_draft_command,
+    wechat_command,
+)
+from .errors import WECHAT_FAILURE_KINDS
+from .models import (
+    WeChatDesktopConfig,
+    WeChatOperation,
+    WeChatVisibleMessage,
+    wechat_message_hash,
+)
+from .recipes import send_message
+from .tool import WeChatDesktopTool
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "WECHAT_TOOL",
+    "WECHAT_FAILURE_KINDS",
+    "AppControlClient",
+    "WeChatDesktopConfig",
+    "WeChatDesktopTool",
+    "WeChatOperation",
+    "WeChatVisibleMessage",
+    "__version__",
+    "build_wechat_tool",
+    "draft_message_command",
+    "focus_contact_command",
+    "observe_current_chat_command",
+    "open_wechat_command",
+    "read_visible_messages_command",
+    "send_message_command",
+    "send_message",
+    "submit_draft_command",
+    "wechat_command",
+    "wechat_message_hash",
+]

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app-control.local/schemas/app_control.service.request.v1.schema.json",
+  "title": "App Control Local Service Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "action"],
+  "properties": {
+    "schema": { "const": "app_control.service.request.v1" },
+    "action": { "type": "string", "enum": ["run", "submit", "poll", "stream"] },
+    "requestId": { "type": "string", "minLength": 1 },
+    "token": { "type": "string", "minLength": 1 },
+    "command": { "$ref": "#/$defs/command" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "action": { "enum": ["run", "submit", "stream"] } },
+        "required": ["action"]
+      },
+      "then": { "required": ["command"] }
+    },
+    {
+      "if": {
+        "properties": { "action": { "const": "poll" } },
+        "required": ["action"]
+      },
+      "then": { "required": ["requestId"] }
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "object",
+      "required": ["commandId", "tool", "operation"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "const": "app_control.command.v1" },
+        "commandId": { "type": "string", "minLength": 1 },
+        "tool": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

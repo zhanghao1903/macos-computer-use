@@ -1,0 +1,150 @@
+# wechat-desktop-tool
+
+Protocol-first WeChat Desktop semantic operations.
+
+This package knows the WeChat Desktop workflow shape, but delegates all desktop
+actions to a compatible app-control client. It does not own macOS permission
+subjects, business authorization, task lifecycle, UI projection, confirmation
+storage, or caller audit systems.
+
+## Quick Start
+
+```python
+from computer_use_macos import ComputerUseClient
+from wechat_desktop_tool import build_wechat_tool, send_message
+
+app_control = ComputerUseClient.from_config("app-control.toml")
+wechat = build_wechat_tool(app_control)
+
+result = wechat.focus_contact("File Transfer")
+print(result.to_dict())
+```
+
+After the caller has completed its own authorization and confirmation policy,
+the convenience flow is also available:
+
+```python
+result = send_message(
+    wechat,
+    contact="File Transfer",
+    message="hello",
+)
+```
+
+The lower-level protocol entry is also available through command builders:
+
+```python
+from wechat_desktop_tool import draft_message_command
+
+result = wechat.run_command(draft_message_command("hello"))
+```
+
+Use `wechat_command(...)` when you need to construct a custom command envelope
+while keeping the stable `wechat.desktop` tool name.
+`run_command(..., observer=...)` and `run_stream(...)` use the shared
+`app_control_protocol.ToolObserver` event surface.
+
+## Operations
+
+- `open_wechat`: open or focus WeChat Desktop, then verify the foreground
+  window with `observe`; a reported non-WeChat foreground identity returns
+  `wechat_not_ready`. Successful observations include `wechatEnvironment`
+  diagnostics with configured and observed app identity plus `appVersion` when
+  the backend reports it.
+- `focus_contact`: open WeChat, verify the foreground window, open search,
+  type a contact, select it, and verify the selected chat window with
+  `observe`; a verified mismatched chat title returns `contact_not_found`,
+  while a verified non-WeChat foreground window returns `wechat_not_ready`.
+- `observe_current_chat`: ask the app-control backend for the current chat
+  state and map visible messages into semantic chat fields after checking any
+  reported foreground app identity.
+- `read_visible_messages`: map visible text or message payloads into typed
+  message observations; `textExtract` is split into line-based messages with
+  best-effort direction and timestamp prefixes.
+- `draft_message`: type bounded message text without submitting.
+- `submit_draft`: press the configured submit key.
+- `send_message`: convenience flow for focus, draft, and submit. Set
+  `verifyAfterSubmit` to read visible messages after submission and return
+  `send_unverified` if the text is not observed in `messages` or `textExtract`.
+
+## CLI Examples
+
+Dry-run the app-control commands without touching the desktop:
+
+```bash
+wechat-desktop-tool examples send-message \
+  --contact "File Transfer" \
+  --message "hello" \
+  --dry-run
+```
+
+Run against a local app-control service. Without `--submit`, the example only
+focuses the contact and drafts the message:
+
+```bash
+wechat-desktop-tool examples send-message \
+  --contact "File Transfer" \
+  --message "hello" \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token
+```
+
+Submitting is explicit:
+
+```bash
+wechat-desktop-tool examples send-message \
+  --contact "File Transfer" \
+  --message "hello" \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --submit
+```
+
+The CLI example does not provide business authorization. The caller must only
+run it for contacts and messages they are allowed to control.
+
+## Manual Smoke
+
+```bash
+WECHAT_TOOL_CONTACT="File Transfer" \
+WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
+WECHAT_TOOL_DRY_RUN=1 \
+python -m wechat_desktop_tool.examples.wechat_smoke
+```
+
+For a real focus/draft smoke, start `computer-use-macos serve` and provide
+`WECHAT_TOOL_SOCKET_PATH`. The smoke submits only when
+`WECHAT_TOOL_ALLOW_SEND=1` is set. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted as
+a compatibility alias.
+
+## Configuration
+
+The package consumes the shared `AppControlConfig` `wechat` section:
+
+```toml
+[wechat]
+app_name = "WeChat"
+bundle_id = "com.tencent.xinWeChat"
+app_control_tool = "macos.computer_use"
+search_hotkey = ["Command", "F"]
+search_clear_hotkey = ["Command", "A"]
+clear_key = "Delete"
+submit_key = "Return"
+max_message_chars = 2000
+default_timeout_ms = 30000
+```
+
+## Failure Kinds
+
+Import `WECHAT_FAILURE_KINDS` when callers need stable routing for
+package-owned semantic failures such as `contact_not_found`, `draft_failed`,
+`input_not_focused`, `submit_failed`, `submit_unknown`, and `send_unverified`.
+
+## Package Boundary
+
+`wechat-desktop-tool` depends on `app-control-protocol` and a client that
+implements `run_command(command) -> ToolObservation`. It must not import
+`macos_computer_use`, Plato, Taskweavn, or any LLM provider SDK.
+
+Developer-facing module entrypoints are available as `commands`,
+`observations`, `errors`, `adapter`, and `recipes`.

@@ -14,13 +14,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install package
-        run: python -m pip install -e .
       - name: Run unit tests
-        run: python -m unittest discover -s tests
-      - name: Build wheel
-        run: python -m pip wheel . -w dist
+        run: |
+          PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+            python -m unittest discover -s tests
+      - name: Run release preflight
+        run: python scripts/release_preflight.py
+      - name: Run protocol package tests
+        run: |
+          PYTHONPATH=packages/app-control-protocol/src \
+            python -m unittest discover -s packages/app-control-protocol/tests
+      - name: Run computer-use-macos package tests
+        run: |
+          PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+            python -m unittest discover -s packages/computer-use-macos/tests
+      - name: Run WeChat package tests
+        run: |
+          PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
+            python -m unittest discover -s packages/wechat-desktop-tool/tests
+      - name: Build protocol wheel
+        run: python -m pip wheel --no-build-isolation --no-deps packages/app-control-protocol -w dist
+      - name: Build computer-use-macos wheel
+        run: python -m pip wheel --no-build-isolation --no-deps packages/computer-use-macos -w dist
+      - name: Build WeChat wheel
+        run: python -m pip wheel --no-build-isolation --no-deps packages/wechat-desktop-tool -w dist
+      - name: Verify wheel contents
+        run: python scripts/release_preflight.py --wheel-dir dist
       - name: Build sdist and wheel
         run: |
           python -m pip install build
-          python -m build --sdist --wheel --outdir dist-check
+          python -m build packages/app-control-protocol --sdist --wheel --outdir dist-check
+          python -m build packages/computer-use-macos --sdist --wheel --outdir dist-check
+          python -m build packages/wechat-desktop-tool --sdist --wheel --outdir dist-check
+      - name: Verify built distribution contents
+        run: python scripts/release_preflight.py --wheel-dir dist-check --sdist-dir dist-check
