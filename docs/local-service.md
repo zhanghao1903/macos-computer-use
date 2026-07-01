@@ -11,17 +11,23 @@ it.
 
 ```bash
 cp examples/app-control.toml app-control.toml
-computer-use-macos serve \
+.venv/bin/computer-use-macos serve \
   --config ./app-control.toml \
   --socket-path /tmp/app-control.sock \
   --token-file ./app-control.token
 ```
 
+Use the entrypoint from the same environment where the editable packages were
+installed. For example, if installation used `uv pip install --python
+.venv/bin/python ...`, start `.venv/bin/computer-use-macos`; a globally
+installed `computer-use-macos` may run a different Python and miss PyObjC
+modules such as `ApplicationServices`.
+
 When `app-control.toml` contains `[helper] endpoint` and optional `token`, the
 same service can be started from the shared config alone:
 
 ```bash
-computer-use-macos serve \
+.venv/bin/computer-use-macos serve \
   --config ./app-control.toml
 ```
 

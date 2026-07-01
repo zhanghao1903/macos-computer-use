@@ -23,10 +23,15 @@ From the repository root:
 
 ```bash
 python -m pip install -e packages/app-control-protocol
-python -m pip install -e packages/computer-use-macos
+python -m pip install -e "packages/computer-use-macos[accessibility]"
 python -m pip install -e packages/wechat-desktop-tool
 cp examples/app-control.toml app-control.toml
 ```
+
+The `accessibility` extra installs PyObjC modules used for full Accessibility
+tree snapshots. Start `computer-use-macos serve` from the same Python
+environment you installed into; otherwise the service may not be able to import
+`ApplicationServices`.
 
 The root compatibility package can also be installed when validating migration
 behavior:

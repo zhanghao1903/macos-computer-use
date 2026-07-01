@@ -1705,6 +1705,7 @@ def _validate_wechat_dry_run(payload: dict[str, Any], root: Path) -> None:
         "open_app",
         "observe",
         "hotkey",
+        "observe",
         "hotkey",
         "press_key",
         "type_text",

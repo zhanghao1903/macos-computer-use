@@ -36,8 +36,12 @@ from wechat_desktop_tool import (
     draft_message_command,
     focus_contact_command,
     inspect_window_command,
+    list_contacts_command,
+    list_conversations_command,
     observe_current_chat_command,
+    open_contact_command,
     open_wechat_command,
+    read_contact_messages_command,
     read_visible_messages_command,
     send_message,
     send_message_command,
@@ -394,6 +398,231 @@ def _wechat_window_tree_fixture() -> dict[str, Any]:
     )
 
 
+def _query_node_from_tree(node: Mapping[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "axPath": node.get("path", "0"),
+        "role": node.get("AXRole", "AXUnknown"),
+        "childrenCount": node.get("children_count", 0),
+    }
+    if "AXDescription" in node:
+        payload["description"] = node["AXDescription"]
+    if "AXTitle" in node:
+        payload["title"] = node["AXTitle"]
+    if "AXValue" in node:
+        payload["value"] = node["AXValue"]
+    if "actions" in node:
+        payload["actions"] = node["actions"]
+    position = node.get("AXPosition")
+    size = node.get("AXSize")
+    if isinstance(position, Mapping) and isinstance(size, Mapping):
+        payload["frame"] = {
+            "x": position.get("x", 0),
+            "y": position.get("y", 0),
+            "width": size.get("width", 0),
+            "height": size.get("height", 0),
+        }
+    return payload
+
+
+def _find_tree_node(root: Mapping[str, Any], ax_path: str) -> Mapping[str, Any]:
+    if root.get("path") == ax_path:
+        return root
+    for child in root.get("children", []):
+        if isinstance(child, Mapping):
+            try:
+                return _find_tree_node(child, ax_path)
+            except KeyError:
+                pass
+    raise KeyError(ax_path)
+
+
+def _tree_children_query_response(
+    root: Mapping[str, Any],
+    ax_path: str,
+    *,
+    include_raw: bool = False,
+) -> dict[str, Any]:
+    target = _find_tree_node(root, ax_path)
+    nodes = [
+        _query_node_from_tree(child)
+        for child in target.get("children", [])
+        if isinstance(child, Mapping)
+    ]
+    return _accessibility_query_response(nodes, include_raw=include_raw)
+
+
+def _accessibility_query_response(
+    nodes: list[dict[str, Any]],
+    *,
+    available: bool = True,
+    truncated: bool = False,
+    include_raw: bool = False,
+    snapshot_id: str = "frontmost:WeChat:微信 (聊天)",
+    window_title: str = "微信 (聊天)",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema": "macos.accessibility.query.v1",
+        "available": available,
+        "snapshotId": snapshot_id,
+        "app": {
+            "name": "WeChat",
+            "bundleId": "com.tencent.xinWeChat",
+            "pid": 123,
+        },
+        "window": {
+            "title": window_title,
+            "role": "AXWindow",
+        },
+        "root": {"kind": "focusedWindow", "axPath": "0"},
+        "nodes": nodes,
+        "diagnostics": {
+            "returnedNodes": len(nodes),
+            "truncated": truncated,
+        },
+    }
+    if include_raw:
+        payload["raw"] = {"nodeCount": len(nodes)}
+    return {"observation": {"accessibilityQuery": payload}}
+
+
+def _normalized_node(
+    ax_path: str,
+    role: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    title: str | None = None,
+    value: object | None = None,
+    actions: list[str] | None = None,
+    x: float = 100,
+    y: float = 100,
+    width: float = 100,
+    height: float = 24,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "axPath": ax_path,
+        "role": role,
+        "frame": {"x": x, "y": y, "width": width, "height": height},
+        "childrenCount": 0,
+    }
+    if label is not None:
+        payload["description"] = label
+    if description is not None:
+        payload["description"] = description
+    if title is not None:
+        payload["title"] = title
+    if value is not None:
+        payload["value"] = value
+    if actions:
+        payload["actions"] = actions
+    return payload
+
+
+def _normalized_row(
+    ax_path: str,
+    label: str,
+    *,
+    y: float = 120,
+) -> dict[str, Any]:
+    return _normalized_node(
+        ax_path,
+        "AXRow",
+        description=label,
+        actions=["AXPress"],
+        x=330,
+        y=y,
+        width=270,
+        height=64,
+    )
+
+
+def _top_level_query_response(
+    *,
+    chats_selected: bool = True,
+    contacts_selected: bool = False,
+) -> dict[str, Any]:
+    return _accessibility_query_response(
+        [
+            _normalized_node(
+                "0/1",
+                "AXRadioButton",
+                description="聊天",
+                value=1 if chats_selected else 0,
+                actions=["AXPress"],
+                x=268,
+                y=159,
+                width=62,
+                height=34,
+            ),
+            _normalized_node(
+                "0/2",
+                "AXRadioButton",
+                description="通讯录",
+                value=1 if contacts_selected else 0,
+                actions=["AXPress"],
+                x=268,
+                y=207,
+                width=62,
+                height=34,
+            ),
+            _normalized_node(
+                "0/3",
+                "AXRadioButton",
+                description="收藏",
+                value=0,
+                actions=["AXPress"],
+                x=268,
+                y=255,
+                width=62,
+                height=34,
+            ),
+            _normalized_node(
+                "0/11",
+                "AXSplitGroup",
+                label="main-content",
+                x=329,
+                y=32,
+                width=1247,
+                height=965,
+            ),
+        ]
+    )
+
+
+def _main_children_query_response() -> dict[str, Any]:
+    return _accessibility_query_response(
+        [
+            _normalized_node(
+                "0/11/0",
+                "AXTextArea",
+                description="搜索",
+                x=345,
+                y=50,
+                width=205,
+                height=26,
+            ),
+            _normalized_node(
+                "0/11/1",
+                "AXScrollArea",
+                actions=["AXScrollDownByPage"],
+                x=329,
+                y=92,
+                width=271,
+                height=905,
+            ),
+            _normalized_node(
+                "0/11/4",
+                "AXSplitGroup",
+                label="chat-panel",
+                x=599,
+                y=32,
+                width=977,
+                height=965,
+            ),
+        ]
+    )
+
+
 class WeChatDesktopToolTests(unittest.TestCase):
     def test_command_builders_create_protocol_envelopes(self) -> None:
         commands = [
@@ -417,6 +646,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 metadata={"caller": "unit-test"},
             ),
             inspect_window_command(command_id="cmd_inspect"),
+            list_contacts_command(limit=10, command_id="cmd_contacts"),
+            list_conversations_command(limit=11, command_id="cmd_conversations"),
+            open_contact_command("Ada", command_id="cmd_open_contact"),
+            read_contact_messages_command(
+                "Ada",
+                limit=12,
+                command_id="cmd_contact_messages",
+            ),
         ]
 
         for command in commands:
@@ -430,6 +667,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(commands[8].operation, "inspect_window")
         self.assertEqual(commands[8].input["includeRaw"], False)
         self.assertEqual(commands[8].input["includeActionables"], True)
+        self.assertEqual(commands[9].operation, "list_contacts")
+        self.assertEqual(commands[9].input["limit"], 10)
+        self.assertEqual(commands[10].operation, "list_conversations")
+        self.assertEqual(commands[10].input["limit"], 11)
+        self.assertEqual(commands[11].operation, "open_contact")
+        self.assertEqual(commands[11].input["contact"], "Ada")
+        self.assertEqual(commands[12].operation, "read_contact_messages")
+        self.assertEqual(commands[12].input["limit"], 12)
 
     def test_command_builder_output_runs_through_tool(self) -> None:
         tool = WeChatDesktopTool(FakeAppControl())
@@ -493,27 +738,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
         _assert_observation_timing(result)
 
     def test_inspect_window_observes_accessibility_without_raw_by_default(self) -> None:
-        tree = _wechat_window_tree_fixture()
         app_control = FakeAppControl(
             [
                 {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                        "windowTitle": "微信 (聊天)",
-                        "snapshotId": "frontmost:WeChat:微信 (聊天)",
-                        "accessibility": {
-                            "available": True,
-                            "treeAvailable": True,
-                            "focusedWindow": tree,
-                            "focusedElement": {
-                                "role": "AXTextArea",
-                                "description": "搜索",
-                            },
-                        },
-                    }
-                },
+                _top_level_query_response(),
+                _main_children_query_response(),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -524,17 +753,17 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.operation, "inspect_window")
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "observe"],
+            ["open_app", "accessibility_query", "accessibility_query"],
         )
-        self.assertEqual(app_control.commands[1].input["includeAccessibility"], True)
-        self.assertEqual(
-            app_control.commands[1].input["includeAccessibilityTree"],
-            True,
-        )
-        self.assertEqual(app_control.commands[1].input["includeVisibleText"], True)
+        self.assertEqual(app_control.commands[1].input["root"]["kind"], "focusedWindow")
+        self.assertEqual(app_control.commands[1].input["query"]["scope"], "children")
+        self.assertIn("AXDescription", app_control.commands[1].input["query"]["attributes"])
+        self.assertEqual(app_control.commands[2].input["root"]["kind"], "axPath")
+        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11")
         self.assertEqual(result.observation["schema"], WECHAT_WINDOW_SCHEMA)
         self.assertEqual(result.observation["includeRaw"], False)
         self.assertNotIn("rawObservation", result.observation)
+        self.assertNotIn("rawQueries", result.observation)
         window = result.observation["window"]
         self.assertEqual(window["appName"], "WeChat")
         self.assertEqual(
@@ -555,48 +784,47 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(window["navigation"][1]["id"], "nav.contacts")
         self.assertEqual(window["navigation"][1]["element"]["axPath"], "0/2")
-        self.assertEqual(window["searchBox"]["placeholder"], "搜索")
-        self.assertEqual(window["searchBox"]["element"]["axPath"], "0/11/0")
-        conversation_rows = window["conversationList"]["rows"]
-        self.assertEqual(len(conversation_rows), 2)
-        self.assertEqual(conversation_rows[1]["displayName"], "目标联系人")
-        self.assertEqual(conversation_rows[1]["muted"], True)
-        self.assertEqual(window["chatPanel"]["title"], "目标联系人")
-        self.assertEqual(window["chatPanel"]["composer"]["draftText"], "草稿")
+        self.assertNotIn("attributeNames", window["element"])
+        self.assertNotIn("attributeNames", window["navigation"][1]["element"])
         self.assertEqual(
-            [item["label"] for item in window["chatPanel"]["toolbarButtons"]],
-            ["表情", "附件"],
+            window["regions"]["searchBox"]["element"]["axPath"],
+            "0/11/0",
+        )
+        self.assertEqual(
+            window["regions"]["mainContent"]["element"]["axPath"],
+            "0/11",
         )
         actionable_ids = {item["id"] for item in window["actionables"]}
         self.assertIn("nav.contacts.press", actionable_ids)
         self.assertIn("search.focus", actionable_ids)
-        self.assertIn("conversation.1.open", actionable_ids)
-        self.assertEqual(result.observation["normalization"]["status"], "normalized")
+        available_actions = {item["id"]: item for item in window["availableActions"]}
         self.assertEqual(
-            result.evidence["observe"]["accessibility"],
-            {"available": True},
+            available_actions["wechat.open_contact"]["status"],
+            "needs_input",
+        )
+        self.assertEqual(
+            available_actions["wechat.list_contacts"]["operation"],
+            "list_contacts",
+        )
+        self.assertEqual(result.observation["normalization"]["status"], "normalized")
+        self.assertGreater(
+            result.observation["normalization"]["availableActionCount"],
+            0,
+        )
+        self.assertEqual(
+            result.evidence["inspect_window"]["observation"]["accessibilityQuery"][
+                "available"
+            ],
+            True,
         )
 
     def test_inspect_window_can_include_raw_observation(self) -> None:
         tree = _wechat_window_tree_fixture()
-        raw_observation = {
-            "frontmostApp": "WeChat",
-            "frontmostBundleId": "com.tencent.xinWeChat",
-            "windowTitle": "微信 (聊天)",
-            "accessibility": {
-                "available": True,
-                "treeAvailable": True,
-                "focusedWindow": tree,
-                "focusedElement": {
-                    "role": "AXTextArea",
-                    "description": "搜索",
-                },
-            },
-        }
         app_control = FakeAppControl(
             [
                 {},
-                {"observation": raw_observation},
+                _tree_children_query_response(tree, "0", include_raw=True),
+                _tree_children_query_response(tree, "0/11", include_raw=True),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -605,8 +833,279 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.observation["includeRaw"], True)
-        self.assertEqual(result.observation["rawObservation"], raw_observation)
-        self.assertEqual(result.evidence["observe"]["observation"], raw_observation)
+        self.assertIn("rawQueries", result.observation)
+        self.assertEqual(
+            result.observation["rawQueries"]["topLevel"]["raw"],
+            {"nodeCount": 4},
+        )
+        self.assertEqual(
+            result.evidence["inspect_window"]["observation"]["accessibilityQuery"][
+                "raw"
+            ],
+            {"nodeCount": 4},
+        )
+
+    def test_inspect_window_reports_action_guidance_when_tree_is_missing(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response([], available=False),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.inspect_window()
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.observation["normalization"]["reason"],
+            "accessibility_query_missing",
+        )
+        window = result.observation["window"]
+        self.assertEqual(window["actionables"], [])
+        available_actions = {item["id"]: item for item in window["availableActions"]}
+        self.assertEqual(
+            available_actions["diagnostic.accessibility_query_missing"]["status"],
+            "blocked",
+        )
+        self.assertIn(
+            "Accessibility",
+            available_actions["diagnostic.accessibility_query_missing"][
+                "recoveryHint"
+            ],
+        )
+        self.assertEqual(
+            available_actions["wechat.inspect_window.refresh"]["operation"],
+            "inspect_window",
+        )
+        self.assertEqual(
+            result.evidence["inspect_window"]["observation"]["accessibilityQuery"][
+                "available"
+            ],
+            False,
+        )
+
+    def test_list_contacts_uses_accessibility_query_stub(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                {},
+                _top_level_query_response(
+                    chats_selected=False,
+                    contacts_selected=True,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_row("0/11/1/0/0", "Ada"),
+                        _normalized_row("0/11/1/0/1", "Bob", y=184),
+                        _normalized_row("0/11/1/0/2", "Charlie", y=248),
+                    ],
+                    truncated=True,
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.list_contacts(limit=2, page_token="contacts:next:snapshot")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "list_contacts")
+        self.assertEqual(result.observation["schema"], "wechat.contacts.v1")
+        self.assertEqual(
+            [item["displayName"] for item in result.observation["items"]],
+            ["Ada", "Bob"],
+        )
+        self.assertEqual(result.observation["items"][0]["kind"], "contact")
+        self.assertEqual(result.observation["items"][0]["actionId"], "contacts.visible.0.open")
+        self.assertEqual(result.observation["pagination"]["limit"], 2)
+        self.assertEqual(result.observation["pagination"]["hasMore"], True)
+        self.assertIsNotNone(result.observation["pagination"]["nextPageToken"])
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "accessibility_query",
+                "click",
+                "accessibility_query",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(app_control.commands[2].input["coordinates"], {"x": 299, "y": 224})
+        self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
+
+    def test_list_conversations_uses_accessibility_query_stub(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/11/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        ),
+                        _normalized_row(
+                            "0/11/1/0/1",
+                            "目标联系人,最近消息,10:00,消息免打扰",
+                            y=184,
+                        ),
+                    ],
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.list_conversations(limit=30)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "list_conversations")
+        self.assertEqual(result.observation["schema"], "wechat.conversations.v1")
+        rows = result.observation["items"]
+        self.assertEqual(rows[0]["displayName"], "文件传输助手")
+        self.assertEqual(rows[0]["preview"], "hello")
+        self.assertEqual(rows[0]["timestamp"], "09:00")
+        self.assertEqual(rows[0]["pinned"], True)
+        self.assertEqual(rows[1]["displayName"], "目标联系人")
+        self.assertEqual(rows[1]["muted"], True)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "accessibility_query", "accessibility_query"],
+        )
+
+    def test_open_contact_uses_search_result_query_stub(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
+                {},
+                {},
+                _accessibility_query_response(
+                    [_normalized_row("0/11/search/0", "Ada Lovelace")]
+                ),
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="Ada Lovelace",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("Ada")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "open_contact")
+        self.assertEqual(result.observation["schema"], "wechat.open_contact.v1")
+        self.assertEqual(result.observation["status"], "opened")
+        self.assertEqual(result.observation["currentChat"]["title"], "Ada Lovelace")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
+                "click",
+                "type_text",
+                "accessibility_query",
+                "click",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(app_control.commands[4].input["text"], "Ada")
+
+    def test_open_contact_reports_disambiguation_from_query_stub(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
+                {},
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_row("0/11/search/0", "Ada"),
+                        _normalized_row("0/11/search/1", "Ada Lovelace", y=184),
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("Ada")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["status"], "needs_disambiguation")
+        self.assertEqual(
+            [item["displayName"] for item in result.observation["candidates"]],
+            ["Ada", "Ada Lovelace"],
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
+                "click",
+                "type_text",
+                "accessibility_query",
+            ],
+        )
+
+    def test_read_contact_messages_composes_query_backed_apis(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
+                {},
+                {},
+                _accessibility_query_response(
+                    [_normalized_row("0/11/search/0", "Ada")]
+                ),
+                {},
+                _accessibility_query_response(
+                    [_normalized_node("0/11/4/2", "AXStaticText", value="Ada")]
+                ),
+                {},
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
+                        _normalized_row("0/11/4/0/0/0", "hello"),
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.read_contact_messages("Ada", limit=5)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "read_contact_messages")
+        self.assertEqual(result.observation["schema"], "wechat.contact_messages.v1")
+        self.assertEqual(result.observation["target"], "Ada")
+        self.assertEqual(result.observation["openContact"]["status"], "opened")
+        self.assertEqual(
+            result.observation["messages"]["messages"][0]["text"],
+            "hello",
+        )
+        self.assertEqual(
+            result.evidence["openContact"]["operation"],
+            "open_contact",
+        )
+        self.assertEqual(
+            result.evidence["readVisibleMessages"]["operation"],
+            "read_visible_messages",
+        )
 
     def test_open_wechat_reports_environment_diagnostics(self) -> None:
         app_control = FakeAppControl(
@@ -1139,23 +1638,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
     def test_send_message_can_verify_visible_message_after_submit(self) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "messages": [{"direction": "outgoing", "text": "hello"}]
-                    }
-                },
+            [{} for _ in range(12)]
+            + [
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
+                        _normalized_row("0/11/4/0/0/0", "hello"),
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1182,26 +1673,25 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "observe",
                 "type_text",
                 "press_key",
-                "observe",
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[-1].input["includeVisibleText"], True)
+        self.assertEqual(app_control.commands[-1].input["query"]["scope"], "descendants")
 
-    def test_send_message_can_verify_visible_text_extract_after_submit(self) -> None:
+    def test_send_message_can_verify_visible_query_text_after_submit(self) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {"observation": {"textExtract": "Ada\nhello\nseen"}},
+            [{} for _ in range(12)]
+            + [
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
+                        _normalized_row("0/11/4/0/0/0", "seen"),
+                        _normalized_row("0/11/4/0/0/1", "hello", y=184),
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1214,7 +1704,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.observation["verified"], True)
-        self.assertEqual(app_control.commands[-1].operation, "observe")
+        self.assertEqual(app_control.commands[-1].operation, "accessibility_query")
 
     def test_send_message_returns_unknown_when_verification_misses(
         self,
@@ -1306,48 +1796,20 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.failure_kind, "wechat_not_ready")
         self.assertIn("TextEdit", result.summary)
 
-    def test_read_visible_messages_maps_observe_payload(self) -> None:
+    def test_read_visible_messages_uses_accessibility_query_stub(self) -> None:
         app_control = FakeAppControl(
             [
-                {
-                    "observation": {
-                        "messages": [
-                            {"direction": "incoming", "text": "hi"},
-                            {"direction": "outgoing", "text": "hello"},
-                            {"text": ""},
-                        ]
-                    }
-                }
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.read_visible_messages(limit=10)
-
-        self.assertTrue(result.success)
-        self.assertEqual(
-            result.observation["messages"],
-            [
-                {"direction": "incoming", "text": "hi"},
-                {"direction": "outgoing", "text": "hello"},
-            ],
-        )
-        self.assertEqual(app_control.commands[0].operation, "observe")
-        self.assertEqual(app_control.commands[0].input["includeVisibleText"], True)
-
-    def test_read_visible_messages_does_not_mark_exact_limit_as_truncated(
-        self,
-    ) -> None:
-        app_control = FakeAppControl(
-            [
-                {
-                    "observation": {
-                        "messages": [
-                            {"direction": "incoming", "text": "hi"},
-                            {"direction": "outgoing", "text": "hello"},
-                        ]
-                    }
-                }
+                {},
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
+                        _normalized_row("0/11/4/0/0/0", "one"),
+                        _normalized_row("0/11/4/0/0/1", "two", y=184),
+                        _normalized_row("0/11/4/0/0/2", "three", y=248),
+                    ],
+                    truncated=True,
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1355,114 +1817,38 @@ class WeChatDesktopToolTests(unittest.TestCase):
         result = tool.read_visible_messages(limit=2)
 
         self.assertTrue(result.success)
-        self.assertEqual(len(result.observation["messages"]), 2)
-        self.assertEqual(result.observation["truncated"], False)
-
-    def test_read_visible_messages_marks_structured_payload_truncated(
-        self,
-    ) -> None:
-        app_control = FakeAppControl(
-            [
-                {
-                    "observation": {
-                        "messages": [
-                            {"direction": "incoming", "text": "one"},
-                            {"direction": "outgoing", "text": "two"},
-                            {"direction": "incoming", "text": "three"},
-                        ]
-                    }
-                }
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.read_visible_messages(limit=2)
-
-        self.assertTrue(result.success)
+        self.assertEqual(result.observation["schema"], "wechat.messages.v1")
+        self.assertEqual(result.observation["chat"]["title"], "Ada")
         self.assertEqual(
-            result.observation["messages"],
-            [
-                {"direction": "incoming", "text": "one"},
-                {"direction": "outgoing", "text": "two"},
-            ],
+            [message["text"] for message in result.observation["messages"]],
+            ["one", "two"],
         )
         self.assertEqual(result.observation["truncated"], True)
-
-    def test_read_visible_messages_maps_text_extract_payload(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {
-                    "observation": {
-                        "textExtract": "Ada\nhello from visible chat",
-                    }
-                }
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.read_visible_messages(limit=10)
-
-        self.assertTrue(result.success)
+        self.assertEqual(result.observation["pagination"]["canReadOlder"], True)
+        self.assertIsNotNone(result.observation["pagination"]["olderPageToken"])
         self.assertEqual(
-            result.observation["messages"],
-            [
-                {
-                    "direction": "unknown",
-                    "text": "Ada",
-                },
-                {
-                    "direction": "unknown",
-                    "text": "hello from visible chat",
-                },
-            ],
+            [command.operation for command in app_control.commands],
+            ["open_app", "accessibility_query", "accessibility_query"],
         )
-
-    def test_read_visible_messages_maps_prefixed_text_extract_lines(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {
-                    "observation": {
-                        "textExtract": (
-                            "[14:32] incoming: hello\n"
-                            "14:33 outgoing: reply\n"
-                            "sent: done"
-                        ),
-                    }
-                }
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.read_visible_messages(limit=2)
-
-        self.assertTrue(result.success)
         self.assertEqual(
-            result.observation["messages"],
-            [
-                {
-                    "direction": "incoming",
-                    "text": "hello",
-                    "visibleTimestamp": "14:32",
-                },
-                {
-                    "direction": "outgoing",
-                    "text": "reply",
-                    "visibleTimestamp": "14:33",
-                },
-            ],
+            app_control.commands[2].input["query"]["match"]["roleIn"],
+            ["AXRow", "AXCell", "AXStaticText"],
         )
-        self.assertEqual(result.observation["truncated"], True)
 
-    def test_read_visible_messages_rejects_mismatched_frontmost_bundle(self) -> None:
+    def test_read_visible_messages_reports_missing_message_region(self) -> None:
         app_control = FakeAppControl(
             [
-                {
-                    "observation": {
-                        "frontmostApp": "TextEdit",
-                        "frontmostBundleId": "com.apple.TextEdit",
-                        "messages": [{"direction": "outgoing", "text": "hello"}],
-                    }
-                }
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/1",
+                            "AXRadioButton",
+                            description="聊天",
+                            value=1,
+                        )
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1470,29 +1856,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         result = tool.read_visible_messages(limit=10)
 
         self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_READY)
-        self.assertEqual(result.failure_kind, "wechat_not_ready")
-        self.assertIn("com.apple.TextEdit", result.summary)
-
-    def test_read_visible_messages_reports_not_logged_in(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                        "loginRequired": True,
-                    }
-                }
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.read_visible_messages(limit=10)
-
-        self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_READY)
-        self.assertEqual(result.failure_kind, "wechat_not_logged_in")
+        self.assertEqual(result.status, ToolStatus.NOT_FOUND)
+        self.assertEqual(result.failure_kind, "message_region_not_found")
 
     def test_run_command_rejects_unsupported_tool(self) -> None:
         tool = WeChatDesktopTool(FakeAppControl())
@@ -2052,23 +2417,11 @@ class WeChatDesktopCliTests(unittest.TestCase):
 
     def test_examples_inspect_window_writes_output_file(self) -> None:
         stdout = StringIO()
-        tree = _wechat_window_tree_fixture()
         app_control = FakeAppControl(
             [
                 {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                        "windowTitle": "微信 (聊天)",
-                        "snapshotId": "frontmost:WeChat:微信 (聊天)",
-                        "accessibility": {
-                            "available": True,
-                            "treeAvailable": True,
-                            "focusedWindow": tree,
-                        },
-                    }
-                },
+                _top_level_query_response(),
+                _main_children_query_response(),
             ]
         )
         original = cli_module._app_control_for_args
@@ -2107,13 +2460,9 @@ class WeChatDesktopCliTests(unittest.TestCase):
         )
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "observe"],
+            ["open_app", "accessibility_query", "accessibility_query"],
         )
-        self.assertEqual(
-            app_control.commands[1].input["includeAccessibilityTree"],
-            True,
-        )
-        self.assertEqual(app_control.commands[1].input["includeVisibleText"], True)
+        self.assertEqual(app_control.commands[1].input["query"]["scope"], "children")
 
 
 class WeChatDesktopSmokeScriptTests(unittest.TestCase):
@@ -2488,6 +2837,40 @@ class WeChatDesktopCliServiceClientTests(unittest.TestCase):
         self.assertEqual(str(client._socket_path), "/tmp/cli.sock")
         self.assertEqual(client._token, "cli-token")
         self.assertEqual(client._timeout, 2.5)
+
+    def test_local_service_socket_timeout_covers_command_timeout(self) -> None:
+        command = ToolCommand(
+            command_id="cmd_cli",
+            tool="macos.computer_use",
+            operation="observe",
+            timeout_ms=30_000,
+        )
+        payload = {
+            "schema": "app_control.service.request.v1",
+            "action": "run",
+            "command": command.to_dict(),
+        }
+
+        timeout = cli_module._socket_timeout_for_payload(payload, default=10.0)
+
+        self.assertEqual(timeout, 35.0)
+
+    def test_local_service_socket_timeout_does_not_shrink_config_timeout(self) -> None:
+        command = ToolCommand(
+            command_id="cmd_cli",
+            tool="macos.computer_use",
+            operation="observe",
+            timeout_ms=1_000,
+        )
+        payload = {
+            "schema": "app_control.service.request.v1",
+            "action": "run",
+            "command": command.to_dict(),
+        }
+
+        timeout = cli_module._socket_timeout_for_payload(payload, default=10.0)
+
+        self.assertEqual(timeout, 10.0)
 
     def test_local_service_client_validates_response_and_observation(self) -> None:
         client = LocalServiceAppControl("/tmp/app-control.sock")

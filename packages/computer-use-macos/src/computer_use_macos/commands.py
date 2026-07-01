@@ -87,6 +87,45 @@ def observe_command(
     )
 
 
+def accessibility_query_command(
+    *,
+    target_app: str | None = None,
+    bundle_id: str | None = None,
+    root: Mapping[str, JsonValue] | None = None,
+    query: Mapping[str, JsonValue] | None = None,
+    include_raw: bool | None = None,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    payload: dict[str, JsonValue] = {}
+    if target_app is not None:
+        payload["targetApp"] = target_app
+    if bundle_id is not None:
+        payload["bundleId"] = bundle_id
+    if root is not None:
+        root_value = to_json_value(root)
+        if not isinstance(root_value, dict):
+            raise TypeError("root must be a JSON object")
+        payload["root"] = root_value
+    if query is not None:
+        query_value = to_json_value(query)
+        if not isinstance(query_value, dict):
+            raise TypeError("query must be a JSON object")
+        payload["query"] = query_value
+    if include_raw is not None:
+        payload["includeRaw"] = include_raw
+    return computer_use_command(
+        ComputerUseOperation.ACCESSIBILITY_QUERY,
+        payload,
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
 def open_app_command(
     app: str,
     *,

@@ -435,6 +435,25 @@ class MacOSComputerUseClient:
                     ),
                     timeout=timeout or self._default_timeout,
                 )
+            elif operation == "accessibility_query":
+                result = self.accessibility_query(
+                    target_app=_optional_string(
+                        payload,
+                        "targetApp",
+                        "target_app",
+                        "app",
+                    ),
+                    bundle_id=bundle_id,
+                    root=_mapping_from_payload(payload, "root"),
+                    query=_mapping_from_payload(payload, "query"),
+                    include_raw=_optional_bool(
+                        payload,
+                        "includeRaw",
+                        "include_raw",
+                        default=False,
+                    ),
+                    timeout=timeout or self._default_timeout,
+                )
             elif operation == "type_text":
                 text = _required_string(payload, "text")
                 result = self.type_text(
@@ -728,7 +747,10 @@ class MacOSComputerUseClient:
                 else {"available": True}
             )
             if include_accessibility_tree:
-                tree_snapshot = self._accessibility_tree_snapshot(timeout=timeout)
+                tree_snapshot = self._accessibility_tree_snapshot(
+                    timeout=timeout,
+                    bundle_id=bundle_id or frontmost_bundle_id or None,
+                )
                 if tree_snapshot.get("available") is False:
                     accessibility["treeAvailable"] = False
                     for key in ("failureKind", "message", "timeoutSeconds"):
@@ -797,12 +819,23 @@ class MacOSComputerUseClient:
             }
         return _accessibility_snapshot_from_stdout(result.stdout)
 
-    def _accessibility_tree_snapshot(self, *, timeout: float) -> dict[str, Any]:
-        snapshot_timeout = min(timeout, 8.0)
-        result = self._runner.run(
-            [sys.executable, "-c", _accessibility_tree_snapshot_script()],
-            timeout=snapshot_timeout,
-        )
+    def _accessibility_tree_snapshot(
+        self,
+        *,
+        timeout: float,
+        bundle_id: str | None = None,
+    ) -> dict[str, Any]:
+        snapshot_timeout = min(timeout, 15.0)
+        script_budget = max(0.5, snapshot_timeout - 1.0)
+        args = [
+            sys.executable,
+            "-c",
+            _accessibility_tree_snapshot_script(),
+            f"{script_budget:.3f}",
+        ]
+        if bundle_id:
+            args.append(bundle_id)
+        result = self._runner.run(args, timeout=snapshot_timeout)
         if getattr(result, "timed_out", False):
             return {
                 "available": False,
@@ -831,6 +864,110 @@ class MacOSComputerUseClient:
                 "message": "Accessibility tree snapshot did not return an object.",
             }
         return payload
+
+    def accessibility_query(
+        self,
+        *,
+        target_app: str | None = None,
+        bundle_id: str | None = None,
+        root: Mapping[str, Any] | None = None,
+        query: Mapping[str, Any] | None = None,
+        include_raw: bool = False,
+        timeout: float = 5.0,
+    ) -> ComputerUseResult:
+        readiness = self.readiness()
+        if readiness.status != ComputerUseReadinessStatus.READY:
+            return ComputerUseResult.not_available(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                "macOS Accessibility query is unavailable until readiness is ready.",
+                metadata={"readiness": readiness.to_dict()},
+            )
+
+        request = _normalize_accessibility_query_request(
+            target_app=target_app,
+            bundle_id=bundle_id,
+            root=root,
+            query=query,
+            include_raw=include_raw,
+        )
+        snapshot_timeout = min(timeout, 5.0)
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-c",
+                _accessibility_query_script(),
+                json.dumps(request, ensure_ascii=False),
+            ],
+            timeout=snapshot_timeout,
+        )
+        if getattr(result, "timed_out", False):
+            return _timed_out_result(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                "Timed out running Accessibility query.",
+                result,
+                snapshot_timeout,
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_query_timeout",
+                },
+            )
+        if result.returncode != 0:
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                "Failed to run Accessibility query.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_query_failed",
+                    "stderr": _bounded(result.stderr or result.stdout, 1000),
+                },
+            )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                "Accessibility query returned invalid JSON.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_query_invalid_json",
+                    "stdout": _bounded(result.stdout, 1000),
+                },
+            )
+        if not isinstance(payload, dict):
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                "Accessibility query did not return an object.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_query_invalid_payload",
+                },
+            )
+        if payload.get("available") is False:
+            failure_kind = payload.get("failureKind")
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_QUERY,
+                str(payload.get("message") or "Accessibility query failed."),
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": (
+                        failure_kind
+                        if isinstance(failure_kind, str) and failure_kind
+                        else "accessibility_query_unavailable"
+                    ),
+                    "accessibility_query": payload,
+                },
+            )
+
+        snapshot_id = payload.get("snapshotId")
+        return ComputerUseResult.ok(
+            ComputerUseOperation.ACCESSIBILITY_QUERY,
+            "Ran Accessibility query.",
+            snapshot_id=snapshot_id if isinstance(snapshot_id, str) else None,
+            metadata={
+                **_target_identity_metadata(target_app, bundle_id),
+                "accessibility_query": payload,
+            },
+        )
 
     def type_text(
         self,
@@ -1760,6 +1897,151 @@ def _bundle_id_from_payload(payload: Mapping[str, Any]) -> str | None:
     return _optional_string(payload, "bundleId", "bundle_id")
 
 
+def _mapping_from_payload(payload: Mapping[str, Any], key: str) -> dict[str, Any] | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{key} must be an object")
+    return dict(value)
+
+
+_ACCESSIBILITY_QUERY_SAFE_ATTRIBUTES = {
+    "AXRole",
+    "AXSubrole",
+    "AXRoleDescription",
+    "AXTitle",
+    "AXValue",
+    "AXDescription",
+    "AXHelp",
+    "AXEnabled",
+    "AXFocused",
+    "AXSelected",
+    "AXPosition",
+    "AXSize",
+    "AXFrame",
+    "AXIdentifier",
+    "AXPlaceholderValue",
+}
+
+
+def _normalize_accessibility_query_request(
+    *,
+    target_app: str | None,
+    bundle_id: str | None,
+    root: Mapping[str, Any] | None,
+    query: Mapping[str, Any] | None,
+    include_raw: bool,
+) -> dict[str, Any]:
+    root_payload = dict(root or {"kind": "focusedWindow"})
+    root_kind = root_payload.get("kind", "focusedWindow")
+    if root_kind not in {"focusedWindow", "axPath"}:
+        raise ValueError("root.kind must be focusedWindow or axPath")
+    if root_kind == "axPath":
+        ax_path = root_payload.get("axPath") or root_payload.get("path")
+        if not isinstance(ax_path, str) or not ax_path.strip():
+            raise ValueError("root.axPath is required when root.kind is axPath")
+        root_payload["axPath"] = ax_path.strip()
+
+    query_payload = dict(query or {})
+    scope = query_payload.get("scope", "children")
+    if scope not in {"self", "children", "descendants"}:
+        raise ValueError("query.scope must be self, children, or descendants")
+    query_payload["scope"] = scope
+    query_payload["maxDepth"] = _bounded_int(
+        query_payload.get("maxDepth"),
+        default=1 if scope != "descendants" else 3,
+        minimum=0,
+        maximum=8,
+        name="query.maxDepth",
+    )
+    query_payload["limit"] = _bounded_int(
+        query_payload.get("limit"),
+        default=50,
+        minimum=1,
+        maximum=500,
+        name="query.limit",
+    )
+    query_payload["timeBudgetMs"] = _bounded_int(
+        query_payload.get("timeBudgetMs"),
+        default=500,
+        minimum=50,
+        maximum=5_000,
+        name="query.timeBudgetMs",
+    )
+
+    raw_attributes = query_payload.get("attributes")
+    if raw_attributes is None:
+        attributes = [
+            "AXRole",
+            "AXSubrole",
+            "AXTitle",
+            "AXValue",
+            "AXDescription",
+            "AXEnabled",
+            "AXFocused",
+            "AXSelected",
+            "AXPosition",
+            "AXSize",
+            "AXFrame",
+        ]
+    else:
+        if not isinstance(raw_attributes, list | tuple):
+            raise TypeError("query.attributes must be a list of strings")
+        attributes = []
+        for item in raw_attributes:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("query.attributes items must be non-empty strings")
+            attr = item.strip()
+            if attr not in _ACCESSIBILITY_QUERY_SAFE_ATTRIBUTES:
+                raise ValueError(f"unsupported accessibility attribute: {attr}")
+            attributes.append(attr)
+    query_payload["attributes"] = attributes
+
+    actions = query_payload.get("actions", False)
+    if not isinstance(actions, bool):
+        raise TypeError("query.actions must be a boolean")
+    query_payload["actions"] = actions
+
+    include_children_count = query_payload.get("includeChildrenCount", True)
+    if not isinstance(include_children_count, bool):
+        raise TypeError("query.includeChildrenCount must be a boolean")
+    query_payload["includeChildrenCount"] = include_children_count
+
+    match = query_payload.get("match")
+    if match is None:
+        query_payload["match"] = {}
+    elif not isinstance(match, Mapping):
+        raise TypeError("query.match must be an object")
+    else:
+        query_payload["match"] = dict(match)
+
+    return {
+        "targetApp": target_app,
+        "bundleId": bundle_id,
+        "root": root_payload,
+        "query": query_payload,
+        "includeRaw": include_raw,
+    }
+
+
+def _bounded_int(
+    value: Any,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+    name: str,
+) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer")
+    if value < minimum or value > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
 def _first(payload: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         if key in payload:
@@ -1976,20 +2258,426 @@ def _accessibility_snapshot_script() -> str:
     )
 
 
+def _accessibility_query_script() -> str:
+    return r'''
+from __future__ import annotations
+
+import json
+import re
+import sys
+import time
+from typing import Any
+
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+CHILDREN_ATTRIBUTE = "AXChildren"
+AX_VALUE_NUMBER_RE = re.compile(r"([xywh]):(-?\d+(?:\.\d+)?)")
+STARTED_AT = time.monotonic()
+
+
+def fail(failure_kind: str, message: str) -> None:
+    print(
+        json.dumps(
+            {
+                "available": False,
+                "failureKind": failure_kind,
+                "message": message,
+            },
+            ensure_ascii=False,
+        )
+    )
+    sys.exit(0)
+
+
+try:
+    REQUEST = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+except Exception as exc:
+    fail("accessibility_query_invalid_request", str(exc))
+
+try:
+    import objc
+    from ApplicationServices import (
+        AXIsProcessTrusted,
+        AXUIElementCopyActionNames,
+        AXUIElementCopyAttributeNames,
+        AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        kAXFocusedWindowAttribute,
+    )
+except Exception as exc:
+    fail("accessibility_query_pyobjc_unavailable", str(exc))
+
+
+def ax_get(element: Any, attr: str) -> Any:
+    try:
+        err, value = AXUIElementCopyAttributeValue(element, attr, None)
+        if err != 0:
+            return None
+        return value
+    except Exception:
+        return None
+
+
+def ax_attribute_names(element: Any) -> list[str]:
+    try:
+        err, names = AXUIElementCopyAttributeNames(element, None)
+        if err != 0 or names is None:
+            return []
+        return [str(name) for name in names]
+    except Exception:
+        return []
+
+
+def ax_actions(element: Any) -> list[str]:
+    try:
+        err, actions = AXUIElementCopyActionNames(element, None)
+        if err != 0 or actions is None:
+            return []
+        return [str(action) for action in actions]
+    except Exception:
+        return []
+
+
+def selected_running_app() -> Any:
+    bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    if bundle_id:
+        running_application = objc.lookUpClass("NSRunningApplication")
+        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
+        for candidate in apps or []:
+            try:
+                if not bool(candidate.isTerminated()):
+                    return candidate
+            except Exception:
+                return candidate
+        fail(
+            "accessibility_query_target_app_not_running",
+            f"No running app found for bundle id: {bundle_id}",
+        )
+    return workspace.frontmostApplication()
+
+
+def safe_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    text = str(value)
+    if len(text) > 500:
+        return text[:500] + "...<truncated>"
+    return text
+
+
+def numbers_from_ax_value(value: Any) -> dict[str, float]:
+    if isinstance(value, str):
+        return {key: float(raw) for key, raw in AX_VALUE_NUMBER_RE.findall(value)}
+    text = str(value)
+    return {key: float(raw) for key, raw in AX_VALUE_NUMBER_RE.findall(text)}
+
+
+def frame_from_attrs(attrs: dict[str, Any]) -> dict[str, float] | None:
+    frame_numbers = numbers_from_ax_value(attrs.get("AXFrame"))
+    if {"x", "y", "w", "h"} <= frame_numbers.keys():
+        return {
+            "x": frame_numbers["x"],
+            "y": frame_numbers["y"],
+            "width": frame_numbers["w"],
+            "height": frame_numbers["h"],
+        }
+    position_numbers = numbers_from_ax_value(attrs.get("AXPosition"))
+    size_numbers = numbers_from_ax_value(attrs.get("AXSize"))
+    if {"x", "y"} <= position_numbers.keys() and {"w", "h"} <= size_numbers.keys():
+        return {
+            "x": position_numbers["x"],
+            "y": position_numbers["y"],
+            "width": size_numbers["w"],
+            "height": size_numbers["h"],
+        }
+    return None
+
+
+def children_of(element: Any) -> list[Any]:
+    children = ax_get(element, CHILDREN_ATTRIBUTE)
+    if not children:
+        return []
+    try:
+        return list(children)
+    except Exception:
+        return []
+
+
+def time_budget_exceeded() -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    budget_ms = int(query.get("timeBudgetMs") or 500)
+    return (time.monotonic() - STARTED_AT) * 1000 >= budget_ms
+
+
+def resolve_root(window: Any) -> tuple[Any | None, str]:
+    root = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
+    kind = root.get("kind", "focusedWindow")
+    if kind == "focusedWindow":
+        return window, "0"
+    if kind != "axPath":
+        return None, "0"
+    raw_path = str(root.get("axPath") or root.get("path") or "").strip()
+    if raw_path in {"", "0"}:
+        return window, "0"
+    parts = raw_path.split("/")
+    if not parts or parts[0] != "0":
+        return None, raw_path
+    current = window
+    current_path = "0"
+    for raw_index in parts[1:]:
+        try:
+            index = int(raw_index)
+        except ValueError:
+            return None, raw_path
+        children = children_of(current)
+        if index < 0 or index >= len(children):
+            return None, raw_path
+        current = children[index]
+        current_path = f"{current_path}/{index}"
+    return current, current_path
+
+
+def read_node(element: Any, path: str) -> dict[str, Any]:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    requested_attrs = query.get("attributes") or []
+    available_attrs = set(ax_attribute_names(element))
+    raw_attrs: dict[str, Any] = {}
+    for attr in requested_attrs:
+        if attr not in available_attrs:
+            continue
+        value = safe_scalar(ax_get(element, attr))
+        if value is not None:
+            raw_attrs[attr] = value
+    node: dict[str, Any] = {"axPath": path}
+    mapping = {
+        "AXRole": "role",
+        "AXSubrole": "subrole",
+        "AXRoleDescription": "roleDescription",
+        "AXTitle": "title",
+        "AXValue": "value",
+        "AXDescription": "description",
+        "AXHelp": "help",
+        "AXEnabled": "enabled",
+        "AXFocused": "focused",
+        "AXSelected": "selected",
+        "AXIdentifier": "identifier",
+        "AXPlaceholderValue": "placeholder",
+    }
+    for attr, output_key in mapping.items():
+        if attr in raw_attrs:
+            node[output_key] = raw_attrs[attr]
+    frame = frame_from_attrs(raw_attrs)
+    if frame is not None:
+        node["frame"] = frame
+    if bool(query.get("actions", False)):
+        actions = ax_actions(element)
+        if actions:
+            node["actions"] = actions
+    if bool(query.get("includeChildrenCount", True)):
+        if CHILDREN_ATTRIBUTE in available_attrs:
+            node["childrenCount"] = len(children_of(element))
+        else:
+            node["childrenCount"] = 0
+    if bool(REQUEST.get("includeRaw", False)):
+        node["raw"] = raw_attrs
+    return node
+
+
+def text_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).casefold()
+
+
+def string_set(value: Any) -> set[str]:
+    if isinstance(value, list | tuple):
+        return {str(item).casefold() for item in value}
+    if value is None:
+        return set()
+    return {str(value).casefold()}
+
+
+def node_matches(node: dict[str, Any]) -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    match = query.get("match") if isinstance(query.get("match"), dict) else {}
+    if not match:
+        return True
+    role = text_value(node.get("role"))
+    if "role" in match and role != text_value(match.get("role")):
+        return False
+    if "roleIn" in match and role not in string_set(match.get("roleIn")):
+        return False
+    description = text_value(node.get("description"))
+    if "description" in match and description != text_value(match.get("description")):
+        return False
+    if "descriptionIn" in match and description not in string_set(match.get("descriptionIn")):
+        return False
+    if "descriptionContains" in match and text_value(match.get("descriptionContains")) not in description:
+        return False
+    title = text_value(node.get("title"))
+    if "titleContains" in match and text_value(match.get("titleContains")) not in title:
+        return False
+    if "valueEquals" in match and node.get("value") != match.get("valueEquals"):
+        return False
+    if "enabled" in match and node.get("enabled") is not bool(match.get("enabled")):
+        return False
+    if "focused" in match and node.get("focused") is not bool(match.get("focused")):
+        return False
+    return True
+
+
+def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    scope = str(query.get("scope") or "children")
+    max_depth = int(query.get("maxDepth") or 1)
+    limit = int(query.get("limit") or 50)
+    nodes: list[dict[str, Any]] = []
+    diagnostics = {
+        "durationMs": 0,
+        "truncated": False,
+        "nodeCount": 0,
+    }
+
+    def visit(element: Any, path: str, depth: int, include_self: bool) -> None:
+        if len(nodes) >= limit:
+            diagnostics["truncated"] = True
+            diagnostics["truncationReason"] = "limit"
+            return
+        if time_budget_exceeded():
+            diagnostics["truncated"] = True
+            diagnostics["truncationReason"] = "time_budget"
+            return
+        diagnostics["nodeCount"] += 1
+        if include_self:
+            node = read_node(element, path)
+            if node_matches(node):
+                nodes.append(node)
+                if len(nodes) >= limit:
+                    diagnostics["truncated"] = True
+                    diagnostics["truncationReason"] = "limit"
+                    return
+        if scope == "self" or depth >= max_depth:
+            return
+        for index, child in enumerate(children_of(element)):
+            visit(child, f"{path}/{index}", depth + 1, True)
+            if diagnostics["truncated"]:
+                return
+
+    if scope == "self":
+        visit(root_element, root_path, 0, True)
+    elif scope == "children":
+        for index, child in enumerate(children_of(root_element)):
+            visit(child, f"{root_path}/{index}", 1, True)
+            if diagnostics["truncated"]:
+                break
+    else:
+        for index, child in enumerate(children_of(root_element)):
+            visit(child, f"{root_path}/{index}", 1, True)
+            if diagnostics["truncated"]:
+                break
+    diagnostics["durationMs"] = int(round((time.monotonic() - STARTED_AT) * 1000))
+    return nodes, diagnostics
+
+
+if not AXIsProcessTrusted():
+    fail(
+        "missing_accessibility",
+        "Accessibility permission is not available for the Python process.",
+    )
+
+try:
+    objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+    app = selected_running_app()
+except Exception as exc:
+    fail("accessibility_query_frontmost_app_failed", str(exc))
+
+if app is None:
+    fail("accessibility_query_no_frontmost_app", "No frontmost app is available.")
+
+pid = int(app.processIdentifier())
+app_ax = AXUIElementCreateApplication(pid)
+window = ax_get(app_ax, kAXFocusedWindowAttribute)
+if window is None:
+    fail("accessibility_query_no_focused_window", "No focused window is available.")
+
+root_element, root_path = resolve_root(window)
+if root_element is None:
+    fail("accessibility_query_root_not_found", "Could not resolve query root.")
+
+window_title = safe_scalar(ax_get(window, "AXTitle"))
+nodes, diagnostics = collect(root_element, root_path)
+app_name = str(app.localizedName() or "")
+bundle_id = str(app.bundleIdentifier() or "")
+snapshot_id = f"frontmost:{app_name}:{window_title or ''}"
+payload = {
+    "schema": "macos.accessibility.query.v1",
+    "available": True,
+    "snapshotId": snapshot_id,
+    "app": {
+        "name": app_name,
+        "bundleId": bundle_id,
+        "pid": pid,
+    },
+    "window": {
+        "title": str(window_title or ""),
+        "role": str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow"),
+    },
+    "root": {
+        "axPath": root_path,
+    },
+    "nodes": nodes,
+    "diagnostics": diagnostics,
+}
+print(json.dumps(payload, ensure_ascii=False))
+'''
+
+
 def _accessibility_tree_snapshot_script() -> str:
     return r'''
 from __future__ import annotations
 
 import json
 import sys
+import time
 from typing import Any
 
 
 APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
 CHILDREN_ATTRIBUTE = "AXChildren"
+SAFE_ATTRIBUTES = (
+    "AXRole",
+    "AXSubrole",
+    "AXRoleDescription",
+    "AXTitle",
+    "AXValue",
+    "AXDescription",
+    "AXHelp",
+    "AXEnabled",
+    "AXFocused",
+    "AXSelected",
+    "AXPosition",
+    "AXSize",
+    "AXFrame",
+    "AXIdentifier",
+    "AXPlaceholderValue",
+)
 MAX_DEPTH = 6
 MAX_CHILDREN_PER_NODE = 1200
 MAX_TEXT_CHARS = 500
+TIME_BUDGET_SECONDS = 12.0
+if len(sys.argv) > 1:
+    try:
+        TIME_BUDGET_SECONDS = max(0.5, float(sys.argv[1]))
+    except ValueError:
+        pass
+TARGET_BUNDLE_ID = sys.argv[2].strip() if len(sys.argv) > 2 else ""
+STARTED_AT = time.monotonic()
+STATE = {
+    "node_count": 0,
+    "truncated": False,
+    "truncation_reason": None,
+}
 
 
 def fail(failure_kind: str, message: str) -> None:
@@ -2050,6 +2738,35 @@ def ax_actions(element: Any) -> list[str]:
         return []
 
 
+def time_budget_exceeded() -> bool:
+    return time.monotonic() - STARTED_AT >= TIME_BUDGET_SECONDS
+
+
+def mark_truncated(reason: str) -> None:
+    STATE["truncated"] = True
+    STATE["truncation_reason"] = reason
+
+
+def selected_running_app() -> Any:
+    workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    if TARGET_BUNDLE_ID:
+        running_application = objc.lookUpClass("NSRunningApplication")
+        apps = running_application.runningApplicationsWithBundleIdentifier_(
+            TARGET_BUNDLE_ID
+        )
+        for candidate in apps or []:
+            try:
+                if not bool(candidate.isTerminated()):
+                    return candidate
+            except Exception:
+                return candidate
+        fail(
+            "accessibility_tree_target_app_not_running",
+            f"No running app found for bundle id: {TARGET_BUNDLE_ID}",
+        )
+    return workspace.frontmostApplication()
+
+
 def safe_scalar(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -2064,30 +2781,56 @@ def dump_element(element: Any, *, depth: int = 0, path: str = "0") -> dict[str, 
         "path": path,
         "depth": depth,
     }
+    if time_budget_exceeded():
+        mark_truncated("time_budget_exceeded")
+        node["truncated"] = True
+        node["truncationReason"] = "time_budget_exceeded"
+        return node
+    STATE["node_count"] = int(STATE["node_count"]) + 1
     attribute_names = ax_attribute_names(element)
     node["attribute_names"] = attribute_names
-    for attr in attribute_names:
-        if attr == CHILDREN_ATTRIBUTE:
+    attribute_name_set = set(attribute_names)
+    for attr in SAFE_ATTRIBUTES:
+        if attr not in attribute_name_set:
             continue
+        if time_budget_exceeded():
+            mark_truncated("time_budget_exceeded")
+            node["attributes_truncated"] = True
+            break
         value = safe_scalar(ax_get(element, attr))
         if value is not None:
             node[attr] = value
-    actions = ax_actions(element)
-    if actions:
-        node["actions"] = actions
-    if depth >= MAX_DEPTH:
+    if not time_budget_exceeded():
+        actions = ax_actions(element)
+        if actions:
+            node["actions"] = actions
+    if depth >= MAX_DEPTH or time_budget_exceeded():
+        if time_budget_exceeded():
+            mark_truncated("time_budget_exceeded")
+            node["children_truncated"] = True
+            node["truncationReason"] = "time_budget_exceeded"
         return node
     children = (
         ax_get(element, CHILDREN_ATTRIBUTE)
-        if CHILDREN_ATTRIBUTE in attribute_names
+        if CHILDREN_ATTRIBUTE in attribute_name_set
         else None
     )
     if children:
-        node["children_count"] = len(children)
+        try:
+            node["children_count"] = len(children)
+        except Exception:
+            node["children_count"] = 0
         node["children"] = []
         for index, child in enumerate(children):
             if index >= MAX_CHILDREN_PER_NODE:
                 node["children_truncated"] = True
+                node["truncationReason"] = "max_children_per_node"
+                mark_truncated("max_children_per_node")
+                break
+            if time_budget_exceeded():
+                node["children_truncated"] = True
+                node["truncationReason"] = "time_budget_exceeded"
+                mark_truncated("time_budget_exceeded")
                 break
             node["children"].append(
                 dump_element(child, depth=depth + 1, path=f"{path}/{index}")
@@ -2105,8 +2848,7 @@ if not AXIsProcessTrusted():
 
 try:
     objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
-    workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
-    app = workspace.frontmostApplication()
+    app = selected_running_app()
 except Exception as exc:
     fail("accessibility_tree_frontmost_app_failed", str(exc))
 
@@ -2128,6 +2870,11 @@ payload = {
     },
     "focusedWindow": dump_element(window),
 }
+if STATE["truncated"]:
+    payload["truncated"] = True
+    if STATE["truncation_reason"]:
+        payload["truncationReason"] = STATE["truncation_reason"]
+payload["nodeCount"] = STATE["node_count"]
 print(json.dumps(payload, ensure_ascii=False))
 '''
 
@@ -2497,6 +3244,7 @@ _PUBLIC_METADATA_FIELDS = {
     "frontmost_bundle_id": "frontmostBundleId",
     "window_title": "windowTitle",
     "accessibility": "accessibility",
+    "accessibility_query": "accessibilityQuery",
 }
 
 

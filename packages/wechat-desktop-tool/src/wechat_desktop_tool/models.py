@@ -14,9 +14,13 @@ if TYPE_CHECKING:
 WeChatOperation = Literal[
     "open_wechat",
     "inspect_window",
+    "list_contacts",
+    "list_conversations",
+    "open_contact",
     "focus_contact",
     "observe_current_chat",
     "read_visible_messages",
+    "read_contact_messages",
     "draft_message",
     "submit_draft",
     "send_message",
@@ -34,6 +38,18 @@ WeChatActionableKind = Literal[
     "scroll_region",
     "window_button",
     "unknown",
+]
+
+WeChatAvailableActionKind = Literal[
+    "wechat_operation",
+    "ui_element",
+    "diagnostic",
+]
+
+WeChatAvailableActionStatus = Literal[
+    "available",
+    "needs_input",
+    "blocked",
 ]
 
 WeChatScrollRegionKind = Literal[
@@ -214,8 +230,6 @@ class WeChatElementRef:
             payload["enabled"] = self.enabled
         if self.focused is not None:
             payload["focused"] = self.focused
-        if self.attribute_names:
-            payload["attributeNames"] = list(self.attribute_names)
         return payload
 
 
@@ -245,6 +259,84 @@ class WeChatActionableRegion:
             payload["label"] = self.label
         if self.reason is not None:
             payload["reason"] = self.reason
+        return payload
+
+
+@dataclass(frozen=True)
+class WeChatAvailableAction:
+    id: str
+    kind: WeChatAvailableActionKind
+    status: WeChatAvailableActionStatus
+    label: str
+    tool: str | None = None
+    operation: str | None = None
+    description: str | None = None
+    input_schema: Mapping[str, Any] | None = None
+    input_template: Mapping[str, Any] | None = None
+    actionable_id: str | None = None
+    target_element: WeChatElementRef | None = None
+    risk: str | None = None
+    reason: str | None = None
+    recovery_hint: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _non_empty(self.id, "id"))
+        object.__setattr__(self, "label", _non_empty(self.label, "label"))
+        object.__setattr__(self, "tool", _optional_non_empty(self.tool, "tool"))
+        object.__setattr__(
+            self,
+            "operation",
+            _optional_non_empty(self.operation, "operation"),
+        )
+        object.__setattr__(
+            self,
+            "description",
+            _optional_non_empty(self.description, "description"),
+        )
+        object.__setattr__(
+            self,
+            "actionable_id",
+            _optional_non_empty(self.actionable_id, "actionable_id"),
+        )
+        object.__setattr__(self, "risk", _optional_non_empty(self.risk, "risk"))
+        object.__setattr__(self, "reason", _optional_non_empty(self.reason, "reason"))
+        object.__setattr__(
+            self,
+            "recovery_hint",
+            _optional_non_empty(self.recovery_hint, "recovery_hint"),
+        )
+        if self.input_schema is not None:
+            object.__setattr__(self, "input_schema", dict(self.input_schema))
+        if self.input_template is not None:
+            object.__setattr__(self, "input_template", dict(self.input_template))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "id": self.id,
+            "kind": self.kind,
+            "status": self.status,
+            "label": self.label,
+        }
+        if self.tool is not None:
+            payload["tool"] = self.tool
+        if self.operation is not None:
+            payload["operation"] = self.operation
+        if self.description is not None:
+            payload["description"] = self.description
+        if self.input_schema is not None:
+            payload["inputSchema"] = dict(self.input_schema)
+        if self.input_template is not None:
+            payload["inputTemplate"] = dict(self.input_template)
+        if self.actionable_id is not None:
+            payload["actionableId"] = self.actionable_id
+        if self.target_element is not None:
+            payload["targetElement"] = self.target_element.to_dict()
+        if self.risk is not None:
+            payload["risk"] = self.risk
+        if self.reason is not None:
+            payload["reason"] = self.reason
+        if self.recovery_hint is not None:
+            payload["recoveryHint"] = self.recovery_hint
         return payload
 
 
@@ -558,6 +650,7 @@ class WeChatWindow:
     conversation_list: WeChatConversationList | None = None
     chat_panel: WeChatChatPanel | None = None
     actionables: tuple[WeChatActionableRegion, ...] = ()
+    available_actions: tuple[WeChatAvailableAction, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "app_name", _non_empty(self.app_name, "app_name"))
@@ -582,6 +675,11 @@ class WeChatWindow:
         )
         object.__setattr__(self, "navigation", tuple(self.navigation))
         object.__setattr__(self, "actionables", tuple(self.actionables))
+        object.__setattr__(
+            self,
+            "available_actions",
+            tuple(self.available_actions),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -590,6 +688,9 @@ class WeChatWindow:
             "element": self.element.to_dict(),
             "navigation": [item.to_dict() for item in self.navigation],
             "actionables": [item.to_dict() for item in self.actionables],
+            "availableActions": [
+                item.to_dict() for item in self.available_actions
+            ],
         }
         if self.bundle_id is not None:
             payload["bundleId"] = self.bundle_id

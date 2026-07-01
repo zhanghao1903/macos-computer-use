@@ -163,6 +163,7 @@ class ProjectContractTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",

@@ -24,6 +24,8 @@ from .commands import WECHAT_TOOL
 from .models import wechat_message_hash
 from .tool import WeChatDesktopTool
 
+LOCAL_SERVICE_TIMEOUT_GRACE_SECONDS = 5.0
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wechat-desktop-tool")
@@ -520,11 +522,22 @@ class LocalServiceAppControl:
 
     def _round_trip(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         message = json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n"
+        timeout = _socket_timeout_for_payload(payload, default=self._timeout)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(self._timeout)
-            client.connect(str(self._socket_path))
-            client.sendall(message)
-            raw_response = _read_line(client)
+            client.settimeout(timeout)
+            try:
+                client.connect(str(self._socket_path))
+                client.sendall(message)
+                raw_response = _read_line(client)
+            except TimeoutError as exc:
+                raise RuntimeError(
+                    "timed out waiting for local app-control service response "
+                    f"after {timeout:.1f}s"
+                ) from exc
+            except OSError as exc:
+                raise RuntimeError(
+                    f"local app-control service request failed: {exc}"
+                ) from exc
         response = json.loads(raw_response.decode("utf-8"))
         if not isinstance(response, dict):
             raise RuntimeError("local service response must be a JSON object")
@@ -565,6 +578,23 @@ def _app_control_for_args(
     if args.token_file:
         token = Path(args.token_file).expanduser().read_text(encoding="utf-8").strip()
     return LocalServiceAppControl(socket_path, token=token, timeout=timeout)
+
+
+def _socket_timeout_for_payload(payload: Mapping[str, Any], *, default: float) -> float:
+    command = payload.get("command")
+    if not isinstance(command, Mapping):
+        return default
+    raw_timeout = command.get("timeoutMs")
+    if raw_timeout is None:
+        raw_timeout = command.get("timeout_ms")
+    if (
+        isinstance(raw_timeout, int | float)
+        and not isinstance(raw_timeout, bool)
+        and raw_timeout > 0
+    ):
+        command_timeout = raw_timeout / 1000.0 + LOCAL_SERVICE_TIMEOUT_GRACE_SECONDS
+        return max(default, command_timeout)
+    return default
 
 
 def _coerce_command(command: ToolCommand | Mapping[str, Any]) -> ToolCommand:

@@ -10,6 +10,7 @@ from typing import Any
 class ComputerUseOperation(str, Enum):
     READINESS = "readiness"
     OBSERVE = "observe"
+    ACCESSIBILITY_QUERY = "accessibility_query"
     OPEN_APP = "open_app"
     FOCUS_APP = "focus_app"
     CLICK = "click"

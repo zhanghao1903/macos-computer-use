@@ -34,6 +34,7 @@ from computer_use_macos import (
     HelperConfig,
     MacOSComputerUseClient,
     UnixSocketServiceClient,
+    accessibility_query_command,
     click_accessibility_command,
     click_command,
     click_coordinate_command,
@@ -51,6 +52,8 @@ from computer_use_macos import (
 from computer_use_macos.commands import CommandResult
 from computer_use_macos.client import ComputerUseClient as ShortClientFromModule
 from computer_use_macos.client import MacOSComputerUseClient as ClientFromModule
+from computer_use_macos.client import _accessibility_query_script
+from computer_use_macos.client import _accessibility_tree_snapshot_script
 from computer_use_macos.helper import (
     HelperManifest,
     HelperManifestIdentityError,
@@ -245,6 +248,13 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                 include_accessibility=True,
                 command_id="cmd_observe",
             ),
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "focusedWindow"},
+                query={"scope": "children", "limit": 5},
+                command_id="cmd_accessibility_query",
+            ),
             open_app_command(
                 "TextEdit",
                 bundle_id="com.apple.TextEdit",
@@ -307,17 +317,19 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(commands[1].input["includeVisibleText"], True)
         self.assertEqual(commands[1].input["includeAccessibility"], True)
         self.assertEqual(commands[1].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[2].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[4].input["snapshotId"], "snapshot-1")
+        self.assertEqual(commands[2].operation, "accessibility_query")
+        self.assertEqual(commands[2].input["query"]["limit"], 5)
+        self.assertEqual(commands[3].input["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(commands[5].input["snapshotId"], "snapshot-1")
         self.assertEqual(
-            commands[5].input["selector"],
+            commands[6].input["selector"],
             {"role": "button", "name": "OK"},
         )
-        self.assertEqual(commands[5].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[6].input["coordinates"], [12, 34])
-        self.assertEqual(commands[9].input["keys"], ["Command", "K"])
+        self.assertEqual(commands[6].input["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(commands[7].input["coordinates"], [12, 34])
+        self.assertEqual(commands[10].input["keys"], ["Command", "K"])
         self.assertEqual(commands[9].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[11].timeout_ms, 1234)
+        self.assertEqual(commands[12].timeout_ms, 1234)
 
     def test_command_builder_output_runs_through_client(self) -> None:
         runner = FakeRunner()
@@ -650,6 +662,151 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
             accessibility["textFields"][0]["roleDescription"],
             "search field",
         )
+
+    def test_package_local_observe_can_include_accessibility_tree_snapshot(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(stdout="TextEdit\nCurrent\ncom.apple.TextEdit\n")
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "available": True,
+                    "app": {"name": "TextEdit", "bundleId": "com.apple.TextEdit"},
+                    "focusedWindow": {
+                        "path": "0",
+                        "depth": 0,
+                        "attribute_names": ["AXRole", "AXTitle", "AXChildren"],
+                        "AXRole": "AXWindow",
+                        "AXTitle": "Current",
+                        "children_count": 0,
+                    },
+                    "nodeCount": 1,
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            ToolCommand(
+                command_id="cmd_accessibility_tree_observe",
+                tool="macos.computer_use",
+                operation="observe",
+                input={
+                    "targetApp": "TextEdit",
+                    "bundleId": "com.apple.TextEdit",
+                    "includeAccessibilityTree": True,
+                },
+            )
+        )
+
+        accessibility = observation.observation["accessibility"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(len(runner.calls), 2)
+        self.assertEqual(runner.calls[1][0], sys.executable)
+        self.assertEqual(runner.calls[1][-1], "com.apple.TextEdit")
+        self.assertGreater(float(runner.calls[1][-2]), 0)
+        self.assertEqual(accessibility["available"], True)
+        self.assertEqual(accessibility["treeAvailable"], True)
+        self.assertEqual(accessibility["focusedWindow"]["AXRole"], "AXWindow")
+        self.assertEqual(accessibility["focusedWindow"]["AXTitle"], "Current")
+
+    def test_package_accessibility_tree_script_uses_safe_attribute_allowlist(
+        self,
+    ) -> None:
+        source = _accessibility_tree_snapshot_script()
+
+        self.assertIn("SAFE_ATTRIBUTES = (", source)
+        self.assertIn("for attr in SAFE_ATTRIBUTES:", source)
+        self.assertIn("TIME_BUDGET_SECONDS", source)
+        self.assertIn("TARGET_BUNDLE_ID", source)
+        self.assertIn("runningApplicationsWithBundleIdentifier_", source)
+        self.assertIn("truncationReason", source)
+        self.assertNotIn("for attr in attribute_names:", source)
+
+    def test_package_local_client_supports_accessibility_query_protocol(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "Current", "role": "AXWindow"},
+                    "root": {"axPath": "0"},
+                    "nodes": [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Documents",
+                            "value": 1,
+                            "actions": ["AXPress"],
+                        }
+                    ],
+                    "diagnostics": {
+                        "durationMs": 10,
+                        "truncated": False,
+                        "nodeCount": 1,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "focusedWindow"},
+                query={
+                    "scope": "children",
+                    "limit": 10,
+                    "attributes": ["AXRole", "AXDescription", "AXValue"],
+                    "actions": True,
+                    "match": {"roleIn": ["AXRadioButton"]},
+                },
+                command_id="cmd_query",
+            )
+        )
+
+        query = observation.observation["accessibilityQuery"]
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(observation.observation["snapshotId"], "frontmost:TextEdit:Current")
+        self.assertEqual(runner.calls[0][0], sys.executable)
+        self.assertEqual(request["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(request["query"]["scope"], "children")
+        self.assertEqual(request["query"]["match"]["roleIn"], ["AXRadioButton"])
+        self.assertEqual(query["nodes"][0]["axPath"], "0/1")
+        self.assertEqual(query["nodes"][0]["description"], "Documents")
+        self.assertNotIn("attributeNames", query["nodes"][0])
+
+    def test_package_accessibility_query_script_is_scoped_and_filtered(
+        self,
+    ) -> None:
+        source = _accessibility_query_script()
+
+        self.assertIn("def collect(", source)
+        self.assertIn("def node_matches(", source)
+        self.assertIn("scope", source)
+        self.assertIn("limit", source)
+        self.assertIn("timeBudgetMs", source)
+        self.assertIn("childrenCount", source)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()

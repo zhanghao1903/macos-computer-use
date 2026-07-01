@@ -73,6 +73,68 @@ def inspect_window_command(
     )
 
 
+def list_contacts_command(
+    *,
+    limit: int = 30,
+    page_token: str | None = None,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    payload: dict[str, JsonValue] = {"limit": limit}
+    if page_token is not None:
+        payload["pageToken"] = page_token
+    return wechat_command(
+        "list_contacts",
+        payload,
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
+def list_conversations_command(
+    *,
+    limit: int = 30,
+    page_token: str | None = None,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    payload: dict[str, JsonValue] = {"limit": limit}
+    if page_token is not None:
+        payload["pageToken"] = page_token
+    return wechat_command(
+        "list_conversations",
+        payload,
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
+def open_contact_command(
+    contact: str,
+    *,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    return wechat_command(
+        "open_contact",
+        {"contact": contact},
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
 def focus_contact_command(
     contact: str,
     *,
@@ -120,6 +182,25 @@ def read_visible_messages_command(
     return wechat_command(
         "read_visible_messages",
         {"limit": limit},
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
+def read_contact_messages_command(
+    contact: str,
+    *,
+    limit: int = 30,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    return wechat_command(
+        "read_contact_messages",
+        {"contact": contact, "limit": limit},
         command_id=command_id,
         timeout_ms=timeout_ms,
         idempotency_key=idempotency_key,

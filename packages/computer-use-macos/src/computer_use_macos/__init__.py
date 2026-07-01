@@ -4,6 +4,7 @@ from app_control_protocol import AppControlConfig, HelperConfig, load_app_contro
 from .client import ComputerUseClient, MacOSComputerUseClient
 from .commands import (
     COMPUTER_USE_TOOL,
+    accessibility_query_command,
     click_accessibility_command,
     click_command,
     click_coordinate_command,
@@ -77,6 +78,7 @@ __all__ = [
     "UnixSocketCommandService",
     "UnixSocketServiceClient",
     "__version__",
+    "accessibility_query_command",
     "click_accessibility_command",
     "click_command",
     "click_coordinate_command",

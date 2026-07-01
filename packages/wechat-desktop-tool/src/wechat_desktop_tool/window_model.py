@@ -11,6 +11,7 @@ from app_control_protocol.json_types import JsonValue
 
 from .models import (
     WeChatActionableRegion,
+    WeChatAvailableAction,
     WeChatChatPanel,
     WeChatComposer,
     WeChatConversationList,
@@ -37,6 +38,7 @@ _NAV_LABELS: dict[str, tuple[str, ...]] = {
 _SEARCH_LABELS = ("搜索", "search", "__EN_SEARCH_PLACEHOLDER__")
 _PINNED_MARKERS = ("置顶", "pinned", "__EN_PINNED_PLACEHOLDER__")
 _MUTED_MARKERS = ("消息免打扰", "muted", "__EN_MUTED_PLACEHOLDER__")
+_WECHAT_TOOL = "wechat.desktop"
 
 
 def build_wechat_window_model(
@@ -47,11 +49,18 @@ def build_wechat_window_model(
 ) -> tuple[WeChatWindow, dict[str, JsonValue]]:
     tree = _focused_window_tree(observation)
     if tree is None:
+        missing_actions = _accessibility_tree_missing_actions(config)
         return (
-            _window_shell(config, observation),
+            _window_shell(
+                config,
+                observation,
+                available_actions=missing_actions,
+            ),
             {
                 "status": "unavailable",
                 "reason": "accessibility_tree_missing",
+                "actionableCount": 0,
+                "availableActionCount": len(missing_actions),
             },
         )
 
@@ -69,6 +78,7 @@ def build_wechat_window_model(
             "status": "normalized",
             "reason": "accessibility_tree_normalized",
             "actionableCount": len(window.actionables),
+            "availableActionCount": len(window.available_actions),
             "conversationRowCount": (
                 len(window.conversation_list.rows)
                 if window.conversation_list is not None
@@ -110,6 +120,260 @@ class _BuildContext:
                 reason=reason,
             )
         )
+
+
+def _accessibility_tree_missing_actions(
+    config: WeChatDesktopConfig,
+) -> tuple[WeChatAvailableAction, ...]:
+    return (
+        WeChatAvailableAction(
+            id="diagnostic.accessibility_tree_missing",
+            kind="diagnostic",
+            status="blocked",
+            label="Accessibility tree is missing",
+            tool=_WECHAT_TOOL,
+            operation="inspect_window",
+            description=(
+                "The window identity is known, but no element tree was returned, "
+                "so UI-level next actions cannot be inferred."
+            ),
+            input_template={"includeActionables": True, "includeRaw": True},
+            reason="accessibility_tree_missing",
+            recovery_hint=(
+                "Restart computer-use-macos serve after reinstalling the package, "
+                "then rerun inspect-window. Use includeRaw=true to confirm whether "
+                "observation.accessibility.focusedWindow is present."
+            ),
+        ),
+        _refresh_window_action(config),
+    )
+
+
+def _available_actions(
+    config: WeChatDesktopConfig,
+    *,
+    snapshot_id: str | None,
+    actionables: tuple[WeChatActionableRegion, ...],
+    chat_panel: WeChatChatPanel | None,
+) -> tuple[WeChatAvailableAction, ...]:
+    actions: list[WeChatAvailableAction] = [
+        _refresh_window_action(config),
+        WeChatAvailableAction(
+            id="wechat.focus_contact",
+            kind="wechat_operation",
+            status="needs_input",
+            label="Open a contact",
+            tool=_WECHAT_TOOL,
+            operation="focus_contact",
+            description="Focus a WeChat contact or conversation by name.",
+            input_schema={
+                "contact": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Exact or searchable contact name.",
+                }
+            },
+            risk="changes_current_chat",
+        ),
+    ]
+
+    if chat_panel is not None and chat_panel.message_list is not None:
+        actions.append(
+            WeChatAvailableAction(
+                id="wechat.read_visible_messages",
+                kind="wechat_operation",
+                status="available",
+                label="Read visible messages",
+                tool=_WECHAT_TOOL,
+                operation="read_visible_messages",
+                description="Read currently visible messages in the active chat.",
+                risk="read_only",
+            )
+        )
+
+    if chat_panel is not None and chat_panel.composer is not None:
+        title = chat_panel.title or chat_panel.composer.target_title
+        actions.append(
+            WeChatAvailableAction(
+                id="wechat.draft_message",
+                kind="wechat_operation",
+                status="needs_input",
+                label="Draft a message",
+                tool=_WECHAT_TOOL,
+                operation="draft_message",
+                description="Write text into the active chat composer without sending.",
+                input_schema={
+                    "message": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Message text to draft.",
+                    }
+                },
+                input_template=(
+                    {"currentChatTitle": title} if title is not None else None
+                ),
+                target_element=chat_panel.composer.element,
+                risk="writes_draft",
+            )
+        )
+        actions.append(
+            WeChatAvailableAction(
+                id="wechat.send_message",
+                kind="wechat_operation",
+                status="needs_input",
+                label="Send a message",
+                tool=_WECHAT_TOOL,
+                operation="send_message",
+                description=(
+                    "Focus a contact, draft a message, and submit it after caller "
+                    "authorization."
+                ),
+                input_schema={
+                    "contact": {"type": "string", "required": True},
+                    "message": {"type": "string", "required": True},
+                    "verifyAfterSubmit": {"type": "boolean", "required": False},
+                },
+                risk="submits_message",
+            )
+        )
+        if chat_panel.composer.draft_text.strip():
+            actions.append(
+                WeChatAvailableAction(
+                    id="wechat.submit_draft",
+                    kind="wechat_operation",
+                    status="available",
+                    label="Submit current draft",
+                    tool=_WECHAT_TOOL,
+                    operation="submit_draft",
+                    description="Press the configured submit key in the active chat.",
+                    target_element=chat_panel.composer.element,
+                    risk="submits_message",
+                )
+            )
+
+    for actionable in actionables:
+        ui_action = _ui_available_action(
+            config,
+            snapshot_id=snapshot_id,
+            actionable=actionable,
+        )
+        if ui_action is not None:
+            actions.append(ui_action)
+
+    return tuple(actions)
+
+
+def _refresh_window_action(config: WeChatDesktopConfig) -> WeChatAvailableAction:
+    del config
+    return WeChatAvailableAction(
+        id="wechat.inspect_window.refresh",
+        kind="wechat_operation",
+        status="available",
+        label="Refresh window model",
+        tool=_WECHAT_TOOL,
+        operation="inspect_window",
+        description="Open or focus WeChat and rebuild the normalized window model.",
+        input_template={"includeActionables": True},
+        risk="read_only",
+    )
+
+
+def _ui_available_action(
+    config: WeChatDesktopConfig,
+    *,
+    snapshot_id: str | None,
+    actionable: WeChatActionableRegion,
+) -> WeChatAvailableAction | None:
+    if actionable.kind not in {
+        "navigation_item",
+        "search_box",
+        "conversation_row",
+        "toolbar_button",
+        "composer",
+        "window_button",
+    }:
+        return None
+    return WeChatAvailableAction(
+        id=f"ui.{actionable.id}",
+        kind="ui_element",
+        status="available",
+        label=_ui_action_label(actionable),
+        tool=config.app_control_tool,
+        operation="click",
+        description=_ui_action_description(actionable),
+        input_template=_click_input_template(
+            config,
+            snapshot_id=snapshot_id,
+            element=actionable.element,
+        ),
+        actionable_id=actionable.id,
+        target_element=actionable.element,
+        risk=_ui_action_risk(actionable),
+        reason=actionable.reason,
+    )
+
+
+def _ui_action_label(actionable: WeChatActionableRegion) -> str:
+    label = actionable.label or actionable.element.label or actionable.id
+    if actionable.kind == "navigation_item":
+        return f"Switch to {label}"
+    if actionable.kind == "search_box":
+        return "Focus search"
+    if actionable.kind == "conversation_row":
+        return f"Open conversation: {label}"
+    if actionable.kind == "composer":
+        return "Focus message composer"
+    if actionable.kind == "toolbar_button":
+        return f"Press toolbar button: {label}"
+    return f"Click {label}"
+
+
+def _ui_action_description(actionable: WeChatActionableRegion) -> str:
+    if actionable.kind == "navigation_item":
+        return "Switch WeChat's main section using the matched navigation item."
+    if actionable.kind == "search_box":
+        return "Move focus into the WeChat search box."
+    if actionable.kind == "conversation_row":
+        return "Open one visible conversation row from the conversation list."
+    if actionable.kind == "composer":
+        return "Move focus into the current chat composer."
+    if actionable.kind == "toolbar_button":
+        return "Press a visible chat toolbar button."
+    return "Click a visible WeChat UI element."
+
+
+def _ui_action_risk(actionable: WeChatActionableRegion) -> str:
+    if actionable.kind == "toolbar_button":
+        return "may_open_panel"
+    if actionable.kind == "conversation_row":
+        return "changes_current_chat"
+    return "low"
+
+
+def _click_input_template(
+    config: WeChatDesktopConfig,
+    *,
+    snapshot_id: str | None,
+    element: WeChatElementRef,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "targetApp": config.app_name,
+    }
+    if config.bundle_id is not None:
+        payload["bundleId"] = config.bundle_id
+    if snapshot_id is not None:
+        payload["snapshotId"] = snapshot_id
+    selector: dict[str, Any] = {"role": element.role}
+    if element.label is not None:
+        selector["name"] = element.label
+    payload["selector"] = selector
+    if element.frame is not None:
+        center_x, center_y = element.frame.center
+        payload["coordinates"] = {
+            "x": int(round(center_x)),
+            "y": int(round(center_y)),
+        }
+    return payload
 
 
 def _build_window_from_tree(
@@ -156,6 +420,13 @@ def _build_window_from_tree(
         chat_panel = _chat_panel(main_children, context=context)
 
     active_section = next((item.label for item in navigation if item.selected), None)
+    actionables = tuple(context.actionables) if include_actionables else ()
+    available_actions = _available_actions(
+        config,
+        snapshot_id=snapshot_id,
+        actionables=actionables,
+        chat_panel=chat_panel,
+    )
     return WeChatWindow(
         app_name=app_name,
         bundle_id=bundle_id,
@@ -168,13 +439,16 @@ def _build_window_from_tree(
         search_box=search_box,
         conversation_list=conversation_list,
         chat_panel=chat_panel,
-        actionables=tuple(context.actionables) if include_actionables else (),
+        actionables=actionables,
+        available_actions=tuple(available_actions),
     )
 
 
 def _window_shell(
     config: WeChatDesktopConfig,
     observation: ToolObservation,
+    *,
+    available_actions: Iterable[WeChatAvailableAction] = (),
 ) -> WeChatWindow:
     window_title = _string_from_observation(
         observation,
@@ -208,6 +482,7 @@ def _window_shell(
             role="AXWindow",
             label=window_title or config.app_name,
         ),
+        available_actions=tuple(available_actions),
     )
 
 

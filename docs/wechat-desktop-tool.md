@@ -124,6 +124,25 @@ wechat-desktop-tool examples inspect-window \
   --output ./wechat-window-inspect.json
 ```
 
+Root-level SDK test stub:
+
+```bash
+/opt/anaconda3/bin/python examples/wechat_window_sdk_test.py \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --output ./wechat-window-sdk-test.json
+```
+
+This script imports `app_control_protocol`, `computer_use_macos`, and
+`wechat_desktop_tool` as installed SDK packages, uses
+`computer_use_macos.UnixSocketServiceClient` to call the local service, and then
+calls `WeChatDesktopTool.inspect_window()` directly.
+
+If this returns `normalization.reason = "accessibility_tree_missing"`, check
+`result.evidence.observe.accessibility.treeFailureKind`. A common cause is
+starting `computer-use-macos serve` from a different Python environment than
+the one where `packages/computer-use-macos[accessibility]` was installed.
+
 The public result shape is:
 
 ```json
@@ -142,21 +161,27 @@ The public result shape is:
     "searchBox": {},
     "conversationList": {},
     "chatPanel": {},
-    "actionables": []
+    "actionables": [],
+    "availableActions": []
   },
   "includeRaw": false,
   "includeActionables": true,
   "normalization": {
     "status": "normalized",
-    "reason": "accessibility_tree_normalized"
+    "reason": "accessibility_tree_normalized",
+    "actionableCount": 0,
+    "availableActionCount": 0
   }
 }
 ```
 
 If the lower app-control backend cannot return a full Accessibility tree, the
 command still succeeds when the WeChat window identity is valid, but
-`normalization.status` is `unavailable` and `window` contains only the window
-shell.
+`normalization.status` is `unavailable`, `window.actionables` is empty, and
+`window.availableActions` contains diagnostic recovery actions instead of UI
+actions. A useful model must have
+`observation.window.availableActions[].status != "blocked"` for at least one
+non-diagnostic action.
 
 By default, raw Accessibility data is not returned because it can contain
 contact names and message text. Set `include_raw=True` only for debugging; then

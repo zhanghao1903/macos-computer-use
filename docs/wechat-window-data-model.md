@@ -197,6 +197,7 @@ WeChatWindow
   conversationList
   chatPanel
   actionables[]
+  availableActions[]
 ```
 
 ### Element Reference
@@ -212,8 +213,7 @@ Every object that may be clicked, focused, or scrolled keeps an
   "frame": {"x": 329, "y": 296, "width": 271, "height": 68},
   "actions": [],
   "enabled": true,
-  "focused": false,
-  "attributeNames": ["AXRole", "AXPosition", "AXSize"]
+  "focused": false
 }
 ```
 
@@ -224,6 +224,8 @@ Rules:
 - `actions` is advisory. Many useful WeChat rows do not expose `AXPress`.
 - `label` should use the best available `AXTitle`, `AXDescription`, or parsed
   semantic label.
+- Raw AX attribute names are debug data and are not exposed through the normal
+  application-facing window model.
 
 ### Navigation
 
@@ -384,8 +386,8 @@ Extraction:
 
 ### Actionable Regions
 
-`actionables` is the flattened list that an agent application can inspect
-before deciding what to do.
+`actionables` is the flattened list of UI regions that can be targeted by a
+lower-level executor. It is not the agent decision surface by itself.
 
 ```json
 {
@@ -418,6 +420,54 @@ Action execution rules:
   freshness before clicking.
 - The action API should accept `snapshotId` plus actionable `id`, not raw
   coordinates from the caller.
+
+### Available Actions
+
+`availableActions` is the agent-facing next-action menu. It translates the
+current window model into choices an agent can reason over without rereading the
+entire tree.
+
+```json
+{
+  "id": "ui.conversation.0.open",
+  "kind": "ui_element",
+  "status": "available",
+  "label": "Open conversation: File Transfer",
+  "tool": "macos.computer_use",
+  "operation": "click",
+  "description": "Open one visible conversation row from the conversation list.",
+  "inputTemplate": {
+    "targetApp": "WeChat",
+    "bundleId": "com.tencent.xinWeChat",
+    "snapshotId": "frontmost:WeChat:微信 (聊天)",
+    "selector": {"role": "AXRow", "name": "File Transfer"},
+    "coordinates": {"x": 464, "y": 330}
+  },
+  "actionableId": "conversation.0.open",
+  "targetElement": {},
+  "risk": "changes_current_chat"
+}
+```
+
+Allowed statuses:
+
+- `available`: the action can be attempted from the current model.
+- `needs_input`: the action is valid, but the caller must provide input such as
+  `contact` or `message`.
+- `blocked`: the action cannot be performed from the current model; inspect
+  `reason` and `recoveryHint`.
+
+Allowed kinds:
+
+- `wechat_operation`: a semantic `wechat.desktop` operation such as
+  `focus_contact`, `draft_message`, or `read_visible_messages`.
+- `ui_element`: a visible UI element action backed by an `actionables[]` entry.
+- `diagnostic`: recovery guidance when the model cannot infer UI actions.
+
+When Accessibility tree collection is missing, `availableActions` must not be
+empty. It should include a blocked diagnostic action such as
+`diagnostic.accessibility_tree_missing` plus a refresh action, so the caller can
+distinguish "no actions exist" from "the backend did not return a tree".
 
 ## Data Kept vs Dropped
 
