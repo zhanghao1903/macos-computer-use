@@ -44,6 +44,30 @@ client.run_command(press_key_command("Return"))
 client.run_command(hotkey_command(("Command", "F")))
 ```
 
+Scoped Accessibility reads are available through `accessibility_query`. Use
+this when an application needs a small, bounded set of UI nodes instead of a
+full raw Accessibility tree:
+
+```python
+from computer_use_macos import accessibility_query_command
+
+observation = client.run_command(
+    accessibility_query_command(
+        target_app="WeChat",
+        bundle_id="com.tencent.xinWeChat",
+        root={"kind": "focusedWindow"},
+        query={
+            "scope": "children",
+            "maxDepth": 1,
+            "limit": 80,
+            "attributes": ["AXRole", "AXDescription", "AXValue"],
+            "actions": True,
+        },
+    )
+)
+nodes = observation.observation["accessibilityQuery"]["nodes"]
+```
+
 Helper manifests can be used directly:
 
 ```python
@@ -119,6 +143,7 @@ The package provides:
 - helper manifest, transport, discovery, launcher, doctor, and template APIs
 - protocol-compatible `run_command` and `run_stream`, including `press_key`
   and `hotkey`
+- scoped `accessibility_query` for bounded macOS AX reads
 - observer callbacks compatible with `app_control_protocol.ToolObserver`
 - semantic click, bounded Accessibility selector click, and explicitly enabled
   coordinate click

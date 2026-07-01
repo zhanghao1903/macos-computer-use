@@ -379,7 +379,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIsNot(ComputerUseClient, MacOSComputerUseClient)
         self.assertIs(ClientFromModule, MacOSComputerUseClient)
         self.assertIs(ShortClientFromModule, ComputerUseClient)
-        self.assertEqual(computer_use_macos.__version__, "0.1.0")
+        self.assertEqual(computer_use_macos.__version__, "0.1.1")
 
         client = ComputerUseClient(enabled=False)
         self.assertIsInstance(client, MacOSComputerUseClient)

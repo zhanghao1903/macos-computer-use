@@ -150,6 +150,27 @@ EXPECTED_RUNTIME_DEPS = {
     "wechat-desktop-tool": ("app-control-protocol>=0.1.0",),
 }
 
+EXPECTED_ACCESSIBILITY_EXTRA_DEPS = (
+    'pyobjc-core>=10.0; sys_platform == "darwin" and extra == "accessibility"',
+    (
+        'pyobjc-framework-ApplicationServices>=10.0; '
+        'sys_platform == "darwin" and extra == "accessibility"'
+    ),
+    'pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin" and extra == "accessibility"',
+)
+
+EXPECTED_METADATA_DEPS = {
+    "app-control-protocol": EXPECTED_RUNTIME_DEPS["app-control-protocol"],
+    "computer-use-macos": (
+        *EXPECTED_RUNTIME_DEPS["computer-use-macos"],
+        *EXPECTED_ACCESSIBILITY_EXTRA_DEPS,
+    ),
+    "wechat-desktop-tool": (
+        *EXPECTED_RUNTIME_DEPS["wechat-desktop-tool"],
+        *EXPECTED_ACCESSIBILITY_EXTRA_DEPS,
+    ),
+}
+
 EXPECTED_PACKAGE_DATA = {
     "app-control-protocol": ("py.typed", "schemas/*.schema.json"),
 }
@@ -1955,7 +1976,7 @@ def _check_wheel_file(
         )
     )
     metadata_deps = tuple(metadata.get("Requires-Dist", ()))
-    expected_deps = EXPECTED_RUNTIME_DEPS[project_name]
+    expected_deps = EXPECTED_METADATA_DEPS[project_name]
     results.append(
         CheckResult(
             name=f"wheel-metadata-deps:{project_name}",
@@ -2058,7 +2079,7 @@ def _check_sdist_file(
         )
     )
     metadata_deps = tuple(metadata.get("Requires-Dist", ()))
-    expected_deps = EXPECTED_RUNTIME_DEPS[project_name]
+    expected_deps = EXPECTED_METADATA_DEPS[project_name]
     results.append(
         CheckResult(
             name=f"sdist-metadata-deps:{project_name}",

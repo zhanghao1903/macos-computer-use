@@ -34,9 +34,10 @@ result = send_message(
 The lower-level protocol entry is also available through command builders:
 
 ```python
-from wechat_desktop_tool import draft_message_command
+from wechat_desktop_tool import draft_message_command, list_contacts_command
 
 result = wechat.run_command(draft_message_command("hello"))
+contacts = wechat.run_command(list_contacts_command(limit=30))
 ```
 
 Use `wechat_command(...)` when you need to construct a custom command envelope
@@ -51,6 +52,16 @@ while keeping the stable `wechat.desktop` tool name.
   `wechat_not_ready`. Successful observations include `wechatEnvironment`
   diagnostics with configured and observed app identity plus `appVersion` when
   the backend reports it.
+- `inspect_window`: open/focus WeChat and use scoped
+  `accessibility_query` calls to return the normalized `wechat.window.v1`
+  model with navigation, regions, actionables, and available semantic actions.
+- `list_contacts`: switch to the contacts tab and return visible contact rows
+  with stable `actionId`, element reference, and pagination metadata.
+- `list_conversations`: return visible chat rows with display name, preview,
+  timestamp, badges, pinned/muted flags, and row open actions.
+- `open_contact`: locate the search box, type a contact query, inspect search
+  result rows, and open a single matching contact. Multiple matches return a
+  semantic `needs_disambiguation` result instead of selecting implicitly.
 - `focus_contact`: open WeChat, verify the foreground window, open search,
   type a contact, select it, and verify the selected chat window with
   `observe`; a verified mismatched chat title returns `contact_not_found`,
@@ -58,14 +69,16 @@ while keeping the stable `wechat.desktop` tool name.
 - `observe_current_chat`: ask the app-control backend for the current chat
   state and map visible messages into semantic chat fields after checking any
   reported foreground app identity.
-- `read_visible_messages`: map visible text or message payloads into typed
-  message observations; `textExtract` is split into line-based messages with
-  best-effort direction and timestamp prefixes.
+- `read_visible_messages`: use scoped Accessibility queries to return visible
+  loaded message rows as `wechat.messages.v1`. This is not a full chat-history
+  export API.
+- `read_contact_messages`: compose `open_contact` and `read_visible_messages`
+  for a target contact.
 - `draft_message`: type bounded message text without submitting.
 - `submit_draft`: press the configured submit key.
 - `send_message`: convenience flow for focus, draft, and submit. Set
   `verifyAfterSubmit` to read visible messages after submission and return
-  `send_unverified` if the text is not observed in `messages` or `textExtract`.
+  `send_unverified` if the text is not observed in `wechat.messages.v1`.
 
 ## CLI Examples
 

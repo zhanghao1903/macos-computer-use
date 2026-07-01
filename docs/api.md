@@ -86,6 +86,7 @@ client = ComputerUseClient(
 | `run_stream(command)` | Run a command and yield protocol events. | Depends |
 | `readiness()` | Report platform and permission state. | No |
 | `observe(target_app=None, bundle_id=None)` | Return bounded frontmost-app/window summary. | No |
+| `accessibility_query(target_app=None, bundle_id=None, root=None, query=None)` | Return scoped macOS Accessibility nodes for a target app/window. | No |
 | `open_app(app, bundle_id=None)` | Open an allowlisted app. | Yes |
 | `focus_app(app, bundle_id=None)` | Activate an allowlisted app. | Yes |
 | `click(target, target_app=..., bundle_id=None)` | Click a low-risk semantic target. | Yes |
@@ -128,6 +129,85 @@ can contain contact names, visible message text, and other private UI data, so
 callers should request it only when they are about to normalize it into a
 domain model such as `wechat.window.v1` or write it to an explicit raw-data
 debug log.
+
+For new UI-model APIs, prefer `accessibility_query` over
+`observe(includeAccessibilityTree=true)`. `accessibility_query` reads only the
+requested subtree and attributes, returns normalized `nodes`, and avoids
+exposing raw `attributeNames` to application callers.
+
+Example protocol command:
+
+```python
+from computer_use_macos import accessibility_query_command
+
+result = client.run_command(
+    accessibility_query_command(
+        target_app="WeChat",
+        bundle_id="com.tencent.xinWeChat",
+        root={"kind": "focusedWindow"},
+        query={
+            "scope": "children",
+            "maxDepth": 1,
+            "limit": 80,
+            "attributes": [
+                "AXRole",
+                "AXDescription",
+                "AXValue",
+                "AXPosition",
+                "AXSize",
+            ],
+            "actions": True,
+        },
+    )
+)
+```
+
+The successful observation stores the query result at
+`observation.accessibilityQuery`:
+
+```json
+{
+  "schema": "macos.accessibility.query.v1",
+  "available": true,
+  "snapshotId": "frontmost:WeChat:微信 (聊天)",
+  "app": {
+    "name": "WeChat",
+    "bundleId": "com.tencent.xinWeChat"
+  },
+  "window": {
+    "title": "微信 (聊天)",
+    "role": "AXWindow"
+  },
+  "root": {
+    "kind": "focusedWindow",
+    "axPath": "0"
+  },
+  "nodes": [
+    {
+      "axPath": "0/2",
+      "role": "AXRadioButton",
+      "description": "通讯录",
+      "value": 0,
+      "frame": {"x": 268, "y": 207, "width": 62, "height": 34},
+      "actions": ["AXPress"]
+    }
+  ],
+  "diagnostics": {
+    "returnedNodes": 1,
+    "truncated": false
+  }
+}
+```
+
+Supported `root.kind` values are:
+
+- `focusedWindow`: query the focused window for the target app.
+- `axPath`: query a node path returned by a previous query.
+
+Supported `query.scope` values are `self`, `children`, and `descendants`.
+Callers should set `limit`, `maxDepth`, and `timeBudgetMs` to keep reads
+bounded. `match` can filter by role, role list, description, title/value text,
+enabled state, or focused state.
 
 ## Protocol Entry
 
@@ -223,6 +303,7 @@ Supported protocol operations in this migration entrypoint:
 
 - `readiness`
 - `observe`
+- `accessibility_query`
 - `open_app`
 - `focus_app`
 - `click`
@@ -279,6 +360,161 @@ responses = client.run_command(
         "operation": "readiness",
     }
 )
+```
+
+## WeChat Desktop APIs
+
+`wechat-desktop-tool` exposes semantic WeChat operations on top of any
+app-control client that implements:
+
+```python
+run_command(command, *, observer=None) -> ToolObservation
+```
+
+Typical initialization:
+
+```python
+from computer_use_macos import ComputerUseClient
+from wechat_desktop_tool import WeChatDesktopTool
+
+app_control = ComputerUseClient.from_config("app-control.toml")
+wechat = WeChatDesktopTool.from_config(app_control, "app-control.toml")
+```
+
+Public operations:
+
+| Operation | Python API | Purpose | Mutates Desktop |
+|---|---|---|---:|
+| `open_wechat` | `wechat.open_wechat()` | Open/focus WeChat and verify foreground identity. | Yes |
+| `inspect_window` | `wechat.inspect_window(include_raw=False, include_actionables=True)` | Return the normalized `wechat.window.v1` model. | Opens/focuses app |
+| `list_contacts` | `wechat.list_contacts(limit=30, page_token=None)` | Switch to contacts and return visible contact rows. | Changes selected tab |
+| `list_conversations` | `wechat.list_conversations(limit=30, page_token=None)` | Return visible chat/conversation rows. | May change selected tab |
+| `open_contact` | `wechat.open_contact(contact)` | Search and open one contact/conversation. | Yes |
+| `read_visible_messages` | `wechat.read_visible_messages(limit=20)` | Return visible loaded message rows in current chat. | Opens/focuses app |
+| `read_contact_messages` | `wechat.read_contact_messages(contact, limit=30)` | Compose `open_contact` and `read_visible_messages`. | Yes |
+| `focus_contact` | `wechat.focus_contact(contact)` | Compatibility keyboard-search flow used by send-message. | Yes |
+| `observe_current_chat` | `wechat.observe_current_chat()` | Legacy observe-backed current chat summary. | No |
+| `draft_message` | `wechat.draft_message(message)` | Type bounded text into the focused chat input. | Yes |
+| `submit_draft` | `wechat.submit_draft()` | Press the configured submit key. | Yes |
+| `send_message` | `wechat.send_message(contact=..., message=...)` | Convenience focus/draft/submit flow. | Yes |
+
+Command builders are exported for protocol-first callers:
+
+```python
+from wechat_desktop_tool import (
+    inspect_window_command,
+    list_contacts_command,
+    list_conversations_command,
+    open_contact_command,
+    read_contact_messages_command,
+    read_visible_messages_command,
+)
+
+result = wechat.run_command(list_contacts_command(limit=30))
+```
+
+The read-model APIs use `macos.computer_use/accessibility_query` internally.
+Normal responses expose WeChat concepts such as navigation items, contact rows,
+conversation rows, messages, and available semantic actions. They do not expose
+raw `attributeNames` or full AX trees.
+
+`inspect_window` returns:
+
+```json
+{
+  "schema": "wechat.window.v1",
+  "window": {
+    "appName": "WeChat",
+    "bundleId": "com.tencent.xinWeChat",
+    "title": "微信 (聊天)",
+    "snapshotId": "frontmost:WeChat:微信 (聊天)",
+    "activeSection": "chats",
+    "navigation": [
+      {
+        "id": "nav.contacts",
+        "label": "contacts",
+        "selected": false,
+        "element": {"axPath": "0/2", "role": "AXRadioButton"}
+      }
+    ],
+    "regions": {
+      "mainContent": {"available": true},
+      "searchBox": {"available": true}
+    },
+    "actionables": [
+      {"id": "nav.contacts.press", "kind": "navigation_item"}
+    ],
+    "availableActions": [
+      {"id": "wechat.list_contacts", "status": "available"},
+      {"id": "wechat.open_contact", "status": "needs_input"},
+      {"id": "wechat.read_visible_messages", "status": "available"}
+    ]
+  },
+  "includeRaw": false,
+  "includeActionables": true,
+  "normalization": {
+    "status": "normalized",
+    "reason": "accessibility_query_normalized",
+    "queryMode": "scoped"
+  }
+}
+```
+
+When macOS Accessibility data is unavailable, `inspect_window` still returns a
+structured observation when possible. Check `normalization.reason` and
+diagnostic `availableActions` such as
+`diagnostic.accessibility_query_missing`.
+
+List APIs return visible rows only:
+
+```json
+{
+  "schema": "wechat.conversations.v1",
+  "section": "chats",
+  "items": [
+    {
+      "id": "chats.visible.0",
+      "displayName": "文件传输助手",
+      "preview": "hello",
+      "timestamp": "09:00",
+      "badges": ["置顶"],
+      "pinned": true,
+      "muted": false,
+      "actionId": "chats.visible.0.open",
+      "element": {"axPath": "0/11/1/0/0", "role": "AXRow"}
+    }
+  ],
+  "pagination": {
+    "limit": 30,
+    "pageToken": null,
+    "hasMore": false,
+    "nextPageToken": null
+  }
+}
+```
+
+`read_visible_messages` returns normalized visible messages:
+
+```json
+{
+  "schema": "wechat.messages.v1",
+  "chat": {"title": "Ada"},
+  "messages": [
+    {
+      "id": "message.visible.0",
+      "direction": "unknown",
+      "text": "hello",
+      "visible": true,
+      "element": {"axPath": "0/11/4/0/0/0", "role": "AXRow"}
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "canReadOlder": false,
+    "olderPageToken": null
+  },
+  "truncated": false
+}
 ```
 
 ## Statuses

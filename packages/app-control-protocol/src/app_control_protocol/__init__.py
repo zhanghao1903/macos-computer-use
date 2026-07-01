@@ -41,7 +41,7 @@ from .schemas import (
     validate_protocol_payload,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "COMMAND_SCHEMA",

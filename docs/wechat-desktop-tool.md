@@ -2,7 +2,8 @@
 
 `wechat-desktop-tool` is the first semantic package above the shared
 app-control protocol. It translates WeChat operations into app-control commands
-such as `open_app`, `hotkey`, `type_text`, `press_key`, and `observe`.
+such as `open_app`, `accessibility_query`, `hotkey`, `type_text`, `press_key`,
+and `observe`.
 
 ## Boundary
 
@@ -103,8 +104,12 @@ result = wechat.run_command(
 The command emits this app-control sequence:
 
 1. `open_app` with the configured WeChat app name.
-2. `observe` with `includeAccessibility=true`, `includeAccessibilityTree=true`,
-   and `includeVisibleText=true`.
+2. `accessibility_query` for focused-window children. This discovers stable
+   second-level controls such as `AXDescription="聊天"`,
+   `AXDescription="通讯录"`, `AXDescription="收藏"`, and the main content
+   `AXSplitGroup`.
+3. `accessibility_query` for main-content children when the main content region
+   is available.
 
 Runnable example:
 
@@ -138,9 +143,9 @@ This script imports `app_control_protocol`, `computer_use_macos`, and
 `computer_use_macos.UnixSocketServiceClient` to call the local service, and then
 calls `WeChatDesktopTool.inspect_window()` directly.
 
-If this returns `normalization.reason = "accessibility_tree_missing"`, check
-`result.evidence.observe.accessibility.treeFailureKind`. A common cause is
-starting `computer-use-macos serve` from a different Python environment than
+If this returns `normalization.reason = "accessibility_query_missing"`, check
+`result.evidence.inspect_window.observation.accessibilityQuery`. A common cause
+is starting `computer-use-macos serve` from a different Python environment than
 the one where `packages/computer-use-macos[accessibility]` was installed.
 
 The public result shape is:
@@ -158,9 +163,10 @@ The public result shape is:
       "role": "AXWindow"
     },
     "navigation": [],
-    "searchBox": {},
-    "conversationList": {},
-    "chatPanel": {},
+    "regions": {
+      "mainContent": {},
+      "searchBox": {}
+    },
     "actionables": [],
     "availableActions": []
   },
@@ -168,35 +174,249 @@ The public result shape is:
   "includeActionables": true,
   "normalization": {
     "status": "normalized",
-    "reason": "accessibility_tree_normalized",
+    "reason": "accessibility_query_normalized",
     "actionableCount": 0,
-    "availableActionCount": 0
+    "availableActionCount": 0,
+    "queryMode": "scoped"
   }
 }
 ```
 
-If the lower app-control backend cannot return a full Accessibility tree, the
-command still succeeds when the WeChat window identity is valid, but
-`normalization.status` is `unavailable`, `window.actionables` is empty, and
-`window.availableActions` contains diagnostic recovery actions instead of UI
-actions. A useful model must have
-`observation.window.availableActions[].status != "blocked"` for at least one
-non-diagnostic action.
+If the lower app-control backend cannot return Accessibility query data, the
+command still succeeds when WeChat can be opened, but
+`normalization.reason` reports a diagnostic such as
+`accessibility_query_missing`, `window.actionables` is empty, and
+`window.availableActions` contains diagnostic recovery actions. A useful model
+must have at least one non-diagnostic action whose `status` is not `blocked`.
 
 By default, raw Accessibility data is not returned because it can contain
 contact names and message text. Set `include_raw=True` only for debugging; then
-the low-level app-control observation is included as `rawObservation`.
+the scoped low-level query payloads are included as `rawQueries`.
+
+## Read Model APIs
+
+These APIs expose clean WeChat information lists for Agent applications. The
+caller should use these semantic lists instead of interpreting raw macOS AX
+trees.
+
+### `list_contacts`
+
+Python API:
+
+```python
+result = wechat.list_contacts(limit=30, page_token=None)
+contacts = result.observation["items"]
+```
+
+Protocol command builder:
+
+```python
+from wechat_desktop_tool import list_contacts_command
+
+result = wechat.run_command(list_contacts_command(limit=30))
+```
+
+Behavior:
+
+1. Open/focus WeChat.
+2. Query top-level navigation.
+3. Click the `contacts` navigation item when it is not selected.
+4. Query visible row descendants under the main content region.
+
+Response shape:
+
+```json
+{
+  "schema": "wechat.contacts.v1",
+  "section": "contacts",
+  "items": [
+    {
+      "id": "contacts.visible.0",
+      "kind": "contact",
+      "displayName": "Ada",
+      "actionId": "contacts.visible.0.open",
+      "element": {"axPath": "0/11/1/0/0", "role": "AXRow"},
+      "confidence": 0.88
+    }
+  ],
+  "pagination": {
+    "limit": 30,
+    "pageToken": null,
+    "hasMore": false,
+    "nextPageToken": null
+  },
+  "availableActions": [
+    {"id": "wechat.open_contact", "status": "needs_input"}
+  ]
+}
+```
+
+The current implementation returns visible rows only. Pagination tokens are
+reserved for scroll-based follow-up reads.
+
+### `list_conversations`
+
+Python API:
+
+```python
+result = wechat.list_conversations(limit=30)
+rows = result.observation["items"]
+```
+
+The flow is the same as `list_contacts`, but it targets the `chats` navigation
+item and normalizes row labels into `displayName`, `preview`, `timestamp`,
+`badges`, `pinned`, and `muted`.
+
+Response shape:
+
+```json
+{
+  "schema": "wechat.conversations.v1",
+  "section": "chats",
+  "items": [
+    {
+      "id": "chats.visible.0",
+      "displayName": "文件传输助手",
+      "preview": "hello",
+      "timestamp": "09:00",
+      "badges": ["置顶"],
+      "pinned": true,
+      "muted": false,
+      "actionId": "chats.visible.0.open",
+      "element": {"axPath": "0/11/1/0/0", "role": "AXRow"},
+      "confidence": 0.88
+    }
+  ],
+  "pagination": {
+    "limit": 30,
+    "hasMore": false,
+    "nextPageToken": null
+  }
+}
+```
+
+### `open_contact`
+
+Python API:
+
+```python
+result = wechat.open_contact("Ada")
+```
+
+Protocol command builder:
+
+```python
+from wechat_desktop_tool import open_contact_command
+
+result = wechat.run_command(open_contact_command("Ada"))
+```
+
+Behavior:
+
+1. Open/focus WeChat.
+2. Query top-level and main-content regions.
+3. Locate the search box by AX role plus search-like description, preferring
+   `AXDescription="搜索"`.
+4. Click the search box, type the contact text, query search result rows, then
+   click the only matching result.
+5. Query static text in the chat panel to report the opened chat title.
+
+If multiple candidates match, the operation returns a successful semantic
+observation with `status="needs_disambiguation"` and a `candidates` list
+instead of selecting one implicitly.
+
+Response shape:
+
+```json
+{
+  "schema": "wechat.open_contact.v1",
+  "target": "Ada",
+  "status": "opened",
+  "currentChat": {"title": "Ada"},
+  "availableActions": [
+    {"id": "wechat.read_visible_messages", "status": "available"},
+    {"id": "wechat.draft_message", "status": "needs_input"}
+  ]
+}
+```
+
+### `read_visible_messages`
+
+Python API:
+
+```python
+result = wechat.read_visible_messages(limit=20)
+messages = result.observation["messages"]
+```
+
+Behavior:
+
+1. Open/focus WeChat.
+2. Query top-level controls and locate the main content region.
+3. Query visible message descendants under main content.
+4. Normalize visible rows into message objects.
+
+Response shape:
+
+```json
+{
+  "schema": "wechat.messages.v1",
+  "chat": {"title": "Ada"},
+  "messages": [
+    {
+      "id": "message.visible.0",
+      "direction": "unknown",
+      "text": "hello",
+      "timestamp": null,
+      "visible": true,
+      "element": {"axPath": "0/11/4/0/0/0", "role": "AXRow"}
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "canReadOlder": false,
+    "olderPageToken": null
+  },
+  "truncated": false
+}
+```
+
+This reads only currently loaded/visible rows exposed by macOS Accessibility.
+It is not a full chat-history export API.
+
+### `read_contact_messages`
+
+Python API:
+
+```python
+result = wechat.read_contact_messages("Ada", limit=30)
+```
+
+This composes `open_contact(contact)` and `read_visible_messages(limit)`.
+The response schema is `wechat.contact_messages.v1` and includes both nested
+semantic observations:
+
+```json
+{
+  "schema": "wechat.contact_messages.v1",
+  "target": "Ada",
+  "openContact": {},
+  "messages": {}
+}
+```
 
 `focus_contact` emits this app-control sequence:
 
 1. `open_app` with the configured WeChat app name.
 2. `observe` to verify the foreground WeChat window before sending search keys.
 3. `hotkey` with the configured search hotkey.
-4. `hotkey` with the configured search clear hotkey.
-5. `press_key` with the configured clear key.
-6. `type_text` with the contact name.
-7. `press_key` with the configured submit key.
-8. `observe` with visible text enabled to verify the selected chat window.
+4. `observe` with Accessibility and visible text enabled to verify search
+   focus.
+5. `hotkey` with the configured search clear hotkey.
+6. `press_key` with the configured clear key.
+7. `type_text` with the contact name.
+8. `press_key` with the configured submit key.
+9. `observe` with visible text enabled to verify the selected chat window.
 
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event
@@ -246,18 +466,15 @@ maps common app-control fields into WeChat-specific fields such as
 `visibleMessages`, and `messageCount`.
 The same foreground identity check is applied before mapping visible chat data.
 
-`read_visible_messages` prefers structured `observation.messages`. When the
-backend only returns `textExtract`, it splits non-empty visible-text lines into
-message observations and best-effort parses simple prefixes such as
-`incoming:`, `outgoing:`, and `[14:32] incoming:`.
-The `truncated` flag is set only when the tool sees more valid messages than
-the requested `limit`; a response with exactly `limit` messages is not
-considered truncated.
+`read_visible_messages` now uses scoped Accessibility queries and returns
+`wechat.messages.v1`. `observe_current_chat` remains available for legacy
+observe-backed chat summaries and still maps structured `messages` or
+`textExtract` when a lower backend supplies them.
 
 `send_message` can request bounded post-submit verification with
 `verifyAfterSubmit=true`. Verification reads visible messages after the submit
 attempt and returns `unknown` with `send_unverified` when the submitted text is
-not visible in normalized `messages` or `textExtract`.
+not visible in normalized `wechat.messages.v1` output.
 If `submit_draft` cannot verify the low-level Return key result, it returns
 `unknown` with `submit_unknown`, `sendAttempted=true`, and `retryable=false` so
 callers can require manual review before any retry. Both `submit_unknown` and
@@ -312,11 +529,14 @@ has already completed its own authorization and confirmation policy.
 
 ## Current Limitations
 
-- Visible message extraction depends on the lower app-control backend returning
-  either `observation.messages` or `textExtract`; `textExtract` direction and
-  timestamp parsing is intentionally best-effort.
-- `submit_draft` and verified `send_message` still use bounded observation.
+- `list_contacts`, `list_conversations`, and `read_visible_messages` return
+  visible or currently loaded rows exposed by macOS Accessibility. They do not
+  export the full WeChat contact database or complete chat history.
+- `observe_current_chat` remains a legacy observe-backed summary API. When a
+  lower backend supplies `observation.messages` or `textExtract`, its parsing is
+  still best-effort.
+- `submit_draft` and verified `send_message` still use bounded verification.
   A successful submit means the keyboard action completed; a verified send means
-  matching text was visible afterward.
-- Contact disambiguation remains a future protocol extension, not hidden
-  behavior in this package.
+  matching text was visible afterward through `read_visible_messages`.
+- `open_contact` can return `needs_disambiguation` when multiple search results
+  match. The caller must choose how to resolve that ambiguity.

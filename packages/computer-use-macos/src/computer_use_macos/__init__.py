@@ -49,7 +49,7 @@ from .service import (
     service_envelopes_to_sse,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "AppControlConfig",

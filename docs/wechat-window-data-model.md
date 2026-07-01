@@ -464,10 +464,11 @@ Allowed kinds:
 - `ui_element`: a visible UI element action backed by an `actionables[]` entry.
 - `diagnostic`: recovery guidance when the model cannot infer UI actions.
 
-When Accessibility tree collection is missing, `availableActions` must not be
+When scoped Accessibility query data is missing, `availableActions` must not be
 empty. It should include a blocked diagnostic action such as
-`diagnostic.accessibility_tree_missing` plus a refresh action, so the caller can
-distinguish "no actions exist" from "the backend did not return a tree".
+`diagnostic.accessibility_query_missing` plus a refresh action, so the caller
+can distinguish "no actions exist" from "the backend did not return usable AX
+data".
 
 ## Data Kept vs Dropped
 
@@ -519,23 +520,28 @@ Future versions can add fields, but should avoid changing the meaning of:
 - `conversationList.rows[].id`
 - `chatPanel.composer.element`
 
-## Proposed Read APIs
+## Current Semantic APIs
 
-The model is intended to support these read-only APIs first:
+The current WeChat package exposes these model-backed APIs:
 
 ```text
 inspect_window(includeRaw=false, includeActionables=true) -> WeChatWindow
-list_actionable_regions() -> actionables[]
-list_conversations() -> conversationList.rows[]
-read_visible_messages() -> chatPanel.messageList.rows[]
-get_current_conversation() -> chatPanel.title
+list_contacts(limit=30, pageToken=None) -> visible contact rows
+list_conversations(limit=30, pageToken=None) -> visible conversation rows
+open_contact(contact) -> opened chat or disambiguation candidates
+read_visible_messages(limit=20) -> visible message rows
+read_contact_messages(contact, limit=30) -> open_contact + read_visible_messages
 ```
 
-Mutating APIs should be added only after the read model is stable:
+The older keyboard-oriented `focus_contact`, `draft_message`, `submit_draft`,
+and `send_message` APIs remain available for compatibility and send workflows.
+Future UI action APIs should prefer semantic action ids and fresh
+`accessibility_query` reads instead of raw AX tree paths.
+
+Potential future APIs:
 
 ```text
 open_conversation(actionableId, snapshotId)
-open_conversation_by_name(name)
 focus_search(snapshotId)
 scroll_region(regionId, direction, snapshotId)
 focus_composer(snapshotId)

@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.1 - 2026-07-02
+
+- Add scoped `macos.computer_use/accessibility_query` for bounded macOS
+  Accessibility reads.
+- Update WeChat `inspect_window` to use scoped queries instead of full raw
+  Accessibility tree dumps.
+- Add WeChat semantic APIs for `list_contacts`, `list_conversations`,
+  `open_contact`, `read_visible_messages`, and `read_contact_messages`.
+- Add SDK-style WeChat window inspection example and stub tests for each
+  WeChat semantic API.
+- Update API documentation for the scoped query and WeChat read/action model.
+
+## 0.1.0 - 2026-07-02
 
 - Add initial LLM-free `macos-computer-use` Python package.
 - Add public dataclass models for readiness, results, risk, operations, and

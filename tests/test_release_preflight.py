@@ -1459,10 +1459,10 @@ class ReleaseTagCheckScriptTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            result = script.main(["--root", str(ROOT), "--tag", "v0.1.0"])
+            result = script.main(["--root", str(ROOT), "--tag", "v0.1.1"])
 
         self.assertEqual(result, 0)
-        self.assertIn("release tag ok: v0.1.0", output.getvalue())
+        self.assertIn("release tag ok: v0.1.1", output.getvalue())
 
     def test_main_rejects_mismatched_tag(self) -> None:
         script = _load_release_tag_check_script()
@@ -1497,7 +1497,7 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertTrue(all(package["installed"] for package in packages))
         self.assertTrue(all(package["imported"] for package in packages))
         self.assertTrue(all(package["apiSmoke"] for package in packages))
-        self.assertTrue(all(package["version"] == "0.1.0" for package in packages))
+        self.assertTrue(all(package["version"] == "0.1.1" for package in packages))
         self.assertEqual(
             report["installPolicy"],
             _testpypi_install_policy(managed_virtualenv=False),
@@ -2261,7 +2261,7 @@ class FakeReportRunner:
                 and self._script_matches_package(script, self.fail_api_smoke_package)
             ):
                 return subprocess.CompletedProcess(command, 1, "", "api smoke failed")
-            return subprocess.CompletedProcess(command, 0, "0.1.0\n", "")
+            return subprocess.CompletedProcess(command, 0, "0.1.1\n", "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def _script_matches_package(self, script: str, package_name: str) -> bool:
@@ -2348,10 +2348,10 @@ def _write_fake_wheel_set(
         _write_fake_wheel(
             wheel_dir,
             project_name=project_name,
-            version="0.1.0",
+            version="0.1.1",
             dependencies=dependency_overrides.get(
                 project_name,
-                preflight.EXPECTED_RUNTIME_DEPS[project_name],
+                preflight.EXPECTED_METADATA_DEPS[project_name],
             ),
             content=tuple(
                 item
@@ -2414,10 +2414,10 @@ def _write_fake_sdist_set(
         _write_fake_sdist(
             sdist_dir,
             project_name=project_name,
-            version="0.1.0",
+            version="0.1.1",
             dependencies=dependency_overrides.get(
                 project_name,
-                preflight.EXPECTED_RUNTIME_DEPS[project_name],
+                preflight.EXPECTED_METADATA_DEPS[project_name],
             ),
             content=tuple(
                 item
@@ -2504,7 +2504,7 @@ def _testpypi_install_report_payload(
                 "installed": not failed,
                 "imported": not failed,
                 "apiSmoke": not failed,
-                "version": None if failed else "0.1.0",
+                "version": None if failed else "0.1.1",
             }
         )
     return {

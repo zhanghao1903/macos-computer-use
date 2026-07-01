@@ -41,6 +41,12 @@ For a new developer-preview setup, follow [docs/quickstart.md](docs/quickstart.m
 It covers the 30 minute TextEdit smoke, local service mode, helper path, and
 60 minute WeChat focus/draft smoke.
 
+Agent application developers should start with
+[docs/agent-integration-guide.md](docs/agent-integration-guide.md). It explains
+how to choose direct/helper/service mode, call the SDK, package a helper, and
+handle macOS permissions, local token authentication, confirmation, and audit
+boundaries.
+
 ## Quick Start
 
 ```python
