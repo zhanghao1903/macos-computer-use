@@ -51,6 +51,28 @@ def open_wechat_command(
     )
 
 
+def inspect_window_command(
+    *,
+    include_raw: bool = False,
+    include_actionables: bool = True,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    return wechat_command(
+        "inspect_window",
+        {
+            "includeRaw": include_raw,
+            "includeActionables": include_actionables,
+        },
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
 def focus_contact_command(
     contact: str,
     *,

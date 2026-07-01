@@ -16,6 +16,7 @@ class LoggingConfig:
     redact_text: bool = True
     json: bool = False
     event_sink: str = "stderr"
+    raw_data_log_path: str | None = None
 
     def __post_init__(self) -> None:
         level = self.level.strip().lower()
@@ -35,6 +36,7 @@ class LoggingConfig:
             redact_text=_bool(payload.get("redact_text"), default=True),
             json=_bool(payload.get("json"), default=False),
             event_sink=_string(payload.get("event_sink"), default="stderr"),
+            raw_data_log_path=_optional_string(payload.get("raw_data_log_path")),
         )
 
 
@@ -131,7 +133,7 @@ class WeChatConfig:
     app_name: str = "WeChat"
     bundle_id: str | None = "com.tencent.xinWeChat"
     app_control_tool: str = "macos.computer_use"
-    search_hotkey: tuple[str, ...] = ("Command", "F")
+    search_hotkey: tuple[str, ...] = ("Command", "K")
     search_clear_hotkey: tuple[str, ...] = ("Command", "A")
     clear_key: str = "Delete"
     submit_key: str = "Return"
@@ -182,7 +184,7 @@ class WeChatConfig:
                 payload.get("app_control_tool"),
                 default="macos.computer_use",
             ),
-            search_hotkey=_string_tuple(payload.get("search_hotkey", ("Command", "F"))),
+            search_hotkey=_string_tuple(payload.get("search_hotkey", ("Command", "K"))),
             search_clear_hotkey=_string_tuple(
                 payload.get("search_clear_hotkey", ("Command", "A"))
             ),
@@ -221,6 +223,7 @@ class AppControlConfig:
                 "redact_text": self.logging.redact_text,
                 "json": self.logging.json,
                 "event_sink": self.logging.event_sink,
+                "raw_data_log_path": self.logging.raw_data_log_path,
             },
             "computer_use": {
                 "backend": self.computer_use.backend,
@@ -286,6 +289,10 @@ def _apply_env_overrides(
         payload["logging"]["json"] = _bool(env["APP_CONTROL_LOG_JSON"])
     if "APP_CONTROL_LOG_EVENT_SINK" in env:
         payload["logging"]["event_sink"] = env["APP_CONTROL_LOG_EVENT_SINK"]
+    if "APP_CONTROL_LOG_RAW_DATA_PATH" in env:
+        payload["logging"]["raw_data_log_path"] = env[
+            "APP_CONTROL_LOG_RAW_DATA_PATH"
+        ]
     if "APP_CONTROL_COMPUTER_USE_BACKEND" in env:
         payload["computer_use"]["backend"] = env["APP_CONTROL_COMPUTER_USE_BACKEND"]
     if "APP_CONTROL_ALLOWED_APPS" in env:

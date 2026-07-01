@@ -242,6 +242,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                 target_app="TextEdit",
                 bundle_id="com.apple.TextEdit",
                 include_visible_text=True,
+                include_accessibility=True,
                 command_id="cmd_observe",
             ),
             open_app_command(
@@ -304,6 +305,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                 self.assertEqual(command.tool, COMPUTER_USE_TOOL)
                 validate_protocol_payload("command", command.to_dict())
         self.assertEqual(commands[1].input["includeVisibleText"], True)
+        self.assertEqual(commands[1].input["includeAccessibility"], True)
         self.assertEqual(commands[1].input["bundleId"], "com.apple.TextEdit")
         self.assertEqual(commands[2].input["bundleId"], "com.apple.TextEdit")
         self.assertEqual(commands[4].input["snapshotId"], "snapshot-1")
@@ -604,6 +606,51 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(metadata["frontmost_app"], "Localized TextEdit")
         self.assertEqual(metadata["frontmost_bundle_id"], "com.apple.TextEdit")
 
+    def test_package_local_observe_can_include_accessibility_snapshot(self) -> None:
+        runner = FakeRunner()
+        runner.queue(stdout="TextEdit\nCurrent\ncom.apple.TextEdit\n")
+        runner.queue(
+            stdout=(
+                "focused\t0\tAXTextField\tsearch field\tSearch\t\t\t\ttrue\t"
+                "80\t120\t240\t28\n"
+                "textField\t1\tAXTextField\tsearch field\tSearch\t\t\t\ttrue\t"
+                "80\t120\t240\t28\n"
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            ToolCommand(
+                command_id="cmd_accessibility_observe",
+                tool="macos.computer_use",
+                operation="observe",
+                input={
+                    "targetApp": "TextEdit",
+                    "bundleId": "com.apple.TextEdit",
+                    "includeAccessibility": True,
+                },
+            )
+        )
+
+        accessibility = observation.observation["accessibility"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(len(runner.calls), 2)
+        self.assertEqual(accessibility["available"], True)
+        self.assertEqual(accessibility["focusedElement"]["role"], "AXTextField")
+        self.assertEqual(accessibility["focusedElement"]["focused"], True)
+        self.assertEqual(
+            accessibility["focusedElement"]["frame"],
+            {"x": 80, "y": 120, "width": 240, "height": 28},
+        )
+        self.assertEqual(
+            accessibility["textFields"][0]["roleDescription"],
+            "search field",
+        )
+
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()
         client = ComputerUseClient.from_config(
@@ -751,7 +798,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
             client.type_text("hello", target_app="TextEdit", command_id="cmd_type"),
             client.press_key("Return", target_app="TextEdit", command_id="cmd_key"),
             client.hotkey(
-                ("Command", "F"),
+                ("Command", "K"),
                 target_app="TextEdit",
                 command_id="cmd_hotkey",
             ),
@@ -780,7 +827,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         for command in commands:
             self.assertIsInstance(command, dict)
             validate_protocol_payload("command", command)
-        self.assertEqual(commands[6]["input"]["keys"], ["Command", "F"])
+        self.assertEqual(commands[6]["input"]["keys"], ["Command", "K"])
         self.assertEqual(commands[8]["input"]["coordinates"], [12, 34])
         self.assertEqual(commands[9]["input"]["seconds"], 0.01)
 

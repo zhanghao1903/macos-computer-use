@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
+from pathlib import Path
 import sys
 from typing import Any, TextIO
 
@@ -52,7 +53,9 @@ class LoggingToolObserver:
         return cls(config=logging_config, logger=logger, stream=stream)
 
     def on_event(self, event: ToolEvent) -> None:
-        payload = event.to_dict()
+        raw_payload = event.to_dict()
+        self._write_raw_data_log(raw_payload)
+        payload = raw_payload
         if self.config.redact_text:
             payload = _redact_payload(payload)
         line = _json_line(payload) if self.config.json else _text_line(payload)
@@ -62,6 +65,31 @@ class LoggingToolObserver:
             return
         assert self.logger is not None
         self.logger.log(_level_number(self.config.level), line)
+
+    def _write_raw_data_log(self, payload: dict[str, JsonValue]) -> None:
+        if not self.config.raw_data_log_path:
+            return
+        raw_observation = _raw_event_observation(payload)
+        if raw_observation is None:
+            return
+        record: dict[str, JsonValue] = {
+            "commandId": payload.get("commandId"),
+            "type": payload.get("type"),
+            "phase": payload.get("phase"),
+            "status": payload.get("status"),
+            "summary": payload.get("summary"),
+            "rawObservation": raw_observation,
+        }
+        path = Path(self.config.raw_data_log_path).expanduser()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as log_file:
+                log_file.write(
+                    json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
+                )
+        except OSError as exc:
+            assert self.logger is not None
+            self.logger.warning("failed to write raw data log %s: %s", path, exc)
 
 
 def build_logging_observer(
@@ -111,7 +139,40 @@ def _text_line(payload: dict[str, JsonValue]) -> str:
         parts.append(str(status))
     if summary:
         parts.append(str(summary))
+    observation = _event_observation(payload)
+    if observation:
+        parts.append(
+            "observation="
+            + json.dumps(observation, ensure_ascii=False, sort_keys=True)
+        )
+    raw_observation = _raw_event_observation(payload)
+    if raw_observation:
+        parts.append(
+            "rawObservation="
+            + json.dumps(raw_observation, ensure_ascii=False, sort_keys=True)
+        )
     return " | ".join(parts)
+
+
+def _event_observation(payload: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
+    raw_observation = _raw_event_observation(payload)
+    if raw_observation is None:
+        return None
+    observation = raw_observation.get("observation")
+    return observation if isinstance(observation, dict) else None
+
+
+def _raw_event_observation(
+    payload: dict[str, JsonValue],
+) -> dict[str, JsonValue] | None:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    for key in ("observation", "appControlObservation"):
+        envelope = data.get(key)
+        if isinstance(envelope, dict):
+            return envelope
+    return None
 
 
 def _redact_payload(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:

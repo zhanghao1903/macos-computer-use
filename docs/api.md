@@ -120,6 +120,15 @@ for app open/focus and protocol observations include `bundleId` plus
 `frontmostBundleId` when available. The nested `observation.metadata` object is
 kept for compatibility with the direct SDK metadata names.
 
+`observe` accepts two Accessibility opt-ins through protocol input:
+`includeAccessibility` returns a bounded focused-element/text-field summary,
+while `includeAccessibilityTree` asks the backend for the focused window's raw
+Accessibility tree under `observation.accessibility.focusedWindow`. The tree
+can contain contact names, visible message text, and other private UI data, so
+callers should request it only when they are about to normalize it into a
+domain model such as `wechat.window.v1` or write it to an explicit raw-data
+debug log.
+
 ## Protocol Entry
 
 `run_command` accepts either a `ToolCommand` from `app-control-protocol` or a

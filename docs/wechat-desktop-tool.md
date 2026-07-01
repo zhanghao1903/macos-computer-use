@@ -20,6 +20,9 @@ The package does not own:
 - Durable task state, audit records, or UI projection.
 - LLM provider integrations.
 
+The normalized WeChat window model used for Accessibility snapshots is
+documented in [wechat-window-data-model.md](wechat-window-data-model.md).
+
 ## Initialization
 
 ```python
@@ -66,6 +69,98 @@ observation = wechat.run_command(
 
 For generic cases, `wechat_command(...)` builds a raw WeChat command envelope
 without executing it.
+
+## Inspect Window API
+
+`inspect_window` is the read-only API for getting the current WeChat window as
+the normalized `wechat.window.v1` model documented in
+[wechat-window-data-model.md](wechat-window-data-model.md).
+
+Python convenience API:
+
+```python
+result = wechat.inspect_window(
+    include_raw=False,
+    include_actionables=True,
+)
+window = result.observation["window"]
+```
+
+Protocol command builder:
+
+```python
+from wechat_desktop_tool import inspect_window_command
+
+result = wechat.run_command(
+    inspect_window_command(
+        include_raw=False,
+        include_actionables=True,
+        command_id="cmd_wechat_inspect_window_1",
+    )
+)
+```
+
+The command emits this app-control sequence:
+
+1. `open_app` with the configured WeChat app name.
+2. `observe` with `includeAccessibility=true`, `includeAccessibilityTree=true`,
+   and `includeVisibleText=true`.
+
+Runnable example:
+
+```bash
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_OUTPUT=./wechat-window-inspect.json \
+python -m wechat_desktop_tool.examples.wechat_window_inspect
+```
+
+The equivalent CLI form is:
+
+```bash
+wechat-desktop-tool examples inspect-window \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --output ./wechat-window-inspect.json
+```
+
+The public result shape is:
+
+```json
+{
+  "schema": "wechat.window.v1",
+  "window": {
+    "appName": "WeChat",
+    "bundleId": "com.tencent.xinWeChat",
+    "title": "WeChat window title",
+    "snapshotId": "snapshot id",
+    "element": {
+      "axPath": "0",
+      "role": "AXWindow"
+    },
+    "navigation": [],
+    "searchBox": {},
+    "conversationList": {},
+    "chatPanel": {},
+    "actionables": []
+  },
+  "includeRaw": false,
+  "includeActionables": true,
+  "normalization": {
+    "status": "normalized",
+    "reason": "accessibility_tree_normalized"
+  }
+}
+```
+
+If the lower app-control backend cannot return a full Accessibility tree, the
+command still succeeds when the WeChat window identity is valid, but
+`normalization.status` is `unavailable` and `window` contains only the window
+shell.
+
+By default, raw Accessibility data is not returned because it can contain
+contact names and message text. Set `include_raw=True` only for debugging; then
+the low-level app-control observation is included as `rawObservation`.
 
 `focus_contact` emits this app-control sequence:
 
@@ -182,9 +277,13 @@ wechat-desktop-tool examples send-message \
 The local service response and nested `ToolObservation` are validated against
 the shared protocol schemas before the CLI returns them.
 
-The example focuses the contact and drafts the message by default. Add
-`--submit` only when the caller has already completed its own authorization and
-confirmation policy.
+For live runs, the example verifies that the current chat already matches the
+contact and then drafts the message. Use `--assume-current-chat` only when the
+user has manually verified the current chat but the WeChat window title is too
+generic to prove it. Live `--allow-focus-select` requires the configured
+contact search hotkey to be `Command+K`; the known-unsafe `Command+F` setting is
+rejected before any keyboard action is sent. Add `--submit` only when the caller
+has already completed its own authorization and confirmation policy.
 
 ## Current Limitations
 

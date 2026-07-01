@@ -59,6 +59,8 @@ def observe_command(
     target_app: str | None = None,
     bundle_id: str | None = None,
     include_visible_text: bool | None = None,
+    include_accessibility: bool | None = None,
+    include_accessibility_tree: bool | None = None,
     command_id: str | None = None,
     timeout_ms: int | None = None,
     idempotency_key: str | None = None,
@@ -71,6 +73,10 @@ def observe_command(
         payload["bundleId"] = bundle_id
     if include_visible_text is not None:
         payload["includeVisibleText"] = include_visible_text
+    if include_accessibility is not None:
+        payload["includeAccessibility"] = include_accessibility
+    if include_accessibility_tree is not None:
+        payload["includeAccessibilityTree"] = include_accessibility_tree
     return computer_use_command(
         ComputerUseOperation.OBSERVE,
         payload,

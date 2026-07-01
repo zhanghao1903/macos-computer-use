@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import sys
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -419,6 +421,18 @@ class MacOSComputerUseClient:
                         "app",
                     ),
                     bundle_id=bundle_id,
+                    include_accessibility=_optional_bool(
+                        payload,
+                        "includeAccessibility",
+                        "include_accessibility",
+                        default=False,
+                    ),
+                    include_accessibility_tree=_optional_bool(
+                        payload,
+                        "includeAccessibilityTree",
+                        "include_accessibility_tree",
+                        default=False,
+                    ),
                     timeout=timeout or self._default_timeout,
                 )
             elif operation == "type_text":
@@ -654,6 +668,8 @@ class MacOSComputerUseClient:
         *,
         target_app: str | None = None,
         bundle_id: str | None = None,
+        include_accessibility: bool = False,
+        include_accessibility_tree: bool = False,
         timeout: float = 5.0,
     ) -> ComputerUseResult:
         readiness = self.readiness()
@@ -705,6 +721,28 @@ class MacOSComputerUseClient:
             "frontmost_bundle_id": frontmost_bundle_id,
             "window_title": window_title,
         }
+        if include_accessibility or include_accessibility_tree:
+            accessibility = (
+                self._accessibility_snapshot(timeout=timeout)
+                if include_accessibility
+                else {"available": True}
+            )
+            if include_accessibility_tree:
+                tree_snapshot = self._accessibility_tree_snapshot(timeout=timeout)
+                if tree_snapshot.get("available") is False:
+                    accessibility["treeAvailable"] = False
+                    for key in ("failureKind", "message", "timeoutSeconds"):
+                        if key in tree_snapshot:
+                            accessibility[f"tree{key[:1].upper()}{key[1:]}"] = (
+                                tree_snapshot[key]
+                            )
+                else:
+                    accessibility["treeAvailable"] = True
+                    if "focusedWindow" in tree_snapshot:
+                        accessibility["focusedWindow"] = tree_snapshot["focusedWindow"]
+                    if "app" in tree_snapshot:
+                        accessibility["app"] = tree_snapshot["app"]
+            observation_metadata["accessibility"] = accessibility
 
         if bundle_id and frontmost_bundle_id and frontmost_bundle_id != bundle_id:
             return ComputerUseResult.needs_user(
@@ -737,6 +775,62 @@ class MacOSComputerUseClient:
             snapshot_id=snapshot_id,
             metadata=observation_metadata,
         )
+
+    def _accessibility_snapshot(self, *, timeout: float) -> dict[str, Any]:
+        snapshot_timeout = min(timeout, 2.0)
+        result = self._runner.run(
+            ["osascript", "-e", _accessibility_snapshot_script()],
+            timeout=snapshot_timeout,
+        )
+        if getattr(result, "timed_out", False):
+            return {
+                "available": False,
+                "failureKind": "accessibility_snapshot_timeout",
+                "message": "Timed out collecting Accessibility snapshot.",
+                "timeoutSeconds": snapshot_timeout,
+            }
+        if result.returncode != 0:
+            return {
+                "available": False,
+                "failureKind": "accessibility_snapshot_failed",
+                "message": _bounded(result.stderr or result.stdout, 1000),
+            }
+        return _accessibility_snapshot_from_stdout(result.stdout)
+
+    def _accessibility_tree_snapshot(self, *, timeout: float) -> dict[str, Any]:
+        snapshot_timeout = min(timeout, 8.0)
+        result = self._runner.run(
+            [sys.executable, "-c", _accessibility_tree_snapshot_script()],
+            timeout=snapshot_timeout,
+        )
+        if getattr(result, "timed_out", False):
+            return {
+                "available": False,
+                "failureKind": "accessibility_tree_snapshot_timeout",
+                "message": "Timed out collecting Accessibility tree snapshot.",
+                "timeoutSeconds": snapshot_timeout,
+            }
+        if result.returncode != 0:
+            return {
+                "available": False,
+                "failureKind": "accessibility_tree_snapshot_failed",
+                "message": _bounded(result.stderr or result.stdout, 1000),
+            }
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {
+                "available": False,
+                "failureKind": "accessibility_tree_snapshot_invalid_json",
+                "message": _bounded(result.stdout, 1000),
+            }
+        if not isinstance(payload, dict):
+            return {
+                "available": False,
+                "failureKind": "accessibility_tree_snapshot_invalid_payload",
+                "message": "Accessibility tree snapshot did not return an object.",
+            }
+        return payload
 
     def type_text(
         self,
@@ -1783,6 +1877,342 @@ def _accessibility_click_script(target_app: str, selector: Mapping[str, Any]) ->
     )
 
 
+def _accessibility_snapshot_script() -> str:
+    return (
+        "on replaceText(theText, searchString, replacementString)\n"
+        "  set oldDelimiters to AppleScript's text item delimiters\n"
+        "  set AppleScript's text item delimiters to searchString\n"
+        "  set textItems to text items of theText\n"
+        "  set AppleScript's text item delimiters to replacementString\n"
+        "  set replacedText to textItems as text\n"
+        "  set AppleScript's text item delimiters to oldDelimiters\n"
+        "  return replacedText\n"
+        "end replaceText\n"
+        "\n"
+        "on cleanText(rawValue)\n"
+        "  try\n"
+        "    set textValue to rawValue as text\n"
+        "  on error\n"
+        '    return ""\n'
+        "  end try\n"
+        '  set textValue to my replaceText(textValue, tab, " ")\n'
+        '  set textValue to my replaceText(textValue, linefeed, " ")\n'
+        '  set textValue to my replaceText(textValue, (ASCII character 13), " ")\n'
+        "  if (length of textValue) > 300 then set textValue to text 1 thru 300 of textValue\n"
+        "  return textValue\n"
+        "end cleanText\n"
+        "\n"
+        "on elementLine(uiElement, itemIndex)\n"
+        '  set roleValue to ""\n'
+        '  set roleDescriptionValue to ""\n'
+        '  set nameValue to ""\n'
+        '  set descriptionValue to ""\n'
+        '  set titleValue to ""\n'
+        '  set valueValue to ""\n'
+        '  set focusedValue to ""\n'
+        '  set xValue to ""\n'
+        '  set yValue to ""\n'
+        '  set widthValue to ""\n'
+        '  set heightValue to ""\n'
+        "  try\n"
+        "    set roleValue to my cleanText((role of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set nameValue to my cleanText((name of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set descriptionValue to my cleanText((description of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set titleValue to my cleanText((title of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set valueValue to my cleanText((value of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set focusedValue to my cleanText((focused of uiElement))\n"
+        "  end try\n"
+        "  try\n"
+        "    set positionValue to position of uiElement\n"
+        "    set xValue to my cleanText((item 1 of positionValue))\n"
+        "    set yValue to my cleanText((item 2 of positionValue))\n"
+        "  end try\n"
+        "  try\n"
+        "    set sizeValue to size of uiElement\n"
+        "    set widthValue to my cleanText((item 1 of sizeValue))\n"
+        "    set heightValue to my cleanText((item 2 of sizeValue))\n"
+        "  end try\n"
+        "  return itemIndex & tab & roleValue & tab & roleDescriptionValue & tab & nameValue & tab & descriptionValue & tab & titleValue & tab & valueValue & tab & focusedValue & tab & xValue & tab & yValue & tab & widthValue & tab & heightValue\n"
+        "end elementLine\n"
+        "\n"
+        'tell application "System Events"\n'
+        "  set frontApp to first application process whose frontmost is true\n"
+        '  set outputText to ""\n'
+        "  try\n"
+        '    set focusedElement to value of attribute "AXFocusedUIElement" of frontApp\n'
+        '    set outputText to outputText & "focused" & tab & my elementLine(focusedElement, 0) & linefeed\n'
+        "  on error errMsg\n"
+        '    set outputText to outputText & "focusedError" & tab & my cleanText(errMsg) & linefeed\n'
+        "  end try\n"
+        "  try\n"
+        "    set itemIndex to 0\n"
+        "    repeat with uiElement in (text fields of front window of frontApp)\n"
+        "      set itemIndex to itemIndex + 1\n"
+        '      set outputText to outputText & "textField" & tab & my elementLine(uiElement, itemIndex) & linefeed\n'
+        "      if itemIndex >= 30 then exit repeat\n"
+        "    end repeat\n"
+        "    if itemIndex < 30 then\n"
+        "      repeat with uiElement in (text areas of front window of frontApp)\n"
+        "        set itemIndex to itemIndex + 1\n"
+        '        set outputText to outputText & "textField" & tab & my elementLine(uiElement, itemIndex) & linefeed\n'
+        "        if itemIndex >= 30 then exit repeat\n"
+        "      end repeat\n"
+        "    end if\n"
+        "  on error errMsg\n"
+        '    set outputText to outputText & "textFieldsError" & tab & my cleanText(errMsg) & linefeed\n'
+        "  end try\n"
+        "  return outputText\n"
+        "end tell\n"
+    )
+
+
+def _accessibility_tree_snapshot_script() -> str:
+    return r'''
+from __future__ import annotations
+
+import json
+import sys
+from typing import Any
+
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+CHILDREN_ATTRIBUTE = "AXChildren"
+MAX_DEPTH = 6
+MAX_CHILDREN_PER_NODE = 1200
+MAX_TEXT_CHARS = 500
+
+
+def fail(failure_kind: str, message: str) -> None:
+    print(
+        json.dumps(
+            {
+                "available": False,
+                "failureKind": failure_kind,
+                "message": message,
+            },
+            ensure_ascii=False,
+        )
+    )
+    sys.exit(0)
+
+
+try:
+    import objc
+    from ApplicationServices import (
+        AXIsProcessTrusted,
+        AXUIElementCopyActionNames,
+        AXUIElementCopyAttributeNames,
+        AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        kAXFocusedWindowAttribute,
+    )
+except Exception as exc:
+    fail("accessibility_tree_pyobjc_unavailable", str(exc))
+
+
+def ax_get(element: Any, attr: str) -> Any:
+    try:
+        err, value = AXUIElementCopyAttributeValue(element, attr, None)
+        if err != 0:
+            return None
+        return value
+    except Exception:
+        return None
+
+
+def ax_attribute_names(element: Any) -> list[str]:
+    try:
+        err, names = AXUIElementCopyAttributeNames(element, None)
+        if err != 0 or names is None:
+            return []
+        return [str(name) for name in names]
+    except Exception:
+        return []
+
+
+def ax_actions(element: Any) -> list[str]:
+    try:
+        err, actions = AXUIElementCopyActionNames(element, None)
+        if err != 0 or actions is None:
+            return []
+        return [str(action) for action in actions]
+    except Exception:
+        return []
+
+
+def safe_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    text = str(value)
+    if len(text) > MAX_TEXT_CHARS:
+        return text[:MAX_TEXT_CHARS] + "...<truncated>"
+    return text
+
+
+def dump_element(element: Any, *, depth: int = 0, path: str = "0") -> dict[str, Any]:
+    node: dict[str, Any] = {
+        "path": path,
+        "depth": depth,
+    }
+    attribute_names = ax_attribute_names(element)
+    node["attribute_names"] = attribute_names
+    for attr in attribute_names:
+        if attr == CHILDREN_ATTRIBUTE:
+            continue
+        value = safe_scalar(ax_get(element, attr))
+        if value is not None:
+            node[attr] = value
+    actions = ax_actions(element)
+    if actions:
+        node["actions"] = actions
+    if depth >= MAX_DEPTH:
+        return node
+    children = (
+        ax_get(element, CHILDREN_ATTRIBUTE)
+        if CHILDREN_ATTRIBUTE in attribute_names
+        else None
+    )
+    if children:
+        node["children_count"] = len(children)
+        node["children"] = []
+        for index, child in enumerate(children):
+            if index >= MAX_CHILDREN_PER_NODE:
+                node["children_truncated"] = True
+                break
+            node["children"].append(
+                dump_element(child, depth=depth + 1, path=f"{path}/{index}")
+            )
+    else:
+        node["children_count"] = 0
+    return node
+
+
+if not AXIsProcessTrusted():
+    fail(
+        "missing_accessibility",
+        "Accessibility permission is not available for the Python process.",
+    )
+
+try:
+    objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+    workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    app = workspace.frontmostApplication()
+except Exception as exc:
+    fail("accessibility_tree_frontmost_app_failed", str(exc))
+
+if app is None:
+    fail("accessibility_tree_no_frontmost_app", "No frontmost app is available.")
+
+pid = int(app.processIdentifier())
+app_ax = AXUIElementCreateApplication(pid)
+window = ax_get(app_ax, kAXFocusedWindowAttribute)
+if window is None:
+    fail("accessibility_tree_no_focused_window", "No focused window is available.")
+
+payload = {
+    "available": True,
+    "app": {
+        "name": str(app.localizedName() or ""),
+        "bundleId": str(app.bundleIdentifier() or ""),
+        "pid": pid,
+    },
+    "focusedWindow": dump_element(window),
+}
+print(json.dumps(payload, ensure_ascii=False))
+'''
+
+
+_ACCESSIBILITY_ELEMENT_FIELDS = (
+    "index",
+    "role",
+    "roleDescription",
+    "name",
+    "description",
+    "title",
+    "value",
+    "focused",
+    "x",
+    "y",
+    "width",
+    "height",
+)
+
+
+def _accessibility_snapshot_from_stdout(stdout: str) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"available": True}
+    text_fields: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        kind = parts[0]
+        if kind == "focused":
+            snapshot["focusedElement"] = _accessibility_element_from_fields(parts[1:])
+        elif kind == "textField":
+            text_fields.append(_accessibility_element_from_fields(parts[1:]))
+        elif kind in {"focusedError", "textFieldsError"}:
+            errors.append({"kind": kind, "message": parts[1] if len(parts) > 1 else ""})
+    if text_fields:
+        snapshot["textFields"] = text_fields
+    if errors:
+        snapshot["errors"] = errors
+    if "focusedElement" not in snapshot and not text_fields:
+        snapshot["available"] = False
+        snapshot.setdefault("failureKind", "accessibility_snapshot_empty")
+    return snapshot
+
+
+def _accessibility_element_from_fields(fields: list[str]) -> dict[str, Any]:
+    values = fields + [""] * (len(_ACCESSIBILITY_ELEMENT_FIELDS) - len(fields))
+    raw = dict(zip(_ACCESSIBILITY_ELEMENT_FIELDS, values, strict=False))
+    element: dict[str, Any] = {}
+    index = _int_or_none(raw["index"])
+    if index is not None:
+        element["index"] = index
+    for key in ("role", "roleDescription", "name", "description", "title", "value"):
+        value = raw[key].strip()
+        if value:
+            element[key] = value
+    focused = _bool_or_none(raw["focused"])
+    if focused is not None:
+        element["focused"] = focused
+    frame = {
+        key: parsed
+        for key in ("x", "y", "width", "height")
+        if (parsed := _int_or_none(raw[key])) is not None
+    }
+    if frame:
+        element["frame"] = frame
+    return element
+
+
+def _int_or_none(value: str) -> int | None:
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
+
+
+def _bool_or_none(value: str) -> bool | None:
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
+
+
 def _press_key_from_payload(payload: Mapping[str, Any]) -> str:
     key = _optional_string(payload, "key")
     if key is not None:
@@ -1814,6 +2244,20 @@ def _string_sequence(payload: Mapping[str, Any], key: str) -> tuple[str, ...]:
             raise ValueError(f"{key} items must be non-empty strings")
         output.append(item.strip())
     return tuple(output)
+
+
+def _optional_bool(
+    payload: Mapping[str, Any],
+    *keys: str,
+    default: bool,
+) -> bool:
+    for key in keys:
+        if key in payload:
+            value = payload[key]
+            if not isinstance(value, bool):
+                raise TypeError(f"{key} must be a boolean")
+            return value
+    return default
 
 
 def _normalize_key_name(key: str) -> str:
@@ -2052,6 +2496,7 @@ _PUBLIC_METADATA_FIELDS = {
     "frontmost_app": "frontmostApp",
     "frontmost_bundle_id": "frontmostBundleId",
     "window_title": "windowTitle",
+    "accessibility": "accessibility",
 }
 
 

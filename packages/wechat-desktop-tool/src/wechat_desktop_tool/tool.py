@@ -23,11 +23,13 @@ from app_control_protocol.json_types import JsonValue
 
 from .commands import WECHAT_TOOL, wechat_command
 from .models import (
+    WECHAT_WINDOW_SCHEMA,
     WeChatDesktopConfig,
     WeChatOperation,
     WeChatVisibleMessage,
     wechat_message_hash,
 )
+from .window_model import build_wechat_window_model
 
 if TYPE_CHECKING:
     from app_control_protocol import AppControlConfig
@@ -54,6 +56,22 @@ _INPUT_NOT_FOCUSED_MARKERS = (
     "text field not focused",
     "no focused input",
     "editable target is not focused",
+)
+_SEARCH_FOCUS_MARKERS = (
+    "search",
+    "axsearch",
+    "搜索",
+    "搜一搜",
+    "查找",
+)
+_CHAT_INPUT_MARKERS = (
+    "message input",
+    "chat input",
+    "type a message",
+    "send message",
+    "输入消息",
+    "聊天输入",
+    "消息输入",
 )
 
 
@@ -148,6 +166,21 @@ class WeChatDesktopTool:
         command = self._command("open_wechat")
         return self.run_command(command)
 
+    def inspect_window(
+        self,
+        *,
+        include_raw: bool = False,
+        include_actionables: bool = True,
+    ) -> ToolObservation:
+        command = self._command(
+            "inspect_window",
+            {
+                "includeRaw": include_raw,
+                "includeActionables": include_actionables,
+            },
+        )
+        return self.run_command(command)
+
     def focus_contact(self, contact: str) -> ToolObservation:
         command = self._command("focus_contact", {"contact": contact})
         return self.run_command(command)
@@ -211,6 +244,8 @@ class WeChatDesktopTool:
             operation = command.operation
             if operation == "open_wechat":
                 return self._open_wechat(command, phase_events=phase_events)
+            if operation == "inspect_window":
+                return self._inspect_window(command, phase_events=phase_events)
             if operation == "focus_contact":
                 return self._focus_contact(command, phase_events=phase_events)
             if operation == "observe_current_chat":
@@ -321,6 +356,100 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
+    def _inspect_window(
+        self,
+        command: ToolCommand,
+        *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        include_raw = _bool_input(command, "includeRaw", "include_raw", default=False)
+        include_actionables = _bool_input(
+            command,
+            "includeActionables",
+            "include_actionables",
+            default=True,
+        )
+        evidence: dict[str, JsonValue] = {}
+        opened = self._app_control_command(
+            command,
+            phase="open_wechat",
+            operation="open_app",
+            input=self._open_app_input(),
+            phase_events=phase_events,
+        )
+        evidence["open_wechat"] = _inspect_window_observe_evidence(
+            opened,
+            include_raw=False,
+        )
+        if not opened.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_open_failed",
+                opened,
+                evidence=evidence,
+            )
+        observed = self._app_control_command(
+            command,
+            phase="inspect_window",
+            operation="observe",
+            input=self._target_app_input(
+                includeAccessibility=True,
+                includeAccessibilityTree=True,
+                includeVisibleText=True,
+            ),
+            phase_events=phase_events,
+        )
+        evidence["observe"] = _inspect_window_observe_evidence(
+            observed,
+            include_raw=include_raw,
+        )
+        if not observed.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_not_ready",
+                observed,
+                evidence=evidence,
+            )
+        identity_failure = _wechat_identity_failure(
+            command,
+            self._config,
+            observed,
+            evidence=evidence,
+        )
+        if identity_failure is not None:
+            return identity_failure
+        login_failure = _wechat_login_failure(
+            command,
+            self._config,
+            observed,
+            evidence=evidence,
+        )
+        if login_failure is not None:
+            return login_failure
+        window, normalization = build_wechat_window_model(
+            self._config,
+            observed,
+            include_actionables=include_actionables,
+        )
+        payload: dict[str, JsonValue] = {
+            "schema": WECHAT_WINDOW_SCHEMA,
+            "window": window.to_dict(),
+            "includeRaw": include_raw,
+            "includeActionables": include_actionables,
+            "normalization": normalization,
+            "wechatEnvironment": _wechat_environment(self._config, observed),
+        }
+        if include_raw:
+            payload["rawObservation"] = observed.observation
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Inspected WeChat window.",
+            observation=payload,
+            evidence=evidence,
+        )
+
     def _focus_contact(
         self,
         command: ToolCommand,
@@ -384,6 +513,14 @@ class WeChatDesktopTool:
                 ),
             ),
             (
+                "verify_search_focus",
+                "observe",
+                self._target_app_input(
+                    includeAccessibility=True,
+                    includeVisibleText=True,
+                ),
+            ),
+            (
                 "select_search_text",
                 "hotkey",
                 self._target_app_input(
@@ -422,6 +559,15 @@ class WeChatDesktopTool:
                     result,
                     evidence=evidence,
                 )
+            if phase == "verify_search_focus":
+                search_focus_failure = _search_focus_failure(
+                    command,
+                    contact,
+                    result,
+                    evidence=evidence,
+                )
+                if search_focus_failure is not None:
+                    return search_focus_failure
             if phase in {"type_contact", "select_contact"}:
                 ambiguity_failure = _contact_ambiguity_failure(
                     command,
@@ -898,6 +1044,62 @@ def _with_timing(
     return ToolObservation.from_dict(payload)
 
 
+def _inspect_window_observe_evidence(
+    observation: ToolObservation,
+    *,
+    include_raw: bool,
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {
+        "commandId": observation.command_id,
+        "tool": observation.tool,
+        "operation": observation.operation,
+        "status": observation.status.value,
+        "success": observation.success,
+        "summary": observation.summary,
+    }
+    if observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    if include_raw:
+        payload["observation"] = observation.observation
+        if observation.evidence:
+            payload["evidence"] = observation.evidence
+        return payload
+
+    for output_key, source_keys in (
+        ("frontmostApp", ("frontmostApp", "frontmost_app", "appName", "app_name")),
+        (
+            "frontmostBundleId",
+            ("frontmostBundleId", "frontmost_bundle_id", "bundleId", "bundle_id"),
+        ),
+        ("windowTitle", ("windowTitle", "window_title", "title")),
+        ("snapshotId", ("snapshotId", "snapshot_id")),
+    ):
+        value = _string_from_observation(observation, *source_keys)
+        if value is not None:
+            payload[output_key] = value
+
+    accessibility = _mapping_from_observation(observation, "accessibility")
+    if accessibility is not None:
+        payload["accessibility"] = _public_accessibility_status(accessibility)
+    return payload
+
+
+def _public_accessibility_status(
+    accessibility: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {}
+    available = accessibility.get("available")
+    if isinstance(available, bool):
+        payload["available"] = available
+    elif accessibility:
+        payload["available"] = True
+    for key in ("failureKind", "message", "timeoutSeconds"):
+        value = accessibility.get(key)
+        if isinstance(value, str | int | float | bool):
+            payload[key] = value
+    return payload
+
+
 def _safe_app_control_observation(
     observation: ToolObservation,
 ) -> dict[str, JsonValue]:
@@ -1102,6 +1304,20 @@ def _string_from_observation(
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+    return None
+
+
+def _int_from_observation(
+    observation: ToolObservation,
+    *keys: str,
+) -> int | None:
+    for payload in (observation.observation, observation.evidence):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                return value
     return None
 
 
@@ -1330,6 +1546,206 @@ def _contact_ambiguity_failure(
         observation=observation_payload,
         evidence=evidence,
     )
+
+
+def _search_focus_failure(
+    command: ToolCommand,
+    contact: str,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation | None:
+    assessment = _search_focus_assessment(observation)
+    state = assessment.get("state")
+    if state in {"verified", "unknown"}:
+        return None
+    return _failure(
+        command,
+        status=ToolStatus.NOT_READY,
+        failure_kind="search_not_focused",
+        message=(
+            "WeChat search field is not focused after the search hotkey; "
+            "refusing to type the contact into the current chat."
+        ),
+        recovery_hint="Click WeChat search manually or adjust search_hotkey, then retry.",
+        retryable=True,
+        observation={
+            "requestedContact": contact,
+            "searchFocus": assessment,
+        },
+        evidence=evidence,
+    )
+
+
+def _search_focus_assessment(observation: ToolObservation) -> dict[str, JsonValue]:
+    accessibility = _mapping_from_observation(observation, "accessibility")
+    if accessibility is None:
+        return {"state": "unknown", "reason": "no_accessibility_snapshot"}
+    if accessibility.get("available") is False:
+        payload: dict[str, JsonValue] = {
+            "state": "unknown",
+            "reason": "accessibility_snapshot_unavailable",
+        }
+        failure_kind = accessibility.get("failureKind")
+        if isinstance(failure_kind, str):
+            payload["failureKind"] = failure_kind
+        message = accessibility.get("message")
+        if isinstance(message, str):
+            payload["message"] = message
+        return payload
+    focused = _mapping_value(accessibility.get("focusedElement"))
+    if focused is None:
+        return {"state": "unknown", "reason": "no_focused_element"}
+    focused_payload = _public_accessibility_element(focused)
+    if not _is_text_like_accessibility_element(focused):
+        return {
+            "state": "not_search",
+            "reason": "focused_element_is_not_text_input",
+            "focusedElement": focused_payload,
+        }
+    if _accessibility_element_contains(focused, _SEARCH_FOCUS_MARKERS):
+        return {
+            "state": "verified",
+            "reason": "focused_element_has_search_marker",
+            "focusedElement": focused_payload,
+        }
+    if _accessibility_element_contains(focused, _CHAT_INPUT_MARKERS):
+        return {
+            "state": "not_search",
+            "reason": "focused_element_looks_like_chat_input",
+            "focusedElement": focused_payload,
+        }
+    position = _focused_text_field_position(focused, accessibility)
+    if position == "top":
+        return {
+            "state": "verified",
+            "reason": "focused_text_field_is_top_candidate",
+            "focusedElement": focused_payload,
+        }
+    if position == "bottom":
+        return {
+            "state": "not_search",
+            "reason": "focused_text_field_is_bottom_candidate",
+            "focusedElement": focused_payload,
+        }
+    return {
+        "state": "unknown",
+        "reason": "focused_text_field_is_not_identifiable",
+        "focusedElement": focused_payload,
+    }
+
+
+def _mapping_from_observation(
+    observation: ToolObservation,
+    key: str,
+) -> dict[str, JsonValue] | None:
+    for payload in (observation.observation, observation.evidence):
+        mapped = _mapping_value(payload.get(key))
+        if mapped is not None:
+            return mapped
+    return None
+
+
+def _mapping_value(value: object) -> dict[str, JsonValue] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _public_accessibility_element(
+    element: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {}
+    for key in (
+        "role",
+        "roleDescription",
+        "name",
+        "description",
+        "title",
+        "focused",
+        "frame",
+    ):
+        value = element.get(key)
+        if isinstance(value, str | bool | dict):
+            payload[key] = value
+    index = element.get("index")
+    if isinstance(index, int) and not isinstance(index, bool):
+        payload["index"] = index
+    return payload
+
+
+def _is_text_like_accessibility_element(element: dict[str, JsonValue]) -> bool:
+    text = _accessibility_element_text(element)
+    return any(
+        marker in text
+        for marker in (
+            "text",
+            "edit",
+            "search",
+            "axtextfield",
+            "axtextarea",
+            "axsearchfield",
+            "文本",
+            "输入",
+            "搜索",
+        )
+    )
+
+
+def _accessibility_element_contains(
+    element: dict[str, JsonValue],
+    markers: tuple[str, ...],
+) -> bool:
+    text = _accessibility_element_text(element)
+    return any(marker.casefold() in text for marker in markers)
+
+
+def _accessibility_element_text(element: dict[str, JsonValue]) -> str:
+    parts: list[str] = []
+    for key in ("role", "roleDescription", "name", "description", "title", "value"):
+        value = element.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    return " ".join(parts).casefold()
+
+
+def _focused_text_field_position(
+    focused: dict[str, JsonValue],
+    accessibility: dict[str, JsonValue],
+) -> str | None:
+    focused_y = _element_frame_int(focused, "y")
+    if focused_y is None:
+        return None
+    raw_fields = accessibility.get("textFields")
+    if not isinstance(raw_fields, list):
+        return None
+    y_values = [
+        y
+        for item in raw_fields
+        if isinstance(item, dict)
+        for y in [_element_frame_int(item, "y")]
+        if y is not None
+    ]
+    if len(y_values) < 2:
+        return None
+    top = min(y_values)
+    bottom = max(y_values)
+    if bottom <= top:
+        return None
+    threshold = max(20, int(round((bottom - top) * 0.25)))
+    if focused_y <= top + threshold:
+        return "top"
+    if focused_y >= bottom - threshold:
+        return "bottom"
+    return None
+
+
+def _element_frame_int(element: Mapping[str, JsonValue], key: str) -> int | None:
+    frame = element.get("frame")
+    if not isinstance(frame, dict):
+        return None
+    value = frame.get(key)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
 
 
 def _contact_matches_from_observation(

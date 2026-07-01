@@ -20,6 +20,8 @@ from app_control_protocol import (
     validate_protocol_payload,
 )
 
+from .commands import WECHAT_TOOL
+from .models import wechat_message_hash
 from .tool import WeChatDesktopTool
 
 
@@ -29,11 +31,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     examples = subcommands.add_parser("examples", help="runnable examples")
     example_commands = examples.add_subparsers(dest="example_command")
     _add_send_message_parser(example_commands)
+    _add_inspect_window_parser(example_commands)
 
     args = parser.parse_args(argv)
     if args.command == "examples" and args.example_command == "send-message":
         try:
             return _run_send_message_example(args, parser)
+        except (RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+    if args.command == "examples" and args.example_command == "inspect-window":
+        try:
+            return _run_inspect_window_example(args, parser)
         except (RuntimeError, ValueError) as exc:
             parser.error(str(exc))
     parser.print_help()
@@ -56,6 +64,50 @@ def _add_send_message_parser(
     send.add_argument("--dry-run", action="store_true")
     send.add_argument("--submit", action="store_true")
     send.add_argument("--verify-after-submit", action="store_true")
+    send.add_argument(
+        "--assume-current-chat",
+        action="store_true",
+        help=(
+            "assume the currently open WeChat chat is the requested contact "
+            "when the window title cannot verify it"
+        ),
+    )
+    send.add_argument(
+        "--allow-focus-select",
+        action="store_true",
+        help=(
+            "allow the example to press the configured submit key to select a "
+            "contact search result"
+        ),
+    )
+
+
+def _add_inspect_window_parser(
+    subcommands: argparse._SubParsersAction[object],
+) -> None:
+    inspect = subcommands.add_parser(
+        "inspect-window",
+        help="open WeChat, inspect the current window, and emit JSON",
+    )
+    inspect.add_argument("--config")
+    inspect.add_argument("--socket-path")
+    inspect.add_argument("--token")
+    inspect.add_argument("--token-file")
+    inspect.add_argument("--dry-run", action="store_true")
+    inspect.add_argument(
+        "--include-raw",
+        action="store_true",
+        help="include the raw app-control observe payload in the output",
+    )
+    inspect.add_argument(
+        "--no-actionables",
+        action="store_true",
+        help="omit the flattened actionable region list from the window model",
+    )
+    inspect.add_argument(
+        "--output",
+        help="write the full JSON result to this file; use '-' or omit for stdout",
+    )
 
 
 def _run_send_message_example(
@@ -64,16 +116,61 @@ def _run_send_message_example(
 ) -> int:
     app_control = _app_control_for_args(args, parser)
     tool = WeChatDesktopTool.from_config(app_control, args.config)
+    is_dry_run = isinstance(app_control, DryRunAppControl)
+    if (
+        args.allow_focus_select
+        and not is_dry_run
+        and _is_known_unsafe_search_hotkey(tool.config.search_hotkey)
+    ):
+        output = _unsafe_focus_select_output(args, tool.config.search_hotkey)
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 1
+    allow_focus_select = args.allow_focus_select or is_dry_run
     if args.submit:
-        result = tool.send_message(
-            contact=args.contact,
-            message=args.message,
-            verify_after_submit=args.verify_after_submit,
-        )
+        if allow_focus_select:
+            result = tool.send_message(
+                contact=args.contact,
+                message=args.message,
+                verify_after_submit=args.verify_after_submit,
+            )
+        else:
+            focus = _focus_current_chat_for_example(
+                tool,
+                args.contact,
+                assume_current_chat=args.assume_current_chat,
+            )
+            if focus.success:
+                draft = tool.draft_message(args.message)
+                if draft.success:
+                    submitted = tool.submit_draft()
+                    result = (
+                        _send_current_chat_success(
+                            contact=args.contact,
+                            message=args.message,
+                            verify_after_submit=args.verify_after_submit,
+                            focus=focus,
+                            draft=draft,
+                            submitted=submitted,
+                        )
+                        if submitted.success
+                        else _nested_example_failure("submit_draft", submitted)
+                    )
+                else:
+                    result = _nested_example_failure("draft_message", draft)
+            else:
+                result = _nested_example_failure("focus_contact", focus)
         output: dict[str, Any] = {"result": result.to_dict()}
         success = result.success
     else:
-        focus = tool.focus_contact(args.contact)
+        focus = (
+            tool.focus_contact(args.contact)
+            if allow_focus_select
+            else _focus_current_chat_for_example(
+                tool,
+                args.contact,
+                assume_current_chat=args.assume_current_chat,
+            )
+        )
         draft = (
             tool.draft_message(args.message)
             if focus.success
@@ -98,6 +195,261 @@ def _run_send_message_example(
         ]
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0 if success else 1
+
+
+def _run_inspect_window_example(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> int:
+    app_control = _app_control_for_args(args, parser)
+    tool = WeChatDesktopTool.from_config(app_control, args.config)
+    result = tool.inspect_window(
+        include_raw=args.include_raw,
+        include_actionables=not args.no_actionables,
+    )
+    output: dict[str, Any] = {"result": result.to_dict()}
+    if isinstance(app_control, DryRunAppControl):
+        output["appControlCommands"] = [
+            command.to_dict() for command in app_control.commands
+        ]
+
+    output_json = json.dumps(output, ensure_ascii=False, indent=2)
+    if args.output and args.output != "-":
+        output_path = Path(args.output).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output_json + "\n", encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "output": str(output_path),
+                    "success": result.success,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(output_json)
+    return 0 if result.success else 1
+
+
+def _focus_current_chat_for_example(
+    tool: WeChatDesktopTool,
+    contact: str,
+    *,
+    assume_current_chat: bool = False,
+) -> ToolObservation:
+    opened = tool.open_wechat()
+    evidence = {"open_wechat": opened.to_dict()}
+    if not opened.success:
+        return ToolObservation.failure(
+            command_id="wechat-example-focus-current-chat",
+            tool=WECHAT_TOOL,
+            operation="focus_contact",
+            status=opened.status,
+            error=ToolError(
+                failure_kind=opened.failure_kind or "wechat_open_failed",
+                message=opened.summary,
+                retryable=opened.retryable or False,
+                phase="focus_contact",
+                operation="focus_contact",
+                evidence=evidence,
+            ),
+            summary="Could not verify current WeChat chat.",
+        )
+    current_chat = _string_from_mapping(
+        opened.observation,
+        "currentChatTitle",
+        "current_chat_title",
+        "windowTitle",
+        "window_title",
+    )
+    confidence = _contact_confidence(contact, current_chat)
+    if current_chat is not None and confidence >= 0.9:
+        return ToolObservation.ok(
+            command_id="wechat-example-focus-current-chat",
+            tool=WECHAT_TOOL,
+            operation="focus_contact",
+            summary="Current WeChat chat already matches requested contact.",
+            observation={
+                "focusedContact": contact,
+                "confidence": confidence,
+                "currentChatTitle": current_chat,
+                "autoSelectContact": False,
+            },
+            evidence=evidence,
+        )
+    if assume_current_chat:
+        return ToolObservation.ok(
+            command_id="wechat-example-focus-current-chat",
+            tool=WECHAT_TOOL,
+            operation="focus_contact",
+            summary="Assuming current WeChat chat matches requested contact.",
+            observation={
+                "focusedContact": contact,
+                "confidence": confidence,
+                "currentChatTitle": current_chat,
+                "autoSelectContact": False,
+                "assumedCurrentChat": True,
+            },
+            evidence=evidence,
+        )
+    current_chat_display = current_chat or "unknown"
+    return ToolObservation.failure(
+        command_id="wechat-example-focus-current-chat",
+        tool=WECHAT_TOOL,
+        operation="focus_contact",
+        status=ToolStatus.NOT_FOUND,
+        error=ToolError(
+            failure_kind="contact_not_focused",
+            message=(
+                "Current WeChat chat does not match requested contact: "
+                f"{current_chat_display}"
+            ),
+            recovery_hint=(
+                "Open the target chat manually, or rerun with "
+                "--allow-focus-select after confirming the search shortcut is safe "
+                "for this WeChat version."
+            ),
+            retryable=True,
+            phase="focus_contact",
+            operation="focus_contact",
+            evidence=evidence,
+        ),
+        summary="Current WeChat chat does not match requested contact.",
+        observation={
+            "focusedContact": None,
+            "requestedContact": contact,
+            "currentChatTitle": current_chat,
+            "autoSelectContact": False,
+        },
+    )
+
+
+def _unsafe_focus_select_output(
+    args: argparse.Namespace,
+    search_hotkey: tuple[str, ...],
+) -> dict[str, Any]:
+    focus = ToolObservation.failure(
+        command_id="wechat-example-focus-select-disabled",
+        tool=WECHAT_TOOL,
+        operation="focus_contact",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="unsafe_search_hotkey",
+            message=(
+                "Configured WeChat contact search hotkey is unsafe for live "
+                f"contact selection: {'+'.join(search_hotkey)}."
+            ),
+            recovery_hint=(
+                "Set wechat.search_hotkey to Command+K, or open the target chat "
+                "manually and use --assume-current-chat."
+            ),
+            retryable=False,
+            phase="focus_contact",
+            operation="focus_contact",
+        ),
+        summary="Configured WeChat contact search hotkey is unsafe.",
+        observation={
+            "focusedContact": None,
+            "requestedContact": args.contact,
+            "autoSelectContact": False,
+            "searchHotkey": list(search_hotkey),
+        },
+    )
+    if args.submit:
+        result = _nested_example_failure("focus_contact", focus)
+        return {"result": result.to_dict()}
+    draft = ToolObservation.failure(
+        command_id="wechat-example-draft-skipped",
+        tool=WECHAT_TOOL,
+        operation="draft_message",
+        status=ToolStatus.FAILED,
+        error=ToolError(failure_kind="focus_failed", message=focus.summary),
+        summary="Draft skipped because focus_contact failed.",
+    )
+    return {
+        "submitted": False,
+        "focus": focus.to_dict(),
+        "draft": draft.to_dict(),
+    }
+
+
+def _is_known_unsafe_search_hotkey(keys: tuple[str, ...]) -> bool:
+    return tuple(_key_lookup_name(key) for key in keys) == ("command", "f")
+
+
+def _nested_example_failure(phase: str, observation: ToolObservation) -> ToolObservation:
+    return ToolObservation.failure(
+        command_id=f"wechat-example-{phase}-failed",
+        tool=WECHAT_TOOL,
+        operation="send_message",
+        status=observation.status,
+        error=ToolError(
+            failure_kind=observation.failure_kind or f"{phase}_failed",
+            message=observation.summary,
+            recovery_hint=observation.recovery_hint,
+            retryable=observation.retryable or False,
+            phase=phase,
+            operation=observation.operation,
+            evidence={phase: observation.to_dict()},
+        ),
+        summary=f"Send-message example failed during {phase}.",
+    )
+
+
+def _send_current_chat_success(
+    *,
+    contact: str,
+    message: str,
+    verify_after_submit: bool,
+    focus: ToolObservation,
+    draft: ToolObservation,
+    submitted: ToolObservation,
+) -> ToolObservation:
+    return ToolObservation.ok(
+        command_id="wechat-example-send-current-chat",
+        tool=WECHAT_TOOL,
+        operation="send_message",
+        summary="Submitted WeChat message in the current verified chat.",
+        observation={
+            "focusedContact": contact,
+            "submitted": True,
+            "messageHash": wechat_message_hash(message),
+            "messageChars": len(message),
+            "verificationRequested": verify_after_submit,
+            "autoSelectContact": False,
+        },
+        evidence={
+            "focus": focus.to_dict(),
+            "draft": draft.to_dict(),
+            "submit": submitted.to_dict(),
+        },
+    )
+
+
+def _string_from_mapping(payload: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
+    if current_chat_title is None:
+        return 0.0
+    normalized_contact = contact.casefold()
+    normalized_title = current_chat_title.casefold()
+    if normalized_contact == normalized_title:
+        return 1.0
+    if normalized_contact in normalized_title or normalized_title in normalized_contact:
+        return 0.95
+    return 0.0
+
+
+def _key_lookup_name(key: str) -> str:
+    return key.strip().replace("-", "_").replace(" ", "_").lower()
 
 
 class DryRunAppControl:

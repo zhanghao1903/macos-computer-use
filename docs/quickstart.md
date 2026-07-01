@@ -120,13 +120,15 @@ WECHAT_TOOL_DRY_RUN=1 \
 python -m wechat_desktop_tool.examples.wechat_smoke
 ```
 
-Then run the real focus/draft smoke through the local service:
+Then open the target chat in WeChat and run the real focus/draft smoke through
+the local service:
 
 ```bash
 WECHAT_TOOL_CONTACT="File Transfer" \
 WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
 WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
 WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_ASSUME_CURRENT_CHAT=1 \
 python -m wechat_desktop_tool.examples.wechat_smoke \
   > ./wechat-focus-draft-smoke.json
 ```
@@ -138,9 +140,17 @@ environment variables.
 Expected result:
 
 - WeChat opens or is focused.
-- The controlled contact is selected.
+- The current chat already matches the controlled contact.
 - The message appears as a draft.
 - The report has `submitted` set to `false`.
+
+The real smoke does not press Return to select a searched contact by default.
+That prevents a misfocused search shortcut from sending text in the current
+chat. `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1` means you manually verified that the
+currently open chat is the requested contact. Live automated contact switching
+requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1` and
+`wechat.search_hotkey = ["Command", "K"]`; the known-unsafe `Command+F`
+setting is rejected before any keyboard action is sent.
 
 Submitting is intentionally outside the quickstart. Run submit smoke only after
 the caller has completed its own authorization policy and set

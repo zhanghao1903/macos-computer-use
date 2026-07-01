@@ -24,7 +24,14 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development :: Libraries :: Python Modules",
-"Typing :: Typed",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+accessibility = [
+  "pyobjc-core>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

@@ -10,6 +10,9 @@ WECHAT_NOT_LOGGED_IN = "wechat_not_logged_in"
 WECHAT_WINDOW_UNAVAILABLE = "wechat_window_unavailable"
 CONTACT_NOT_FOUND = "contact_not_found"
 CONTACT_AMBIGUOUS = "contact_ambiguous"
+CONTACT_NOT_FOCUSED = "contact_not_focused"
+SEARCH_NOT_FOCUSED = "search_not_focused"
+UNSAFE_SEARCH_HOTKEY = "unsafe_search_hotkey"
 INPUT_NOT_FOCUSED = "input_not_focused"
 DRAFT_FAILED = "draft_failed"
 SUBMIT_FAILED = "submit_failed"
@@ -31,6 +34,9 @@ WECHAT_FAILURE_KINDS = (
     WECHAT_WINDOW_UNAVAILABLE,
     CONTACT_NOT_FOUND,
     CONTACT_AMBIGUOUS,
+    CONTACT_NOT_FOCUSED,
+    SEARCH_NOT_FOCUSED,
+    UNSAFE_SEARCH_HOTKEY,
     INPUT_NOT_FOCUSED,
     DRAFT_FAILED,
     SUBMIT_FAILED,

@@ -40,13 +40,20 @@ Expected:
 
 ## Focus And Draft Smoke
 
-This focuses the contact and drafts text, but does not submit:
+This verifies the current WeChat chat and drafts text, but does not submit.
+Open the target chat manually before running it. By default the smoke does not
+press Return to select a searched contact, because if WeChat search is not
+focused that key can submit text in the current chat input.
+If your WeChat window title is generic, for example `微信 (聊天)`, set
+`WECHAT_TOOL_ASSUME_CURRENT_CHAT=1` after manually confirming the current chat
+is the requested contact.
 
 ```bash
 WECHAT_TOOL_CONTACT="File Transfer" \
 WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
 WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
 WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_ASSUME_CURRENT_CHAT=1 \
 python -m wechat_desktop_tool.examples.wechat_smoke \
   > ./wechat-focus-draft-smoke.json
 ```
@@ -58,11 +65,26 @@ If `./app-control.toml` already contains `[helper] endpoint` and optional
 Expected:
 
 - WeChat is focused;
-- the contact chat is selected;
+- the current chat already matches the requested contact;
 - the message appears as a draft;
 - `submitted` is `false`.
 - the JSON report can be passed to release preflight with
   `--wechat-smoke-report`.
+
+To inspect the automated contact search and selection flow without touching
+WeChat, use dry-run mode:
+
+```bash
+WECHAT_TOOL_CONTACT="File Transfer" \
+WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
+WECHAT_TOOL_DRY_RUN=1 \
+WECHAT_TOOL_ALLOW_FOCUS_SELECT=1 \
+python -m wechat_desktop_tool.examples.wechat_smoke
+```
+
+Live automated contact selection requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`.
+The known-unsafe `Command+F` search hotkey is rejected for live runs; configure
+`wechat.search_hotkey = ["Command", "K"]` first.
 
 ## Submit Smoke
 
@@ -80,6 +102,37 @@ python -m wechat_desktop_tool.examples.wechat_smoke \
 
 `WECHAT_TOOL_CONFIG=./app-control.toml` can also provide the local service
 endpoint and token for the submit smoke.
+
+The submit smoke submits only when the current chat already matches
+`WECHAT_TOOL_CONTACT`, or when `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1` explicitly
+records that the user manually verified the current chat:
+
+```bash
+WECHAT_TOOL_CONTACT="File Transfer" \
+WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_ASSUME_CURRENT_CHAT=1 \
+WECHAT_TOOL_ALLOW_SEND=1 \
+python -m wechat_desktop_tool.examples.wechat_smoke \
+  > ./wechat-submit-smoke.json
+```
+
+To switch to the specified contact before sending, explicitly opt into both
+contact selection and sending. This requires `wechat.search_hotkey` to be
+configured to `["Command", "K"]`; the known-unsafe `["Command", "F"]` setting is
+rejected before any keyboard action is sent:
+
+```bash
+WECHAT_TOOL_CONTACT="File Transfer" \
+WECHAT_TOOL_MESSAGE="hello from wechat-desktop-tool smoke" \
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_ALLOW_FOCUS_SELECT=1 \
+WECHAT_TOOL_ALLOW_SEND=1 \
+python -m wechat_desktop_tool.examples.wechat_smoke \
+  > ./wechat-submit-smoke.json
+```
 
 Optional visible-message verification:
 

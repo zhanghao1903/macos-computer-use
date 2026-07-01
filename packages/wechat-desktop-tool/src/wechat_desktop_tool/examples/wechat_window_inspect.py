@@ -1,4 +1,4 @@
-"""Manual WeChat Desktop smoke for wechat-desktop-tool."""
+"""Manual WeChat window inspection example for wechat-desktop-tool."""
 
 from __future__ import annotations
 
@@ -9,24 +9,17 @@ import sys
 from wechat_desktop_tool.cli import main as wechat_cli_main
 
 
+DEFAULT_OUTPUT = "./wechat-window-inspect.json"
+
+
 def main(env: Mapping[str, str] | None = None) -> int:
     values = os.environ if env is None else env
-    contact = values.get("WECHAT_TOOL_CONTACT", "").strip()
-    if not contact:
-        print("WECHAT_TOOL_CONTACT is required", file=sys.stderr)
-        return 2
-
-    message = values.get(
-        "WECHAT_TOOL_MESSAGE",
-        "hello from wechat-desktop-tool smoke",
-    )
+    output = values.get("WECHAT_TOOL_OUTPUT", "").strip() or DEFAULT_OUTPUT
     argv = [
         "examples",
-        "send-message",
-        "--contact",
-        contact,
-        "--message",
-        message,
+        "inspect-window",
+        "--output",
+        output,
     ]
 
     config = values.get("WECHAT_TOOL_CONFIG", "").strip()
@@ -59,22 +52,20 @@ def main(env: Mapping[str, str] | None = None) -> int:
         elif token:
             argv.extend(["--token", token])
 
-    if _truthy(values.get("WECHAT_TOOL_ALLOW_SUBMIT")) or _truthy(
-        values.get("WECHAT_TOOL_ALLOW_SEND")
-    ):
-        argv.append("--submit")
-        if _truthy(values.get("WECHAT_TOOL_VERIFY_AFTER_SUBMIT")):
-            argv.append("--verify-after-submit")
-    if _truthy(values.get("WECHAT_TOOL_ASSUME_CURRENT_CHAT")):
-        argv.append("--assume-current-chat")
-    if _truthy(values.get("WECHAT_TOOL_ALLOW_FOCUS_SELECT")):
-        argv.append("--allow-focus-select")
+    if _truthy(values.get("WECHAT_TOOL_INCLUDE_RAW")):
+        argv.append("--include-raw")
+    if _falsey(values.get("WECHAT_TOOL_INCLUDE_ACTIONABLES")):
+        argv.append("--no-actionables")
 
     return wechat_cli_main(argv)
 
 
 def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _falsey(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"0", "false", "no", "off"}
 
 
 if __name__ == "__main__":

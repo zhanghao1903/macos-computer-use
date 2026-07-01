@@ -32,6 +32,7 @@ class AppControlConfigTests(unittest.TestCase):
 
         self.assertEqual(config.logging.level, "info")
         self.assertTrue(config.logging.redact_text)
+        self.assertIsNone(config.logging.raw_data_log_path)
         self.assertEqual(config.computer_use.backend, "direct")
         self.assertEqual(config.computer_use.allowed_app_bundle_ids, {})
         self.assertEqual(config.computer_use.allowed_app_identities(), {})
@@ -39,7 +40,7 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.helper.allowed_apps, ())
         self.assertEqual(config.wechat.app_name, "WeChat")
         self.assertEqual(config.wechat.app_control_tool, "macos.computer_use")
-        self.assertEqual(config.wechat.search_hotkey, ("Command", "F"))
+        self.assertEqual(config.wechat.search_hotkey, ("Command", "K"))
         self.assertEqual(config.wechat.search_clear_hotkey, ("Command", "A"))
         self.assertEqual(config.wechat.clear_key, "Delete")
         self.assertEqual(config.wechat.submit_key, "Return")
@@ -47,7 +48,11 @@ class AppControlConfigTests(unittest.TestCase):
     def test_config_from_dict_parses_sections(self) -> None:
         config = AppControlConfig.from_dict(
             {
-                "logging": {"level": "debug", "json": True},
+                "logging": {
+                    "level": "debug",
+                    "json": True,
+                    "raw_data_log_path": "./app-control-rawdata.jsonl",
+                },
                 "computer_use": {
                     "backend": "helper",
                     "allowed_apps": ["WeChat", "TextEdit"],
@@ -76,6 +81,10 @@ class AppControlConfigTests(unittest.TestCase):
 
         self.assertEqual(config.logging.level, "debug")
         self.assertTrue(config.logging.json)
+        self.assertEqual(
+            config.logging.raw_data_log_path,
+            "./app-control-rawdata.jsonl",
+        )
         self.assertEqual(config.computer_use.backend, "helper")
         self.assertEqual(config.computer_use.allowed_apps, ("WeChat", "TextEdit"))
         self.assertEqual(
@@ -161,6 +170,7 @@ class AppControlConfigTests(unittest.TestCase):
             env={
                 "APP_CONTROL_LOG_JSON": "true",
                 "APP_CONTROL_LOG_EVENT_SINK": "stdout",
+                "APP_CONTROL_LOG_RAW_DATA_PATH": "/tmp/app-control-rawdata.jsonl",
                 "APP_CONTROL_COMPUTER_USE_BACKEND": "helper",
                 "APP_CONTROL_COMPUTER_USE_ALLOWED_APPS": "TextEdit, WeChat",
                 "APP_CONTROL_COMPUTER_USE_ALLOWED_APP_BUNDLE_IDS": (
@@ -184,6 +194,10 @@ class AppControlConfigTests(unittest.TestCase):
 
         self.assertTrue(config.logging.json)
         self.assertEqual(config.logging.event_sink, "stdout")
+        self.assertEqual(
+            config.logging.raw_data_log_path,
+            "/tmp/app-control-rawdata.jsonl",
+        )
         self.assertEqual(config.computer_use.backend, "helper")
         self.assertEqual(config.computer_use.allowed_apps, ("TextEdit", "WeChat"))
         self.assertEqual(

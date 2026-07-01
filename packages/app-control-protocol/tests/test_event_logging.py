@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from io import StringIO
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from app_control_protocol import (
@@ -58,6 +60,106 @@ class EventLoggingTests(unittest.TestCase):
         self.assertEqual(
             stream.getvalue().strip(),
             "started | cmd_2 | open_app | Started.",
+        )
+
+    def test_text_logging_includes_observation_window_details(self) -> None:
+        stream = StringIO()
+        observer = LoggingToolObserver(
+            config=LoggingConfig(json=False, redact_text=True),
+            stream=stream,
+        )
+
+        observer.on_event(
+            ToolEvent(
+                command_id="cmd_observe",
+                seq=1,
+                event_type="observation",
+                phase="observe",
+                status="ok",
+                summary="Frontmost app: WeChat.",
+                data={
+                    "observation": {
+                        "schema": "app_control.observation.v1",
+                        "commandId": "cmd_inner",
+                        "tool": "macos.computer_use",
+                        "operation": "observe",
+                        "status": "ok",
+                        "success": True,
+                        "summary": "Frontmost app: WeChat.",
+                        "observation": {
+                            "frontmostApp": "WeChat",
+                            "frontmostBundleId": "com.tencent.xinWeChat",
+                            "windowTitle": "微信 (聊天)",
+                            "accessibility": {
+                                "available": False,
+                                "failureKind": "accessibility_snapshot_timeout",
+                            },
+                            "textExtract": "secret visible text",
+                        }
+                    }
+                },
+            )
+        )
+
+        line = stream.getvalue().strip()
+        self.assertIn("observation=", line)
+        self.assertIn("rawObservation=", line)
+        self.assertIn('"schema": "app_control.observation.v1"', line)
+        self.assertIn('"tool": "macos.computer_use"', line)
+        self.assertIn('"frontmostApp": "WeChat"', line)
+        self.assertIn('"windowTitle": "微信 (聊天)"', line)
+        self.assertIn('"accessibility"', line)
+        self.assertIn('"textExtract": "[redacted]"', line)
+        self.assertNotIn("secret visible text", line)
+
+    def test_raw_data_log_file_receives_unredacted_observation_envelope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_log_path = Path(tmpdir) / "app-control-rawdata.jsonl"
+            stream = StringIO()
+            observer = LoggingToolObserver(
+                config=LoggingConfig(
+                    json=False,
+                    redact_text=True,
+                    raw_data_log_path=str(raw_log_path),
+                ),
+                stream=stream,
+            )
+
+            observer.on_event(
+                ToolEvent(
+                    command_id="cmd_raw",
+                    seq=1,
+                    event_type="observation",
+                    phase="observe",
+                    status="ok",
+                    summary="Frontmost app: WeChat.",
+                    data={
+                        "observation": {
+                            "schema": "app_control.observation.v1",
+                            "commandId": "cmd_raw",
+                            "tool": "macos.computer_use",
+                            "operation": "observe",
+                            "status": "ok",
+                            "success": True,
+                            "summary": "Frontmost app: WeChat.",
+                            "observation": {
+                                "frontmostApp": "WeChat",
+                                "textExtract": "raw visible text",
+                            },
+                        }
+                    },
+                )
+            )
+
+            terminal_line = stream.getvalue()
+            raw_record = json.loads(raw_log_path.read_text(encoding="utf-8"))
+
+        self.assertIn('"textExtract": "[redacted]"', terminal_line)
+        self.assertEqual(raw_record["commandId"], "cmd_raw")
+        self.assertEqual(raw_record["phase"], "observe")
+        self.assertEqual(
+            raw_record["rawObservation"]["observation"]["textExtract"],
+            "raw visible text",
         )
 
     def test_build_logging_observer_accepts_app_config(self) -> None:

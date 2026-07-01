@@ -25,13 +25,17 @@ from app_control_protocol import (
     ToolStatus,
     validate_protocol_payload,
 )
+import wechat_desktop_tool.cli as cli_module
 from wechat_desktop_tool import (
+    WECHAT_WINDOW_SCHEMA,
     WECHAT_TOOL,
     WeChatDesktopConfig,
     WeChatDesktopTool,
+    WeChatWindow,
     build_wechat_tool,
     draft_message_command,
     focus_contact_command,
+    inspect_window_command,
     observe_current_chat_command,
     open_wechat_command,
     read_visible_messages_command,
@@ -93,6 +97,303 @@ class RecordingObserver:
         self.events.append(event)
 
 
+def _wechat_window_tree_fixture() -> dict[str, Any]:
+    def node(
+        path: str,
+        role: str,
+        *,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        description: str | None = None,
+        title: str | None = None,
+        value: object | None = None,
+        actions: list[str] | None = None,
+        children: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "path": path,
+            "AXRole": role,
+            "AXPosition": {"x": x, "y": y},
+            "AXSize": {"width": width, "height": height},
+            "children_count": len(children or []),
+        }
+        if description is not None:
+            payload["AXDescription"] = description
+        if title is not None:
+            payload["AXTitle"] = title
+        if value is not None:
+            payload["AXValue"] = value
+        if actions:
+            payload["actions"] = actions
+        if children is not None:
+            payload["children"] = children
+        return payload
+
+    def conversation_row(
+        index: int,
+        y: float,
+        description: str,
+    ) -> dict[str, Any]:
+        return node(
+            f"0/11/1/0/{index}",
+            "AXRow",
+            x=329,
+            y=y,
+            width=271,
+            height=68,
+            children=[
+                node(
+                    f"0/11/1/0/{index}/0",
+                    "AXCell",
+                    x=329,
+                    y=y,
+                    width=271,
+                    height=68,
+                    description=description,
+                    children=[],
+                )
+            ],
+        )
+
+    def message_row(index: int, y: float, text: str) -> dict[str, Any]:
+        return node(
+            f"0/11/4/0/0/{index}",
+            "AXRow",
+            x=599,
+            y=y,
+            width=977,
+            height=60,
+            children=[
+                node(
+                    f"0/11/4/0/0/{index}/0",
+                    "AXCell",
+                    x=620,
+                    y=y + 8,
+                    width=320,
+                    height=40,
+                    description=text,
+                    children=[],
+                )
+            ],
+        )
+
+    conversation_table = node(
+        "0/11/1/0",
+        "AXTable",
+        x=328,
+        y=91,
+        width=273,
+        height=1000,
+        children=[
+            conversation_row(
+                0,
+                92,
+                "文件传输助手,hello,09:00,置顶",
+            ),
+            conversation_row(
+                1,
+                160,
+                "目标联系人,最近消息,10:00,消息免打扰",
+            ),
+            conversation_row(
+                2,
+                1400,
+                "屏幕外联系人,不可见,10:30",
+            ),
+        ],
+    )
+    message_table = node(
+        "0/11/4/0/0",
+        "AXTable",
+        x=598,
+        y=123,
+        width=979,
+        height=700,
+        children=[
+            message_row(0, 160, "你好"),
+            message_row(1, 230, "收到"),
+        ],
+    )
+    chat_panel = node(
+        "0/11/4",
+        "AXSplitGroup",
+        x=599,
+        y=32,
+        width=977,
+        height=965,
+        children=[
+            node(
+                "0/11/4/0",
+                "AXScrollArea",
+                x=599,
+                y=123,
+                width=977,
+                height=659,
+                actions=["AXScrollDownByPage"],
+                children=[message_table],
+            ),
+            node(
+                "0/11/4/1",
+                "AXButton",
+                x=1535,
+                y=49,
+                width=26,
+                height=26,
+                description="个人卡片",
+                actions=["AXPress"],
+                children=[],
+            ),
+            node(
+                "0/11/4/2",
+                "AXStaticText",
+                x=624,
+                y=51,
+                width=111,
+                height=21,
+                value="目标联系人",
+                children=[],
+            ),
+            node(
+                "0/11/4/4",
+                "AXButton",
+                x=614,
+                y=818,
+                width=26,
+                height=26,
+                title="表情",
+                actions=["AXPress"],
+                children=[],
+            ),
+            node(
+                "0/11/4/10",
+                "AXButton",
+                x=654,
+                y=818,
+                width=26,
+                height=26,
+                title="附件",
+                actions=["AXPress"],
+                children=[],
+            ),
+            node(
+                "0/11/4/11",
+                "AXScrollArea",
+                x=605,
+                y=858,
+                width=965,
+                height=133,
+                children=[
+                    node(
+                        "0/11/4/11/0",
+                        "AXTextArea",
+                        x=605,
+                        y=858,
+                        width=965,
+                        height=133,
+                        title="目标联系人",
+                        value="草稿",
+                        actions=["AXShowMenu"],
+                        children=[],
+                    )
+                ],
+            ),
+        ],
+    )
+    main_split = node(
+        "0/11",
+        "AXSplitGroup",
+        x=329,
+        y=32,
+        width=1247,
+        height=965,
+        children=[
+            node(
+                "0/11/0",
+                "AXTextArea",
+                x=345,
+                y=50,
+                width=205,
+                height=26,
+                description="搜索",
+                children=[],
+            ),
+            node(
+                "0/11/1",
+                "AXScrollArea",
+                x=329,
+                y=92,
+                width=271,
+                height=905,
+                actions=["AXScrollDownByPage"],
+                children=[conversation_table],
+            ),
+            node(
+                "0/11/2",
+                "AXButton",
+                x=557,
+                y=49,
+                width=28,
+                height=28,
+                description="发起群聊",
+                actions=["AXPress"],
+                children=[],
+            ),
+            chat_panel,
+        ],
+    )
+    return node(
+        "0",
+        "AXWindow",
+        x=269,
+        y=32,
+        width=1307,
+        height=965,
+        title="微信 (聊天)",
+        actions=["AXRaise"],
+        children=[
+            node(
+                "0/1",
+                "AXRadioButton",
+                x=268,
+                y=159,
+                width=62,
+                height=34,
+                description="聊天",
+                value=1,
+                actions=["AXPress"],
+                children=[],
+            ),
+            node(
+                "0/2",
+                "AXRadioButton",
+                x=268,
+                y=207,
+                width=62,
+                height=34,
+                description="通讯录",
+                value=0,
+                actions=["AXPress"],
+                children=[],
+            ),
+            node(
+                "0/3",
+                "AXRadioButton",
+                x=268,
+                y=255,
+                width=62,
+                height=34,
+                description="收藏",
+                value=0,
+                actions=["AXPress"],
+                children=[],
+            ),
+            main_split,
+        ],
+    )
+
+
 class WeChatDesktopToolTests(unittest.TestCase):
     def test_command_builders_create_protocol_envelopes(self) -> None:
         commands = [
@@ -115,6 +416,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 timeout_ms=1234,
                 metadata={"caller": "unit-test"},
             ),
+            inspect_window_command(command_id="cmd_inspect"),
         ]
 
         for command in commands:
@@ -125,6 +427,9 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(commands[3].input["limit"], 5)
         self.assertEqual(commands[6].input["verifyAfterSubmit"], True)
         self.assertEqual(commands[7].timeout_ms, 1234)
+        self.assertEqual(commands[8].operation, "inspect_window")
+        self.assertEqual(commands[8].input["includeRaw"], False)
+        self.assertEqual(commands[8].input["includeActionables"], True)
 
     def test_command_builder_output_runs_through_tool(self) -> None:
         tool = WeChatDesktopTool(FakeAppControl())
@@ -137,11 +442,13 @@ class WeChatDesktopToolTests(unittest.TestCase):
     def test_developer_entrypoint_modules_are_available(self) -> None:
         from wechat_desktop_tool import WeChatVisibleMessage
         from wechat_desktop_tool import adapter, observations, recipes
+        from wechat_desktop_tool.models import WeChatWindow as ModelWeChatWindow
 
         app_control = FakeAppControl()
         tool = build_wechat_tool(app_control)
 
         self.assertIsInstance(tool, WeChatDesktopTool)
+        self.assertIs(WeChatWindow, ModelWeChatWindow)
         self.assertIs(adapter.build_wechat_tool, build_wechat_tool)
         self.assertIs(observations.WeChatVisibleMessage, WeChatVisibleMessage)
         self.assertIs(observations.ToolObservation, ToolObservation)
@@ -184,6 +491,122 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.observation["frontmostApp"], "WeChat")
         self.assertEqual(result.observation["windowTitle"], "WeChat")
         _assert_observation_timing(result)
+
+    def test_inspect_window_observes_accessibility_without_raw_by_default(self) -> None:
+        tree = _wechat_window_tree_fixture()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (聊天)",
+                        "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                        "accessibility": {
+                            "available": True,
+                            "treeAvailable": True,
+                            "focusedWindow": tree,
+                            "focusedElement": {
+                                "role": "AXTextArea",
+                                "description": "搜索",
+                            },
+                        },
+                    }
+                },
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.inspect_window()
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "inspect_window")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe"],
+        )
+        self.assertEqual(app_control.commands[1].input["includeAccessibility"], True)
+        self.assertEqual(
+            app_control.commands[1].input["includeAccessibilityTree"],
+            True,
+        )
+        self.assertEqual(app_control.commands[1].input["includeVisibleText"], True)
+        self.assertEqual(result.observation["schema"], WECHAT_WINDOW_SCHEMA)
+        self.assertEqual(result.observation["includeRaw"], False)
+        self.assertNotIn("rawObservation", result.observation)
+        window = result.observation["window"]
+        self.assertEqual(window["appName"], "WeChat")
+        self.assertEqual(
+            window["bundleId"],
+            "com.tencent.xinWeChat",
+        )
+        self.assertEqual(window["title"], "微信 (聊天)")
+        self.assertEqual(
+            window["snapshotId"],
+            "frontmost:WeChat:微信 (聊天)",
+        )
+        self.assertEqual(window["element"]["axPath"], "0")
+        self.assertEqual(window["element"]["role"], "AXWindow")
+        self.assertEqual(window["activeSection"], "chats")
+        self.assertEqual(
+            [item["label"] for item in window["navigation"]],
+            ["chats", "contacts", "favorites"],
+        )
+        self.assertEqual(window["navigation"][1]["id"], "nav.contacts")
+        self.assertEqual(window["navigation"][1]["element"]["axPath"], "0/2")
+        self.assertEqual(window["searchBox"]["placeholder"], "搜索")
+        self.assertEqual(window["searchBox"]["element"]["axPath"], "0/11/0")
+        conversation_rows = window["conversationList"]["rows"]
+        self.assertEqual(len(conversation_rows), 2)
+        self.assertEqual(conversation_rows[1]["displayName"], "目标联系人")
+        self.assertEqual(conversation_rows[1]["muted"], True)
+        self.assertEqual(window["chatPanel"]["title"], "目标联系人")
+        self.assertEqual(window["chatPanel"]["composer"]["draftText"], "草稿")
+        self.assertEqual(
+            [item["label"] for item in window["chatPanel"]["toolbarButtons"]],
+            ["表情", "附件"],
+        )
+        actionable_ids = {item["id"] for item in window["actionables"]}
+        self.assertIn("nav.contacts.press", actionable_ids)
+        self.assertIn("search.focus", actionable_ids)
+        self.assertIn("conversation.1.open", actionable_ids)
+        self.assertEqual(result.observation["normalization"]["status"], "normalized")
+        self.assertEqual(
+            result.evidence["observe"]["accessibility"],
+            {"available": True},
+        )
+
+    def test_inspect_window_can_include_raw_observation(self) -> None:
+        tree = _wechat_window_tree_fixture()
+        raw_observation = {
+            "frontmostApp": "WeChat",
+            "frontmostBundleId": "com.tencent.xinWeChat",
+            "windowTitle": "微信 (聊天)",
+            "accessibility": {
+                "available": True,
+                "treeAvailable": True,
+                "focusedWindow": tree,
+                "focusedElement": {
+                    "role": "AXTextArea",
+                    "description": "搜索",
+                },
+            },
+        }
+        app_control = FakeAppControl(
+            [
+                {},
+                {"observation": raw_observation},
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.inspect_window(include_raw=True)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["includeRaw"], True)
+        self.assertEqual(result.observation["rawObservation"], raw_observation)
+        self.assertEqual(result.evidence["observe"]["observation"], raw_observation)
 
     def test_open_wechat_reports_environment_diagnostics(self) -> None:
         app_control = FakeAppControl(
@@ -271,6 +694,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 {},
                 {},
                 {},
+                {},
                 {
                     "observation": {
                         "frontmostApp": "WeChat",
@@ -291,6 +715,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -298,16 +723,18 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "observe",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
+        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "K"])
         self.assertEqual(
             app_control.commands[2].input["bundleId"],
             "com.tencent.xinWeChat",
         )
-        self.assertEqual(app_control.commands[3].input["keys"], ["Command", "A"])
-        self.assertEqual(app_control.commands[4].input["key"], "Delete")
-        self.assertEqual(app_control.commands[5].input["text"], "File Transfer")
-        self.assertEqual(app_control.commands[6].input["key"], "Return")
-        self.assertEqual(app_control.commands[7].input["includeVisibleText"], True)
+        self.assertEqual(app_control.commands[3].input["includeAccessibility"], True)
+        self.assertEqual(app_control.commands[3].input["includeVisibleText"], True)
+        self.assertEqual(app_control.commands[4].input["keys"], ["Command", "A"])
+        self.assertEqual(app_control.commands[5].input["key"], "Delete")
+        self.assertEqual(app_control.commands[6].input["text"], "File Transfer")
+        self.assertEqual(app_control.commands[7].input["key"], "Return")
+        self.assertEqual(app_control.commands[8].input["includeVisibleText"], True)
         self.assertEqual(result.observation["currentChatTitle"], "File Transfer")
         self.assertEqual(result.observation["confidence"], 0.95)
 
@@ -321,6 +748,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         "frontmostBundleId": "com.tencent.xinWeChat",
                     }
                 },
+                {},
                 {},
                 {},
                 {},
@@ -351,15 +779,80 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
             ],
         )
 
+    def test_focus_contact_stops_when_accessibility_focus_is_chat_input(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {},
+                {},
+                {
+                    "observation": {
+                        "accessibility": {
+                            "available": True,
+                            "focusedElement": {
+                                "role": "AXTextArea",
+                                "roleDescription": "text area",
+                                "frame": {
+                                    "x": 520,
+                                    "y": 700,
+                                    "width": 460,
+                                    "height": 120,
+                                },
+                            },
+                            "textFields": [
+                                {
+                                    "role": "AXTextField",
+                                    "roleDescription": "search field",
+                                    "frame": {
+                                        "x": 80,
+                                        "y": 120,
+                                        "width": 240,
+                                        "height": 28,
+                                    },
+                                },
+                                {
+                                    "role": "AXTextArea",
+                                    "roleDescription": "text area",
+                                    "frame": {
+                                        "x": 520,
+                                        "y": 700,
+                                        "width": 460,
+                                        "height": 120,
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                },
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.focus_contact("Ada")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, ToolStatus.NOT_READY)
+        self.assertEqual(result.failure_kind, "search_not_focused")
+        self.assertEqual(
+            result.observation["searchFocus"]["reason"],
+            "focused_text_field_is_bottom_candidate",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "hotkey", "observe"],
+        )
+
     def test_focus_contact_fails_when_verified_chat_title_mismatches(self) -> None:
         app_control = FakeAppControl(
             [
+                {},
                 {},
                 {},
                 {},
@@ -388,6 +881,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
     def test_focus_contact_rejects_verified_non_wechat_window(self) -> None:
         app_control = FakeAppControl(
             [
+                {},
                 {},
                 {},
                 {},
@@ -590,6 +1084,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -603,6 +1098,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
     def test_send_message_preserves_submit_unknown_attempt_facts(self) -> None:
         app_control = FakeAppControl(
             [
+                {},
                 {},
                 {},
                 {},
@@ -654,6 +1150,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 {},
                 {},
                 {},
+                {},
                 {
                     "observation": {
                         "messages": [{"direction": "outgoing", "text": "hello"}]
@@ -677,6 +1174,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -692,6 +1190,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
     def test_send_message_can_verify_visible_text_extract_after_submit(self) -> None:
         app_control = FakeAppControl(
             [
+                {},
                 {},
                 {},
                 {},
@@ -1101,6 +1600,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ToolEventType.PROGRESS,
             ToolEventType.PROGRESS,
             ToolEventType.PROGRESS,
+            ToolEventType.PROGRESS,
             ToolEventType.OBSERVATION,
         ])
         self.assertEqual(
@@ -1109,6 +1609,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_wechat",
                 "verify_wechat_window",
                 "focus_search",
+                "verify_search_focus",
                 "select_search_text",
                 "clear_search_text",
                 "type_contact",
@@ -1164,12 +1665,13 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[2].input["bundleId"],
             "com.example.Weixin",
         )
-        self.assertEqual(app_control.commands[3].input["keys"], ["Command", "L"])
-        self.assertEqual(app_control.commands[4].input["key"], "Backspace")
-        self.assertEqual(app_control.commands[6].input["key"], "Enter")
-        self.assertEqual(app_control.commands[7].operation, "observe")
+        self.assertEqual(app_control.commands[3].input["includeAccessibility"], True)
+        self.assertEqual(app_control.commands[4].input["keys"], ["Command", "L"])
+        self.assertEqual(app_control.commands[5].input["key"], "Backspace")
+        self.assertEqual(app_control.commands[7].input["key"], "Enter")
+        self.assertEqual(app_control.commands[8].operation, "observe")
         self.assertEqual(
-            app_control.commands[7].input["bundleId"],
+            app_control.commands[8].input["bundleId"],
             "com.example.Weixin",
         )
         self.assertEqual(result.observation["bundleId"], "com.example.Weixin")
@@ -1218,6 +1720,7 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -1225,6 +1728,289 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 "observe",
                 "type_text",
             ],
+        )
+
+    def test_examples_send_message_live_default_does_not_auto_select_contact(
+        self,
+    ) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "windowTitle": "微信 (聊天)",
+                    }
+                },
+            ]
+        )
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = cli_module.main(
+                    [
+                        "examples",
+                        "send-message",
+                        "--contact",
+                        "Ada",
+                        "--message",
+                        "hello",
+                        "--socket-path",
+                        "/tmp/app-control.sock",
+                    ]
+                )
+        finally:
+            cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["submitted"], False)
+        self.assertEqual(payload["focus"]["failureKind"], "contact_not_focused")
+        self.assertFalse(payload["draft"]["success"])
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe"],
+        )
+
+    def test_examples_send_message_live_allows_focus_select_with_safe_hotkey(
+        self,
+    ) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl()
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = cli_module.main(
+                    [
+                        "examples",
+                        "send-message",
+                        "--contact",
+                        "Ada",
+                        "--message",
+                        "hello",
+                        "--socket-path",
+                        "/tmp/app-control.sock",
+                        "--allow-focus-select",
+                        "--submit",
+                    ]
+                )
+        finally:
+            cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["result"]["success"])
+        self.assertEqual(payload["result"]["observation"]["submitted"], True)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "hotkey",
+                "observe",
+                "hotkey",
+                "press_key",
+                "type_text",
+                "press_key",
+                "observe",
+                "type_text",
+                "press_key",
+            ],
+        )
+        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "K"])
+
+    def test_examples_send_message_live_rejects_unsafe_focus_select_hotkey(
+        self,
+    ) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl()
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "app-control.toml"
+            config_path.write_text(
+                "[wechat]\nsearch_hotkey = [\"Command\", \"F\"]\n",
+                encoding="utf-8",
+            )
+            try:
+                with redirect_stdout(stdout):
+                    exit_code = cli_module.main(
+                        [
+                            "examples",
+                            "send-message",
+                            "--contact",
+                            "Ada",
+                            "--message",
+                            "hello",
+                            "--socket-path",
+                            "/tmp/app-control.sock",
+                            "--config",
+                            str(config_path),
+                            "--allow-focus-select",
+                            "--submit",
+                        ]
+                    )
+            finally:
+                cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["result"]["failureKind"], "unsafe_search_hotkey")
+        self.assertEqual(
+            payload["result"]["error"]["evidence"]["focus_contact"]["observation"][
+                "searchHotkey"
+            ],
+            ["Command", "F"],
+        )
+        self.assertEqual(app_control.commands, [])
+
+    def test_examples_send_message_live_default_drafts_current_chat(self) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "windowTitle": "Ada - WeChat",
+                    }
+                },
+                {},
+            ]
+        )
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = cli_module.main(
+                    [
+                        "examples",
+                        "send-message",
+                        "--contact",
+                        "Ada",
+                        "--message",
+                        "hello",
+                        "--socket-path",
+                        "/tmp/app-control.sock",
+                    ]
+                )
+        finally:
+            cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["submitted"], False)
+        self.assertTrue(payload["focus"]["success"])
+        self.assertEqual(payload["focus"]["observation"]["autoSelectContact"], False)
+        self.assertTrue(payload["draft"]["success"])
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "type_text"],
+        )
+
+    def test_examples_send_message_live_can_assume_current_chat(self) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "windowTitle": "微信 (聊天)",
+                    }
+                },
+                {},
+            ]
+        )
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = cli_module.main(
+                    [
+                        "examples",
+                        "send-message",
+                        "--contact",
+                        "Ada",
+                        "--message",
+                        "hello",
+                        "--socket-path",
+                        "/tmp/app-control.sock",
+                        "--assume-current-chat",
+                    ]
+                )
+        finally:
+            cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["submitted"], False)
+        self.assertTrue(payload["focus"]["success"])
+        self.assertEqual(payload["focus"]["observation"]["assumedCurrentChat"], True)
+        self.assertEqual(payload["focus"]["observation"]["autoSelectContact"], False)
+        self.assertTrue(payload["draft"]["success"])
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "type_text"],
+        )
+
+    def test_examples_send_message_live_submit_wraps_current_chat_result(
+        self,
+    ) -> None:
+        stdout = StringIO()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "windowTitle": "Ada - WeChat",
+                    }
+                },
+                {},
+                {},
+            ]
+        )
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = cli_module.main(
+                    [
+                        "examples",
+                        "send-message",
+                        "--contact",
+                        "Ada",
+                        "--message",
+                        "hello",
+                        "--socket-path",
+                        "/tmp/app-control.sock",
+                        "--submit",
+                    ]
+                )
+        finally:
+            cli_module._app_control_for_args = original
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["result"]["operation"], "send_message")
+        self.assertEqual(payload["result"]["observation"]["submitted"], True)
+        self.assertEqual(
+            payload["result"]["observation"]["autoSelectContact"],
+            False,
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "type_text", "press_key"],
         )
 
     def test_examples_send_message_dry_run_requires_submit_flag(self) -> None:
@@ -1253,6 +2039,7 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -1262,6 +2049,71 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 "press_key",
             ],
         )
+
+    def test_examples_inspect_window_writes_output_file(self) -> None:
+        stdout = StringIO()
+        tree = _wechat_window_tree_fixture()
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (聊天)",
+                        "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                        "accessibility": {
+                            "available": True,
+                            "treeAvailable": True,
+                            "focusedWindow": tree,
+                        },
+                    }
+                },
+            ]
+        )
+        original = cli_module._app_control_for_args
+        cli_module._app_control_for_args = lambda args, parser: app_control
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output_path = Path(tmpdir) / "wechat-window.json"
+                with redirect_stdout(stdout):
+                    exit_code = cli_module.main(
+                        [
+                            "examples",
+                            "inspect-window",
+                            "--socket-path",
+                            "/tmp/app-control.sock",
+                            "--output",
+                            str(output_path),
+                        ]
+                    )
+                payload = json.loads(output_path.read_text(encoding="utf-8"))
+        finally:
+            cli_module._app_control_for_args = original
+
+        status = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(status["output"], str(output_path))
+        self.assertEqual(status["success"], True)
+        self.assertEqual(payload["result"]["operation"], "inspect_window")
+        self.assertEqual(
+            payload["result"]["observation"]["schema"],
+            WECHAT_WINDOW_SCHEMA,
+        )
+        self.assertEqual(
+            payload["result"]["observation"]["window"]["navigation"][1]["label"],
+            "contacts",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe"],
+        )
+        self.assertEqual(
+            app_control.commands[1].input["includeAccessibilityTree"],
+            True,
+        )
+        self.assertEqual(app_control.commands[1].input["includeVisibleText"], True)
 
 
 class WeChatDesktopSmokeScriptTests(unittest.TestCase):
@@ -1319,6 +2171,7 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -1351,6 +2204,7 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "hotkey",
+                "observe",
                 "hotkey",
                 "press_key",
                 "type_text",
@@ -1360,6 +2214,47 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
                 "press_key",
             ],
         )
+
+    def test_smoke_script_dry_run_can_switch_contact_and_submit(self) -> None:
+        module = _load_wechat_smoke_module()
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = module.main(
+                {
+                    "WECHAT_TOOL_CONTACT": "Ada",
+                    "WECHAT_TOOL_MESSAGE": "hello",
+                    "WECHAT_TOOL_DRY_RUN": "1",
+                    "WECHAT_TOOL_ALLOW_SEND": "1",
+                    "WECHAT_TOOL_ALLOW_FOCUS_SELECT": "1",
+                }
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["result"]["success"])
+        self.assertEqual(payload["result"]["observation"]["focusedContact"], "Ada")
+        self.assertEqual(payload["result"]["observation"]["submitted"], True)
+        self.assertEqual(
+            [command["operation"] for command in payload["appControlCommands"]],
+            [
+                "open_app",
+                "observe",
+                "hotkey",
+                "observe",
+                "hotkey",
+                "press_key",
+                "type_text",
+                "press_key",
+                "observe",
+                "type_text",
+                "press_key",
+            ],
+        )
+        self.assertEqual(payload["appControlCommands"][6]["input"]["text"], "Ada")
+        self.assertEqual(payload["appControlCommands"][7]["input"]["key"], "Return")
+        self.assertEqual(payload["appControlCommands"][9]["input"]["text"], "hello")
+        self.assertEqual(payload["appControlCommands"][10]["input"]["key"], "Return")
 
     def test_smoke_script_accepts_config_without_socket_path(self) -> None:
         module = _load_wechat_smoke_module()
@@ -1393,6 +2288,71 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
             ],
         )
 
+    def test_smoke_script_accepts_allow_focus_select_opt_in(self) -> None:
+        module = _load_wechat_smoke_module()
+        captured: list[list[str]] = []
+        original_cli_main = module.wechat_cli_main
+        module.wechat_cli_main = lambda argv: captured.append(list(argv)) or 0
+
+        try:
+            exit_code = module.main(
+                {
+                    "WECHAT_TOOL_CONTACT": "Ada",
+                    "WECHAT_TOOL_MESSAGE": "hello",
+                    "WECHAT_TOOL_CONFIG": "./app-control.toml",
+                    "WECHAT_TOOL_ALLOW_FOCUS_SELECT": "1",
+                }
+            )
+        finally:
+            module.wechat_cli_main = original_cli_main
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("--allow-focus-select", captured[0])
+
+    def test_smoke_script_accepts_switch_contact_submit_opt_in(self) -> None:
+        module = _load_wechat_smoke_module()
+        captured: list[list[str]] = []
+        original_cli_main = module.wechat_cli_main
+        module.wechat_cli_main = lambda argv: captured.append(list(argv)) or 0
+
+        try:
+            exit_code = module.main(
+                {
+                    "WECHAT_TOOL_CONTACT": "Ada",
+                    "WECHAT_TOOL_MESSAGE": "hello",
+                    "WECHAT_TOOL_CONFIG": "./app-control.toml",
+                    "WECHAT_TOOL_ALLOW_SEND": "1",
+                    "WECHAT_TOOL_ALLOW_FOCUS_SELECT": "1",
+                }
+            )
+        finally:
+            module.wechat_cli_main = original_cli_main
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("--submit", captured[0])
+        self.assertIn("--allow-focus-select", captured[0])
+
+    def test_smoke_script_accepts_assume_current_chat_opt_in(self) -> None:
+        module = _load_wechat_smoke_module()
+        captured: list[list[str]] = []
+        original_cli_main = module.wechat_cli_main
+        module.wechat_cli_main = lambda argv: captured.append(list(argv)) or 0
+
+        try:
+            exit_code = module.main(
+                {
+                    "WECHAT_TOOL_CONTACT": "Ada",
+                    "WECHAT_TOOL_MESSAGE": "hello",
+                    "WECHAT_TOOL_CONFIG": "./app-control.toml",
+                    "WECHAT_TOOL_ASSUME_CURRENT_CHAT": "1",
+                }
+            )
+        finally:
+            module.wechat_cli_main = original_cli_main
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("--assume-current-chat", captured[0])
+
     def test_smoke_script_requires_socket_unless_dry_run(self) -> None:
         module = _load_wechat_smoke_module()
         stderr = StringIO()
@@ -1404,6 +2364,52 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
                     "WECHAT_TOOL_MESSAGE": "hello",
                 }
             )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn(
+            "WECHAT_TOOL_SOCKET_PATH or WECHAT_TOOL_CONFIG is required",
+            stderr.getvalue(),
+        )
+
+    def test_window_inspect_script_accepts_config_and_output(self) -> None:
+        module = _load_wechat_window_inspect_module()
+        captured: list[list[str]] = []
+        original_cli_main = module.wechat_cli_main
+        module.wechat_cli_main = lambda argv: captured.append(list(argv)) or 0
+
+        try:
+            exit_code = module.main(
+                {
+                    "WECHAT_TOOL_CONFIG": "./app-control.toml",
+                    "WECHAT_TOOL_OUTPUT": "./wechat-window.json",
+                    "WECHAT_TOOL_INCLUDE_RAW": "1",
+                    "WECHAT_TOOL_INCLUDE_ACTIONABLES": "0",
+                }
+            )
+        finally:
+            module.wechat_cli_main = original_cli_main
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            captured[0],
+            [
+                "examples",
+                "inspect-window",
+                "--output",
+                "./wechat-window.json",
+                "--config",
+                "./app-control.toml",
+                "--include-raw",
+                "--no-actionables",
+            ],
+        )
+
+    def test_window_inspect_script_requires_socket_unless_dry_run(self) -> None:
+        module = _load_wechat_window_inspect_module()
+        stderr = StringIO()
+
+        with redirect_stderr(stderr):
+            exit_code = module.main({"WECHAT_TOOL_OUTPUT": "./wechat-window.json"})
 
         self.assertEqual(exit_code, 2)
         self.assertIn(
@@ -1553,6 +2559,25 @@ def _load_wechat_smoke_module() -> Any:
         / "wechat_smoke.py"
     )
     spec = importlib.util.spec_from_file_location("wechat_smoke_example", example_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_wechat_window_inspect_module() -> Any:
+    example_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "wechat_desktop_tool"
+        / "examples"
+        / "wechat_window_inspect.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "wechat_window_inspect_example",
+        example_path,
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)

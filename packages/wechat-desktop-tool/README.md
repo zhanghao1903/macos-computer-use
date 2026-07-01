@@ -69,6 +69,16 @@ while keeping the stable `wechat.desktop` tool name.
 
 ## CLI Examples
 
+Inspect the current WeChat window and write the normalized window model to a
+file:
+
+```bash
+wechat-desktop-tool examples inspect-window \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --output ./wechat-window-inspect.json
+```
+
 Dry-run the app-control commands without touching the desktop:
 
 ```bash
@@ -112,10 +122,24 @@ WECHAT_TOOL_DRY_RUN=1 \
 python -m wechat_desktop_tool.examples.wechat_smoke
 ```
 
-For a real focus/draft smoke, start `computer-use-macos serve` and provide
-`WECHAT_TOOL_SOCKET_PATH`. The smoke submits only when
-`WECHAT_TOOL_ALLOW_SEND=1` is set. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted as
-a compatibility alias.
+For a real focus/draft smoke, open the target chat manually, start
+`computer-use-macos serve`, and provide `WECHAT_TOOL_SOCKET_PATH`. The smoke
+does not press Return to select a searched contact. If the WeChat window title
+does not identify the current chat, set `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1`
+after manually verifying the target chat. It submits only when
+`WECHAT_TOOL_ALLOW_SEND=1` is set. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted as a
+compatibility alias. Automated contact switching requires
+`WECHAT_TOOL_ALLOW_FOCUS_SELECT=1` and `wechat.search_hotkey = ["Command", "K"]`;
+the known-unsafe `Command+F` setting is rejected for live runs.
+
+To run the read-only window inspection example:
+
+```bash
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_OUTPUT=./wechat-window-inspect.json \
+python -m wechat_desktop_tool.examples.wechat_window_inspect
+```
 
 ## Configuration
 
@@ -126,7 +150,7 @@ The package consumes the shared `AppControlConfig` `wechat` section:
 app_name = "WeChat"
 bundle_id = "com.tencent.xinWeChat"
 app_control_tool = "macos.computer_use"
-search_hotkey = ["Command", "F"]
+search_hotkey = ["Command", "K"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
 submit_key = "Return"

@@ -1,23 +1,3 @@
 version = 1
 revision = 3
-requires-python = ">=3.11"
-
-[[package]]
-name = "app-control-protocol"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/68/88/f0ce3c1909496ba3eb9f80bb9b97fefff0be1f8e9a91ce4e164bd04fab02/app_control_protocol-0.1.0.tar.gz", hash = "sha256:126cf74b101023aa94b700522bcfa7b9f0752db627963133546ea54e7ef0850a", size = 26215, upload-time = "2026-06-29T13:08:56.172Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/8a/fd406abbd25b2e0bf13f961892a42f3db3612169ec7db00edd7c4153d994/app_control_protocol-0.1.0-py3-none-any.whl", hash = "sha256:d483da3361d06fbc73029d24221f3711ec2d998bb5ddce1c55fde743e89ec76d", size = 25861, upload-time = "2026-06-29T13:08:53.982Z" },
-]
-
-[[package]]
-name = "macos-computer-use"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "app-control-protocol" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "app-control-protocol", specifier = ">=0.1.0" }]
+requires-python = ">=3.12"
