@@ -34,6 +34,7 @@ from wechat_desktop_tool import (
     WeChatWindow,
     build_wechat_tool,
     draft_message_command,
+    execute_action_command,
     focus_contact_command,
     inspect_window_command,
     list_contacts_command,
@@ -52,6 +53,7 @@ from wechat_desktop_tool import (
 from wechat_desktop_tool.cli import LocalServiceAppControl
 from wechat_desktop_tool.cli import _app_control_for_args
 from wechat_desktop_tool.cli import main as cli_main
+from wechat_desktop_tool.window_model import build_wechat_window_model
 
 
 class FakeAppControl:
@@ -147,6 +149,7 @@ def _wechat_window_tree_fixture() -> dict[str, Any]:
             y=y,
             width=271,
             height=68,
+            actions=["AXPress"],
             children=[
                 node(
                     f"0/11/1/0/{index}/0",
@@ -485,6 +488,54 @@ def _accessibility_query_response(
     return {"observation": {"accessibilityQuery": payload}}
 
 
+def _accessibility_action_response(
+    *,
+    ax_path: str = "0/2",
+    role: str = "AXRadioButton",
+    label: str = "通讯录",
+) -> dict[str, Any]:
+    payload = {
+        "schema": "macos.accessibility.action.result.v1",
+        "available": True,
+        "status": "ok",
+        "operation": "accessibility_action",
+        "method": "AXUIElementPerformAction",
+        "snapshotId": "frontmost:WeChat:微信 (聊天)",
+        "action": "AXPress",
+        "actionAttempted": True,
+        "target": {
+            "axPath": ax_path,
+            "role": role,
+            "label": label,
+            "actions": ["AXPress"],
+        },
+        "diagnostics": {
+            "durationMs": 10,
+            "verifiedPreconditions": True,
+        },
+    }
+    return {
+        "observation": {
+            "accessibilityAction": payload,
+            "actionAttempted": True,
+        }
+    }
+
+
+def _unsupported_accessibility_action_response() -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="unsupported_operation",
+            message="accessibility_action is not supported by this backend",
+            retryable=False,
+        ),
+    )
+
+
 def _normalized_node(
     ax_path: str,
     role: str,
@@ -649,6 +700,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
             list_contacts_command(limit=10, command_id="cmd_contacts"),
             list_conversations_command(limit=11, command_id="cmd_conversations"),
             open_contact_command("Ada", command_id="cmd_open_contact"),
+            execute_action_command(
+                {
+                    "schema": "wechat.action_ref.v1",
+                    "id": "nav.contacts.press",
+                    "target": {"axPath": "0/2"},
+                    "action": "AXPress",
+                },
+                command_id="cmd_execute_action",
+            ),
             read_contact_messages_command(
                 "Ada",
                 limit=12,
@@ -673,8 +733,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(commands[10].input["limit"], 11)
         self.assertEqual(commands[11].operation, "open_contact")
         self.assertEqual(commands[11].input["contact"], "Ada")
-        self.assertEqual(commands[12].operation, "read_contact_messages")
-        self.assertEqual(commands[12].input["limit"], 12)
+        self.assertEqual(commands[12].operation, "execute_action")
+        self.assertEqual(commands[12].input["actionRef"]["id"], "nav.contacts.press")
+        self.assertEqual(commands[13].operation, "read_contact_messages")
+        self.assertEqual(commands[13].input["limit"], 12)
 
     def test_command_builder_output_runs_through_tool(self) -> None:
         tool = WeChatDesktopTool(FakeAppControl())
@@ -797,6 +859,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
         actionable_ids = {item["id"] for item in window["actionables"]}
         self.assertIn("nav.contacts.press", actionable_ids)
         self.assertIn("search.focus", actionable_ids)
+        nav_contacts = next(
+            item for item in window["actionables"] if item["id"] == "nav.contacts.press"
+        )
+        self.assertEqual(nav_contacts["actionRef"]["action"], "AXPress")
+        self.assertEqual(
+            nav_contacts["actionRef"]["target"]["axPath"],
+            "0/2",
+        )
         available_actions = {item["id"]: item for item in window["availableActions"]}
         self.assertEqual(
             available_actions["wechat.open_contact"]["status"],
@@ -845,6 +915,48 @@ class WeChatDesktopToolTests(unittest.TestCase):
             {"nodeCount": 4},
         )
 
+    def test_raw_tree_window_model_uses_action_refs_for_ui_actions(self) -> None:
+        tree = _wechat_window_tree_fixture()
+        observation = ToolObservation.ok(
+            command_id="cmd_observe",
+            tool="macos.computer_use",
+            operation="observe",
+            summary="Frontmost app: WeChat. Window: 微信 (聊天).",
+            observation={
+                "frontmostApp": "WeChat",
+                "frontmostBundleId": "com.tencent.xinWeChat",
+                "windowTitle": "微信 (聊天)",
+                "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                "accessibility": {"focusedWindow": tree},
+            },
+        )
+
+        window, normalization = build_wechat_window_model(
+            WeChatDesktopConfig(),
+            observation,
+        )
+
+        self.assertEqual(normalization["status"], "normalized")
+        available_actions = {
+            item["id"]: item for item in window.to_dict()["availableActions"]
+        }
+        nav_action = available_actions["ui.nav.contacts.press"]
+        self.assertEqual(nav_action["operation"], "execute_action")
+        self.assertEqual(nav_action["inputTemplate"]["actionRef"]["action"], "AXPress")
+        self.assertEqual(
+            nav_action["inputTemplate"]["actionRef"]["target"]["axPath"],
+            "0/2",
+        )
+        self.assertNotIn("coordinates", nav_action["inputTemplate"])
+
+        row_action = available_actions["ui.conversation.0.open"]
+        self.assertEqual(row_action["operation"], "execute_action")
+        self.assertEqual(
+            row_action["actionRef"]["kind"],
+            "conversation.open",
+        )
+        self.assertNotIn("coordinates", row_action["inputTemplate"])
+
     def test_inspect_window_reports_action_guidance_when_tree_is_missing(
         self,
     ) -> None:
@@ -892,7 +1004,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 {},
                 _top_level_query_response(chats_selected=True),
-                {},
+                _accessibility_action_response(),
                 _top_level_query_response(
                     chats_selected=False,
                     contacts_selected=True,
@@ -920,6 +1032,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(result.observation["items"][0]["kind"], "contact")
         self.assertEqual(result.observation["items"][0]["actionId"], "contacts.visible.0.open")
+        self.assertEqual(
+            result.observation["items"][0]["actionRef"]["action"],
+            "AXPress",
+        )
         self.assertEqual(result.observation["pagination"]["limit"], 2)
         self.assertEqual(result.observation["pagination"]["hasMore"], True)
         self.assertIsNotNone(result.observation["pagination"]["nextPageToken"])
@@ -928,12 +1044,13 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 "open_app",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["coordinates"], {"x": 299, "y": 224})
+        self.assertEqual(app_control.commands[2].input["target"]["axPath"], "0/2")
+        self.assertEqual(app_control.commands[2].input["action"], "AXPress")
         self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
 
     def test_list_conversations_uses_accessibility_query_stub(self) -> None:
@@ -974,6 +1091,118 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             ["open_app", "accessibility_query", "accessibility_query"],
         )
+
+    def test_execute_action_runs_accessibility_action_ref(self) -> None:
+        app_control = FakeAppControl([_accessibility_action_response()])
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.operation, "execute_action")
+        self.assertEqual(result.observation["schema"], "wechat.execute_action.v1")
+        self.assertEqual(result.observation["actionId"], "nav.contacts.press")
+        self.assertEqual(app_control.commands[0].operation, "accessibility_action")
+        self.assertEqual(app_control.commands[0].input["target"]["axPath"], "0/2")
+        self.assertEqual(
+            app_control.commands[0].input["preconditions"]["labelIn"],
+            ["通讯录"],
+        )
+
+    def test_execute_action_uses_selector_fallback_when_backend_unsupported(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                _unsupported_accessibility_action_response(),
+                {},
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+            "fallbacks": [
+                {
+                    "method": "selector_click",
+                    "selector": {
+                        "role": "radio_button",
+                        "name": "通讯录",
+                    },
+                }
+            ],
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["method"], "selector_click")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action", "click"],
+        )
+        self.assertEqual(
+            app_control.commands[1].input["selector"],
+            {"role": "radio_button", "name": "通讯录"},
+        )
+        self.assertIn("execute_action:selector_fallback", result.evidence)
+
+    def test_click_node_phase_does_not_generate_coordinate_fallback(self) -> None:
+        app_control = FakeAppControl([{}])
+        tool = WeChatDesktopTool(app_control)
+        command = wechat_command("open_contact", {"contact": "Ada"})
+        evidence: dict[str, Any] = {}
+
+        result = tool._click_node_phase(
+            command,
+            {
+                "axPath": "0/11/2",
+                "role": "AXButton",
+                "frame": {"x": 557, "y": 49, "width": 28, "height": 28},
+            },
+            phase="fallback_click",
+            evidence=evidence,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(app_control.commands[0].operation, "click")
+        self.assertEqual(
+            app_control.commands[0].input["selector"],
+            {"role": "AXButton", "index": 1},
+        )
+        self.assertNotIn("coordinates", app_control.commands[0].input)
 
     def test_open_contact_uses_search_result_query_stub(self) -> None:
         app_control = FakeAppControl(
@@ -1016,7 +1245,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "click",
                 "type_text",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "accessibility_query",
             ],
         )

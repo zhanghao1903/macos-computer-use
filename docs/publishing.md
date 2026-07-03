@@ -33,7 +33,7 @@ PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
   python -m unittest discover -s packages/wechat-desktop-tool/tests
 
 python scripts/release_preflight.py
-python scripts/release_tag_check.py --tag v0.1.0
+python scripts/release_tag_check.py --tag vX.Y.Z
 
 python -m build packages/app-control-protocol --sdist --wheel --outdir dist
 python -m build packages/computer-use-macos --sdist --wheel --outdir dist
@@ -86,21 +86,21 @@ The generated report has this shape:
   "packages": [
     {
       "name": "app-control-protocol",
-      "version": "0.1.0",
+      "version": "X.Y.Z",
       "installed": true,
       "imported": true,
       "apiSmoke": true
     },
     {
       "name": "computer-use-macos",
-      "version": "0.1.0",
+      "version": "X.Y.Z",
       "installed": true,
       "imported": true,
       "apiSmoke": true
     },
     {
       "name": "wechat-desktop-tool",
-      "version": "0.1.0",
+      "version": "X.Y.Z",
       "installed": true,
       "imported": true,
       "apiSmoke": true
@@ -280,10 +280,10 @@ After TestPyPI validation:
 2. Ensure all package `pyproject.toml` versions match the release.
 3. Verify the GitHub Release tag matches every package version:
    ```bash
-   python scripts/release_tag_check.py --tag v0.1.0
+   python scripts/release_tag_check.py --tag vX.Y.Z
    ```
 4. Run strict release preflight with external proof.
-5. Create and push a tag, for example `v0.1.0`.
+5. Create and push a tag, for example `vX.Y.Z`.
 6. Create a draft GitHub Release from that tag.
 7. Attach the external proof JSON files listed above.
 8. Publish the GitHub Release.

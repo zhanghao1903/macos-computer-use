@@ -126,6 +126,51 @@ def accessibility_query_command(
     )
 
 
+def accessibility_action_command(
+    *,
+    target_app: str | None = None,
+    bundle_id: str | None = None,
+    snapshot_id: str | None = None,
+    target: Mapping[str, JsonValue] | None = None,
+    ax_path: str | None = None,
+    action: str = "AXPress",
+    preconditions: Mapping[str, JsonValue] | None = None,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    payload: dict[str, JsonValue] = {"action": action}
+    if target_app is not None:
+        payload["targetApp"] = target_app
+    if bundle_id is not None:
+        payload["bundleId"] = bundle_id
+    if snapshot_id is not None:
+        payload["snapshotId"] = snapshot_id
+    if target is not None and ax_path is not None:
+        raise ValueError("target and ax_path are mutually exclusive")
+    if target is not None:
+        target_value = to_json_value(target)
+        if not isinstance(target_value, dict):
+            raise TypeError("target must be a JSON object")
+        payload["target"] = target_value
+    elif ax_path is not None:
+        payload["target"] = {"kind": "axPath", "axPath": ax_path}
+    if preconditions is not None:
+        precondition_value = to_json_value(preconditions)
+        if not isinstance(precondition_value, dict):
+            raise TypeError("preconditions must be a JSON object")
+        payload["preconditions"] = precondition_value
+    return computer_use_command(
+        ComputerUseOperation.ACCESSIBILITY_ACTION,
+        payload,
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
 def open_app_command(
     app: str,
     *,

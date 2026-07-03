@@ -58,7 +58,7 @@ Use this checklist before publishing the app-control tool package suite.
       ```
 - [ ] Verify release tag matches every package version:
       ```bash
-      python scripts/release_tag_check.py --tag v0.1.0
+      python scripts/release_tag_check.py --tag vX.Y.Z
       ```
 - [ ] TestPyPI install report in a clean environment:
       ```bash
@@ -195,8 +195,8 @@ Publisher report.
 
 ## Publish Flow
 
-1. Verify the release tag with `python scripts/release_tag_check.py --tag v0.1.0`.
-2. Tag release, for example `v0.1.0`.
+1. Verify the release tag with `python scripts/release_tag_check.py --tag vX.Y.Z`.
+2. Tag release, for example `vX.Y.Z`.
 3. Publish to TestPyPI.
 4. Install all distributions from TestPyPI in a clean macOS virtual
    environment.

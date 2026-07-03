@@ -284,6 +284,7 @@ def _ui_available_action(
     snapshot_id: str | None,
     actionable: WeChatActionableRegion,
 ) -> WeChatAvailableAction | None:
+    del config
     if actionable.kind not in {
         "navigation_item",
         "search_box",
@@ -293,19 +294,27 @@ def _ui_available_action(
         "window_button",
     }:
         return None
+    action_id = f"ui.{actionable.id}"
+    action_ref = _action_ref_from_element(
+        action_id=action_id,
+        kind=_action_ref_kind(actionable),
+        snapshot_id=snapshot_id,
+        element=actionable.element,
+        risk=_ui_action_risk(actionable),
+        target_summary=_ui_action_label(actionable),
+    )
+    if action_ref is None:
+        return None
     return WeChatAvailableAction(
-        id=f"ui.{actionable.id}",
+        id=action_id,
         kind="ui_element",
         status="available",
         label=_ui_action_label(actionable),
-        tool=config.app_control_tool,
-        operation="click",
+        tool=_WECHAT_TOOL,
+        operation="execute_action",
         description=_ui_action_description(actionable),
-        input_template=_click_input_template(
-            config,
-            snapshot_id=snapshot_id,
-            element=actionable.element,
-        ),
+        input_template={"actionRef": action_ref},
+        action_ref=action_ref,
         actionable_id=actionable.id,
         target_element=actionable.element,
         risk=_ui_action_risk(actionable),
@@ -350,30 +359,64 @@ def _ui_action_risk(actionable: WeChatActionableRegion) -> str:
     return "low"
 
 
-def _click_input_template(
-    config: WeChatDesktopConfig,
+def _action_ref_kind(actionable: WeChatActionableRegion) -> str:
+    if actionable.kind == "navigation_item":
+        return "navigation.switch"
+    if actionable.kind == "conversation_row":
+        return "conversation.open"
+    if actionable.kind == "search_box":
+        return "search.focus"
+    if actionable.kind == "composer":
+        return "composer.focus"
+    return "ui.press"
+
+
+def _action_ref_from_element(
     *,
+    action_id: str,
+    kind: str,
     snapshot_id: str | None,
     element: WeChatElementRef,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "targetApp": config.app_name,
+    risk: str,
+    target_summary: str,
+) -> dict[str, Any] | None:
+    if "AXPress" not in element.actions:
+        return None
+    target: dict[str, Any] = {
+        "axPath": element.ax_path,
+        "role": element.role,
+        "actions": ["AXPress"],
     }
-    if config.bundle_id is not None:
-        payload["bundleId"] = config.bundle_id
-    if snapshot_id is not None:
-        payload["snapshotId"] = snapshot_id
-    selector: dict[str, Any] = {"role": element.role}
+    preconditions: dict[str, Any] = {
+        "roleIn": [element.role],
+        "actionIn": ["AXPress"],
+    }
     if element.label is not None:
-        selector["name"] = element.label
-    payload["selector"] = selector
-    if element.frame is not None:
-        center_x, center_y = element.frame.center
-        payload["coordinates"] = {
-            "x": int(round(center_x)),
-            "y": int(round(center_y)),
-        }
-    return payload
+        target["label"] = element.label
+        preconditions["labelIn"] = [element.label]
+    if element.enabled is not None:
+        preconditions["enabled"] = element.enabled
+    action_ref: dict[str, Any] = {
+        "schema": "wechat.action_ref.v1",
+        "id": action_id,
+        "kind": kind,
+        "preferredMethod": "accessibility_action",
+        "target": target,
+        "action": "AXPress",
+        "preconditions": preconditions,
+        "risk": risk,
+        "targetSummary": target_summary,
+    }
+    if snapshot_id is not None:
+        action_ref["snapshotId"] = snapshot_id
+    if element.label is not None:
+        action_ref["fallbacks"] = [
+            {
+                "method": "selector_click",
+                "selector": {"role": element.role, "name": element.label},
+            }
+        ]
+    return action_ref
 
 
 def _build_window_from_tree(

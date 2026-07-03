@@ -135,6 +135,24 @@ def open_contact_command(
     )
 
 
+def execute_action_command(
+    action_ref: Mapping[str, JsonValue],
+    *,
+    command_id: str | None = None,
+    timeout_ms: int | None = None,
+    idempotency_key: str | None = None,
+    metadata: Mapping[str, JsonValue] | None = None,
+) -> ToolCommand:
+    return wechat_command(
+        "execute_action",
+        {"actionRef": dict(action_ref)},
+        command_id=command_id,
+        timeout_ms=timeout_ms,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
+
+
 def focus_contact_command(
     contact: str,
     *,

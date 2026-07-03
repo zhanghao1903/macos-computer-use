@@ -230,6 +230,10 @@ class WeChatDesktopTool:
         command = self._command("open_contact", {"contact": contact})
         return self.run_command(command)
 
+    def execute_action(self, action_ref: Mapping[str, JsonValue]) -> ToolObservation:
+        command = self._command("execute_action", {"actionRef": dict(action_ref)})
+        return self.run_command(command)
+
     def focus_contact(self, contact: str) -> ToolObservation:
         command = self._command("focus_contact", {"contact": contact})
         return self.run_command(command)
@@ -313,6 +317,8 @@ class WeChatDesktopTool:
                 return self._list_conversations(command, phase_events=phase_events)
             if operation == "open_contact":
                 return self._open_contact(command, phase_events=phase_events)
+            if operation == "execute_action":
+                return self._execute_action(command, phase_events=phase_events)
             if operation == "focus_contact":
                 return self._focus_contact(command, phase_events=phase_events)
             if operation == "observe_current_chat":
@@ -467,9 +473,10 @@ class WeChatDesktopTool:
                     "scope": "children",
                     "maxDepth": 1,
                     "limit": 80,
-                    "timeBudgetMs": 700,
+                    "timeBudgetMs": 3_000,
                     "attributes": _QUERY_ATTRIBUTES,
                     "actions": True,
+                    "includeChildrenCount": False,
                 },
                 include_raw=include_raw,
             ),
@@ -485,7 +492,11 @@ class WeChatDesktopTool:
             )
         top_query = _query_payload(top_level)
         top_nodes = _query_nodes(top_level)
-        navigation = _navigation_from_query_nodes(top_nodes)
+        top_snapshot_id = _query_snapshot_id(top_query)
+        navigation = _navigation_from_query_nodes(
+            top_nodes,
+            snapshot_id=top_snapshot_id,
+        )
         main_content = _main_content_node(top_nodes)
         main_nodes: list[dict[str, Any]] = []
         if main_content is not None:
@@ -503,9 +514,10 @@ class WeChatDesktopTool:
                         "scope": "children",
                         "maxDepth": 1,
                         "limit": 80,
-                        "timeBudgetMs": 700,
+                        "timeBudgetMs": 2_000,
                         "attributes": _QUERY_ATTRIBUTES,
                         "actions": True,
+                        "includeChildrenCount": False,
                     },
                     include_raw=include_raw,
                 ),
@@ -624,7 +636,11 @@ class WeChatDesktopTool:
                 top_level,
                 evidence=evidence,
             )
-        navigation = _navigation_from_query_nodes(_query_nodes(top_level))
+        top_snapshot_id = _query_snapshot_id(_query_payload(top_level))
+        navigation = _navigation_from_query_nodes(
+            _query_nodes(top_level),
+            snapshot_id=top_snapshot_id,
+        )
         nav_item = next(
             (item for item in navigation if item.get("label") == section),
             None,
@@ -635,6 +651,7 @@ class WeChatDesktopTool:
                 nav_item["element"],
                 phase=f"switch_{section}",
                 evidence=evidence,
+                snapshot_id=top_snapshot_id,
                 phase_events=phase_events,
             )
             if not clicked.success:
@@ -680,6 +697,7 @@ class WeChatDesktopTool:
             _query_nodes(rows_result),
             section=section,
             limit=limit,
+            snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
         )
         return ToolObservation.ok(
             command_id=command.command_id,
@@ -754,6 +772,11 @@ class WeChatDesktopTool:
                 search_node,
                 phase="focus_search",
                 evidence=evidence,
+                snapshot_id=(
+                    _query_snapshot_id(_query_payload(main_result))
+                    if main_result.success
+                    else None
+                ),
                 phase_events=phase_events,
             )
         else:
@@ -797,7 +820,11 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         ) if main_content is not None else typed
         candidates = (
-            _search_candidates_from_nodes(_query_nodes(results), contact)
+            _search_candidates_from_nodes(
+                _query_nodes(results),
+                contact,
+                snapshot_id=_query_snapshot_id(_query_payload(results)),
+            )
             if results.success
             else []
         )
@@ -821,6 +848,7 @@ class WeChatDesktopTool:
                 candidates[0]["element"],
                 phase="open_search_result",
                 evidence=evidence,
+                snapshot_id=_query_snapshot_id(_query_payload(results)),
                 phase_events=phase_events,
             )
         else:
@@ -863,6 +891,44 @@ class WeChatDesktopTool:
                     {"id": "wechat.read_visible_messages", "status": "available"},
                     {"id": "wechat.draft_message", "status": "needs_input"},
                 ],
+            },
+            evidence=evidence,
+        )
+
+    def _execute_action(
+        self,
+        command: ToolCommand,
+        *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        action_ref = _action_ref_input(command)
+        action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
+        evidence: dict[str, JsonValue] = {}
+        result = self._execute_action_ref(
+            command,
+            action_ref,
+            phase="execute_action",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not result.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_action_failed",
+                result,
+                evidence=evidence,
+            )
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Executed WeChat action.",
+            observation={
+                "schema": "wechat.execute_action.v1",
+                "status": "ok",
+                "actionId": action_id,
+                "method": _executed_action_method(action_ref, result),
+                "result": result.observation,
             },
             evidence=evidence,
         )
@@ -1529,9 +1595,10 @@ class WeChatDesktopTool:
                     "scope": "children",
                     "maxDepth": 1,
                     "limit": 80,
-                    "timeBudgetMs": 700,
+                    "timeBudgetMs": 3_000,
                     "attributes": _QUERY_ATTRIBUTES,
                     "actions": True,
+                    "includeChildrenCount": False,
                 },
             ),
             phase_events=phase_events,
@@ -1629,6 +1696,7 @@ class WeChatDesktopTool:
                     "timeBudgetMs": 1_500,
                     "attributes": _QUERY_ATTRIBUTES,
                     "actions": True,
+                    "includeChildrenCount": False,
                     "match": {"roleIn": role_in},
                 },
             ),
@@ -1644,16 +1712,31 @@ class WeChatDesktopTool:
         *,
         phase: str,
         evidence: dict[str, JsonValue],
+        snapshot_id: str | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        action_ref = _action_ref_from_node(node, snapshot_id=snapshot_id)
+        if action_ref is not None:
+            result = self._execute_action_ref(
+                command,
+                action_ref,
+                phase=phase,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if result.success or not _should_fallback_from_accessibility_action(result):
+                return result
+
         input_payload = self._target_app_input()
-        coordinates = _node_center_coordinates(node)
-        if coordinates is not None:
-            input_payload["coordinates"] = coordinates
-        else:
+        if _node_label(node) is not None:
             input_payload["selector"] = {
                 "role": str(node.get("role") or ""),
                 "name": str(_node_label(node) or ""),
+            }
+        else:
+            input_payload["selector"] = {
+                "role": str(node.get("role") or ""),
+                "index": 1,
             }
         result = self._app_control_command(
             command,
@@ -1664,6 +1747,70 @@ class WeChatDesktopTool:
         )
         evidence[phase] = _safe_app_control_observation(result)
         return result
+
+    def _execute_action_ref(
+        self,
+        command: ToolCommand,
+        action_ref: Mapping[str, Any],
+        *,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        input_payload = self._accessibility_action_input(action_ref)
+        result = self._app_control_command(
+            command,
+            phase=phase,
+            operation="accessibility_action",
+            input=input_payload,
+            phase_events=phase_events,
+        )
+        evidence[phase] = _safe_app_control_observation(result)
+        if result.success or not _should_fallback_from_accessibility_action(result):
+            return result
+        selector = _selector_fallback_from_action_ref(action_ref)
+        if selector is None:
+            return result
+        fallback_result = self._app_control_command(
+            command,
+            phase=f"{phase}:selector_fallback",
+            operation="click",
+            input=self._target_app_input(selector=selector),
+            phase_events=phase_events,
+        )
+        evidence[f"{phase}:selector_fallback"] = _safe_app_control_observation(
+            fallback_result
+        )
+        if fallback_result.success:
+            return fallback_result
+        return result
+
+    def _accessibility_action_input(
+        self,
+        action_ref: Mapping[str, Any],
+    ) -> dict[str, JsonValue]:
+        target = action_ref.get("target")
+        if not isinstance(target, Mapping):
+            raise ValueError("actionRef.target must be an object")
+        ax_path = _optional_string_from_mapping(target, "axPath", "ax_path")
+        if ax_path is None:
+            raise ValueError("actionRef.target.axPath is required")
+        action = _optional_string_from_mapping(action_ref, "action") or "AXPress"
+        payload = self._target_app_input(
+            target={"kind": "axPath", "axPath": ax_path},
+            action=action,
+        )
+        snapshot_id = _optional_string_from_mapping(
+            action_ref,
+            "snapshotId",
+            "snapshot_id",
+        )
+        if snapshot_id is not None:
+            payload["snapshotId"] = snapshot_id
+        preconditions = action_ref.get("preconditions")
+        if isinstance(preconditions, Mapping):
+            payload["preconditions"] = dict(preconditions)
+        return payload
 
     def _open_app_input(self, **extra: JsonValue) -> dict[str, JsonValue]:
         payload: dict[str, JsonValue] = {"app": self._config.app_name}
@@ -1730,6 +1877,8 @@ def _query_snapshot_id(payload: Mapping[str, Any]) -> str | None:
 
 def _navigation_from_query_nodes(
     nodes: list[dict[str, Any]],
+    *,
+    snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
     items: list[dict[str, JsonValue]] = []
     for node in nodes:
@@ -1743,13 +1892,21 @@ def _navigation_from_query_nodes(
                 break
         if semantic is None:
             continue
-        element = _element_from_query_node(node, label=semantic)
+        element = _element_from_query_node(node)
         items.append(
             {
                 "id": f"nav.{semantic}",
                 "label": semantic,
                 "selected": _node_selected(node),
                 "element": element,
+                "actionRef": _action_ref_from_node(
+                    node,
+                    action_id=f"nav.{semantic}.press",
+                    kind="navigation.switch",
+                    risk="low",
+                    target_summary=f"Switch to {semantic}",
+                    snapshot_id=snapshot_id,
+                ),
             }
         )
     return items
@@ -1818,6 +1975,7 @@ def _window_from_query(
                         "label": item["label"],
                         "element": dict(nav_element),
                         "confidence": 1.0,
+                        "actionRef": item.get("actionRef"),
                     }
                 )
         if search is not None:
@@ -1951,6 +2109,129 @@ def _node_ax_path(node: Mapping[str, Any]) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _action_ref_from_node(
+    node: Mapping[str, Any],
+    *,
+    action_id: str | None = None,
+    kind: str = "ui.press",
+    risk: str = "low",
+    target_summary: str | None = None,
+    snapshot_id: str | None = None,
+) -> dict[str, JsonValue] | None:
+    ax_path = _node_ax_path(node)
+    if ax_path is None or "AXPress" not in _node_actions(node):
+        return None
+    label = _node_label(node)
+    role = str(node.get("role") or "AXUnknown")
+    target: dict[str, JsonValue] = {
+        "axPath": ax_path,
+        "role": role,
+        "actions": ["AXPress"],
+    }
+    if label is not None:
+        target["label"] = label
+    preconditions: dict[str, JsonValue] = {
+        "roleIn": [role],
+        "actionIn": ["AXPress"],
+    }
+    if label is not None:
+        preconditions["labelIn"] = _label_precondition_values(label)
+    if isinstance(node.get("enabled"), bool):
+        preconditions["enabled"] = bool(node["enabled"])
+    action_ref: dict[str, JsonValue] = {
+        "schema": "wechat.action_ref.v1",
+        "id": action_id or f"ui.{_stable_id(label or ax_path, 0)}.press",
+        "kind": kind,
+        "preferredMethod": "accessibility_action",
+        "target": target,
+        "action": "AXPress",
+        "preconditions": preconditions,
+        "risk": risk,
+        "targetSummary": target_summary or f"Press {label or ax_path}",
+    }
+    if snapshot_id is not None:
+        action_ref["snapshotId"] = snapshot_id
+    selector = _selector_from_node(node)
+    if selector is not None:
+        action_ref["fallbacks"] = [
+            {"method": "selector_click", "selector": selector},
+        ]
+    return action_ref
+
+
+def _selector_from_node(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
+    label = _node_label(node)
+    role = str(node.get("role") or "")
+    if not label or not role:
+        return None
+    return {"role": role, "name": label}
+
+
+def _node_actions(node: Mapping[str, Any]) -> set[str]:
+    actions = node.get("actions")
+    if not isinstance(actions, list):
+        return set()
+    return {str(item) for item in actions}
+
+
+def _label_precondition_values(label: str) -> list[str]:
+    values = [label]
+    for key, labels in _NAV_QUERY_LABELS.items():
+        if label in labels:
+            values.extend(item for item in labels if item not in values)
+            values.append(key)
+            break
+    return values
+
+
+def _stable_id(label: str, fallback_index: int) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z]+", "-", label.strip().lower()).strip("-")
+    return normalized or f"item-{fallback_index}"
+
+
+def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
+    failure_kind = result.failure_kind
+    if failure_kind in {
+        "unsupported_operation",
+        "unsupported_accessibility_action",
+    }:
+        return True
+    metadata = result.metadata if isinstance(result.metadata, Mapping) else {}
+    legacy_status = metadata.get("legacyStatus")
+    observation = result.observation
+    if legacy_status == "failed" and isinstance(observation, Mapping):
+        nested = observation.get("accessibilityAction")
+        if isinstance(nested, Mapping):
+            nested_kind = nested.get("failureKind")
+            return nested_kind in {
+                "unsupported_operation",
+                "unsupported_accessibility_action",
+            }
+    return False
+
+
+def _selector_fallback_from_action_ref(
+    action_ref: Mapping[str, Any],
+) -> dict[str, JsonValue] | None:
+    fallbacks = action_ref.get("fallbacks")
+    if not isinstance(fallbacks, list):
+        return None
+    for fallback in fallbacks:
+        if not isinstance(fallback, Mapping):
+            continue
+        if fallback.get("method") != "selector_click":
+            continue
+        selector = fallback.get("selector")
+        if not isinstance(selector, Mapping):
+            continue
+        role = _optional_string_from_mapping(selector, "role")
+        name = _optional_string_from_mapping(selector, "name", "title", "label")
+        if role is None or name is None:
+            continue
+        return {"role": role, "name": name}
+    return None
+
+
 def _node_label(node: Mapping[str, Any]) -> str | None:
     for key in ("description", "title", "placeholder", "value", "label"):
         value = node.get(key)
@@ -1979,27 +2260,12 @@ def _frame_area(node: Mapping[str, Any]) -> float:
     return width * height
 
 
-def _node_center_coordinates(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
-    frame = node.get("frame")
-    if not isinstance(frame, Mapping):
-        return None
-    x = _number_value(frame.get("x"))
-    y = _number_value(frame.get("y"))
-    width = _number_value(frame.get("width"))
-    height = _number_value(frame.get("height"))
-    if None in (x, y, width, height):
-        return None
-    return {
-        "x": int(round(float(x) + float(width) / 2)),
-        "y": int(round(float(y) + float(height) / 2)),
-    }
-
-
 def _row_items_from_nodes(
     nodes: list[dict[str, Any]],
     *,
     section: str,
     limit: int,
+    snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
     labels_by_row = _row_labels_by_path(nodes)
     items: list[dict[str, JsonValue]] = []
@@ -2018,6 +2284,16 @@ def _row_items_from_nodes(
             "element": _element_from_query_node(row, label=parsed["displayName"]),
             "confidence": 0.88,
         }
+        action_ref = _action_ref_from_node(
+            row,
+            action_id=f"{item_id}.open",
+            kind=f"{section}.open",
+            risk="changes_current_chat",
+            target_summary=f"Open {parsed['displayName']}",
+            snapshot_id=snapshot_id,
+        )
+        if action_ref is not None:
+            payload["actionRef"] = action_ref
         if section == "contacts":
             payload["kind"] = "contact"
         else:
@@ -2067,13 +2343,26 @@ def _parse_row_label(label: str) -> dict[str, Any]:
 def _search_candidates_from_nodes(
     nodes: list[dict[str, Any]],
     contact: str,
+    *,
+    snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
     normalized = contact.casefold()
     candidates: list[dict[str, JsonValue]] = []
-    for item in _row_items_from_nodes(nodes, section="search", limit=10):
+    for item in _row_items_from_nodes(
+        nodes,
+        section="search",
+        limit=10,
+        snapshot_id=snapshot_id,
+    ):
         display_name = str(item.get("displayName") or "")
         if normalized in display_name.casefold():
-            item["actionId"] = f"search.result.{len(candidates)}.open"
+            action_id = f"search.result.{len(candidates)}.open"
+            item["actionId"] = action_id
+            action_ref = item.get("actionRef")
+            if isinstance(action_ref, dict):
+                action_ref["id"] = action_id
+                action_ref["kind"] = "search_result.open"
+                action_ref["targetSummary"] = f"Open search result {display_name}"
             candidates.append(item)
     return candidates
 
@@ -2338,6 +2627,48 @@ def _optional_string_input(command: ToolCommand, *keys: str) -> str | None:
         if key not in command.input:
             continue
         value = command.input.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{key} must be a non-empty string")
+        return value.strip()
+    return None
+
+
+def _action_ref_input(command: ToolCommand) -> dict[str, Any]:
+    value = command.input.get("actionRef") or command.input.get("action_ref")
+    if not isinstance(value, Mapping):
+        raise ValueError("actionRef is required")
+    schema = value.get("schema")
+    if schema is not None and schema != "wechat.action_ref.v1":
+        raise ValueError("actionRef.schema must be wechat.action_ref.v1")
+    return dict(value)
+
+
+def _executed_action_method(
+    action_ref: Mapping[str, Any],
+    result: ToolObservation,
+) -> str:
+    if result.operation == "click":
+        return "selector_click"
+    return (
+        _optional_string_from_mapping(
+            action_ref,
+            "preferredMethod",
+            "preferred_method",
+        )
+        or "accessibility_action"
+    )
+
+
+def _optional_string_from_mapping(
+    payload: Mapping[str, Any],
+    *keys: str,
+) -> str | None:
+    for key in keys:
+        if key not in payload:
+            continue
+        value = payload.get(key)
         if value is None:
             return None
         if not isinstance(value, str) or not value.strip():

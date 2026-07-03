@@ -43,6 +43,13 @@ PRESS_KEY_FAILED = "press_key_failed"
 HOTKEY_FAILED = "hotkey_failed"
 CLICK_FAILED = "click_failed"
 COORDINATE_CLICK_FAILED = "coordinate_click_failed"
+TARGET_APP_NOT_RUNNING = "target_app_not_running"
+FOCUSED_WINDOW_MISSING = "focused_window_missing"
+SNAPSHOT_STALE = "snapshot_stale"
+AX_PATH_NOT_FOUND = "ax_path_not_found"
+PRECONDITION_FAILED = "precondition_failed"
+UNSUPPORTED_ACCESSIBILITY_ACTION = "unsupported_accessibility_action"
+ACCESSIBILITY_ACTION_FAILED = "accessibility_action_failed"
 
 COMPUTER_USE_FAILURE_KINDS = (
     UNSUPPORTED_TOOL,
@@ -78,4 +85,11 @@ COMPUTER_USE_FAILURE_KINDS = (
     HOTKEY_FAILED,
     CLICK_FAILED,
     COORDINATE_CLICK_FAILED,
+    TARGET_APP_NOT_RUNNING,
+    FOCUSED_WINDOW_MISSING,
+    SNAPSHOT_STALE,
+    AX_PATH_NOT_FOUND,
+    PRECONDITION_FAILED,
+    UNSUPPORTED_ACCESSIBILITY_ACTION,
+    ACCESSIBILITY_ACTION_FAILED,
 )

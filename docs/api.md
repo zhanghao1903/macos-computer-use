@@ -1,7 +1,54 @@
 # API Contract
 
-`computer-use-macos` exposes deterministic primitives. It does not expose an
-LLM action interpreter.
+This document is the stable public API reference for the package suite:
+
+| Package | Import | Responsibility |
+|---|---|---|
+| `app-control-protocol` | `app_control_protocol` | Shared command, observation, event, error, config, service envelope, and schema contracts. |
+| `computer-use-macos` | `computer_use_macos` | macOS readiness, app focus/open, scoped Accessibility reads, keyboard/text/click primitives, helper transport, local service, and CLI. |
+| `wechat-desktop-tool` | `wechat_desktop_tool` | WeChat-specific normalized window, contact, conversation, message, and send/draft operations on top of an injected app-control client. |
+
+The packages expose deterministic primitives and semantic desktop-tool APIs.
+They do not include an LLM action interpreter, planner, confirmation store,
+remote task queue, UI, or product-specific authorization layer.
+
+## Stability And Ownership
+
+Treat these as public or semi-public API:
+
+- import paths, exported symbols, command builders, config models, and CLI
+  commands;
+- `ToolCommand`, `ToolObservation`, `ToolEvent`, `ToolError`, and local service
+  envelope JSON shapes;
+- protocol operation names and package-owned `failureKind` values;
+- `computer-use-macos` operation payloads and `observation` fields;
+- `wechat-desktop-tool` semantic response schemas such as `wechat.window.v1`,
+  `wechat.contacts.v1`, `wechat.conversations.v1`, and `wechat.messages.v1`.
+
+Raw macOS Accessibility data is an implementation detail unless a method
+explicitly documents it as debug output. Application callers should use
+normalized models, visible information lists, command builders, and stable
+action/failure metadata instead of depending on raw AX tree shape.
+
+Only operations listed in this document should be treated as stable. Drafts
+under [feature/](feature/) describe candidate APIs such as
+`accessibility_action`; they are not stable package-consumer contracts until
+the implementation, tests, and this API reference all agree.
+
+## Choosing An Entry Point
+
+- Use direct `ComputerUseClient(...)` for local development and smoke tests.
+- Use `ComputerUseClient.from_config("app-control.toml")` when the caller owns
+  a shared app-control configuration.
+- Use helper mode when a signed helper app should be the stable macOS
+  permission subject.
+- Use `computer-use-macos serve` and `UnixSocketServiceClient` when the caller
+  is not Python or needs a separate local process boundary.
+- Use `WeChatDesktopTool` only for WeChat domain operations; keep generic macOS
+  automation in `computer-use-macos`.
+
+The caller remains responsible for business authorization, user confirmation,
+durable audit, retry policy, and any LLM/planner loop.
 
 ## Client
 
@@ -87,6 +134,7 @@ client = ComputerUseClient(
 | `readiness()` | Report platform and permission state. | No |
 | `observe(target_app=None, bundle_id=None)` | Return bounded frontmost-app/window summary. | No |
 | `accessibility_query(target_app=None, bundle_id=None, root=None, query=None)` | Return scoped macOS Accessibility nodes for a target app/window. | No |
+| `accessibility_action(target_app=None, bundle_id=None, target=..., action="AXPress")` | Execute a verified Accessibility action such as `AXPress`. | Yes |
 | `open_app(app, bundle_id=None)` | Open an allowlisted app. | Yes |
 | `focus_app(app, bundle_id=None)` | Activate an allowlisted app. | Yes |
 | `click(target, target_app=..., bundle_id=None)` | Click a low-risk semantic target. | Yes |
@@ -157,6 +205,29 @@ result = client.run_command(
                 "AXSize",
             ],
             "actions": True,
+        },
+    )
+)
+```
+
+Use `accessibility_action` for elements that expose stable AX actions such as
+`AXPress`. The direct backend validates the target app allowlist, resolves the
+snapshot-local `axPath`, checks preconditions, and then calls
+`AXUIElementPerformAction`.
+
+```python
+from computer_use_macos import accessibility_action_command
+
+result = client.run_command(
+    accessibility_action_command(
+        target_app="WeChat",
+        bundle_id="com.tencent.xinWeChat",
+        ax_path="0/2",
+        action="AXPress",
+        preconditions={
+            "roleIn": ["AXRadioButton"],
+            "labelIn": ["通讯录", "Contacts"],
+            "actionIn": ["AXPress"],
         },
     )
 )
@@ -314,6 +385,29 @@ Supported protocol operations in this migration entrypoint:
 
 Unsupported operations return a structured failed `ToolObservation`.
 
+### `computer-use-macos` Command Builders
+
+Use these helpers when constructing protocol commands in application code,
+queues, or non-UI tests:
+
+| Builder | Operation | Required Input | Notes |
+|---|---|---|---|
+| `readiness_command()` | `readiness` | none | Permission and platform readiness. |
+| `observe_command(...)` | `observe` | optional target app/bundle | Bounded foreground/window observation. |
+| `accessibility_query_command(...)` | `accessibility_query` | root/query | Scoped AX node reads for models and semantic tools. |
+| `open_app_command(app, ...)` | `open_app` | app name | App must be allowlisted. |
+| `focus_app_command(app, ...)` | `focus_app` | app name | Activates an allowlisted running app. |
+| `click_command(...)` | `click` | semantic target, selector, or coordinates | Coordinate click requires explicit enablement. |
+| `click_accessibility_command(selector, ...)` | `click` | selector + target app | Bounded selector click convenience wrapper. |
+| `click_coordinate_command(x, y, ...)` | `click` | coordinates | Disabled unless `allow_coordinate_click=True`. |
+| `type_text_command(text, ...)` | `type_text` | text | Does not submit and rejects newline text. |
+| `press_key_command(key, ...)` | `press_key` | key | Single key press. |
+| `hotkey_command(keys, ...)` | `hotkey` | modifier tuple/list | One key plus modifiers. |
+| `wait_command(seconds=...)` | `wait` | seconds | Bounded pacing only. |
+
+All builders accept `command_id`, `timeout_ms`, `idempotency_key`, and
+`metadata` keyword arguments when the caller needs stable task/audit identity.
+
 ## Local Service
 
 Non-Python callers can send the same command envelopes over a local Unix domain
@@ -390,6 +484,7 @@ Public operations:
 | `list_contacts` | `wechat.list_contacts(limit=30, page_token=None)` | Switch to contacts and return visible contact rows. | Changes selected tab |
 | `list_conversations` | `wechat.list_conversations(limit=30, page_token=None)` | Return visible chat/conversation rows. | May change selected tab |
 | `open_contact` | `wechat.open_contact(contact)` | Search and open one contact/conversation. | Yes |
+| `execute_action` | `wechat.execute_action(action_ref)` | Execute an action returned by `inspect_window` or list APIs. | Depends |
 | `read_visible_messages` | `wechat.read_visible_messages(limit=20)` | Return visible loaded message rows in current chat. | Opens/focuses app |
 | `read_contact_messages` | `wechat.read_contact_messages(contact, limit=30)` | Compose `open_contact` and `read_visible_messages`. | Yes |
 | `focus_contact` | `wechat.focus_contact(contact)` | Compatibility keyboard-search flow used by send-message. | Yes |
@@ -402,6 +497,7 @@ Command builders are exported for protocol-first callers:
 
 ```python
 from wechat_desktop_tool import (
+    execute_action_command,
     inspect_window_command,
     list_contacts_command,
     list_conversations_command,
@@ -412,6 +508,20 @@ from wechat_desktop_tool import (
 
 result = wechat.run_command(list_contacts_command(limit=30))
 ```
+
+| Builder | Operation | Required Input | Notes |
+|---|---|---|---|
+| `open_wechat_command()` | `open_wechat` | none | Open/focus WeChat and verify foreground identity. |
+| `inspect_window_command(...)` | `inspect_window` | optional flags | Returns `wechat.window.v1`. |
+| `list_contacts_command(...)` | `list_contacts` | optional limit/page token | Visible contacts page only. |
+| `list_conversations_command(...)` | `list_conversations` | optional limit/page token | Visible conversations page only. |
+| `open_contact_command(contact)` | `open_contact` | contact text | May return `needs_disambiguation`. |
+| `execute_action_command(action_ref)` | `execute_action` | `actionRef` returned by a read-model API | Executes `accessibility_action` first, then allowed fallback. |
+| `read_visible_messages_command(...)` | `read_visible_messages` | optional limit | Visible loaded messages only. |
+| `read_contact_messages_command(contact, ...)` | `read_contact_messages` | contact text | Opens contact, then reads visible messages. |
+| `draft_message_command(message)` | `draft_message` | message text | Types but does not submit. |
+| `submit_draft_command()` | `submit_draft` | none | Presses configured submit key. |
+| `send_message_command(contact=..., message=...)` | `send_message` | contact + message | Convenience flow; caller owns authorization. |
 
 The read-model APIs use `macos.computer_use/accessibility_query` internally.
 Normal responses expose WeChat concepts such as navigation items, contact rows,
@@ -442,7 +552,17 @@ raw `attributeNames` or full AX trees.
       "searchBox": {"available": true}
     },
     "actionables": [
-      {"id": "nav.contacts.press", "kind": "navigation_item"}
+      {
+        "id": "nav.contacts.press",
+        "kind": "navigation_item",
+        "actionRef": {
+          "schema": "wechat.action_ref.v1",
+          "id": "nav.contacts.press",
+          "preferredMethod": "accessibility_action",
+          "target": {"axPath": "0/2", "role": "AXRadioButton"},
+          "action": "AXPress"
+        }
+      }
     ],
     "availableActions": [
       {"id": "wechat.list_contacts", "status": "available"},
@@ -481,7 +601,15 @@ List APIs return visible rows only:
       "pinned": true,
       "muted": false,
       "actionId": "chats.visible.0.open",
-      "element": {"axPath": "0/11/1/0/0", "role": "AXRow"}
+      "element": {"axPath": "0/11/1/0/0", "role": "AXRow"},
+      "actionRef": {
+        "schema": "wechat.action_ref.v1",
+        "id": "chats.visible.0.open",
+        "kind": "chats.open",
+        "preferredMethod": "accessibility_action",
+        "target": {"axPath": "0/11/1/0/0", "role": "AXRow"},
+        "action": "AXPress"
+      }
     }
   ],
   "pagination": {

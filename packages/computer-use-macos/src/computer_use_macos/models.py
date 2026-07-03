@@ -11,6 +11,7 @@ class ComputerUseOperation(str, Enum):
     READINESS = "readiness"
     OBSERVE = "observe"
     ACCESSIBILITY_QUERY = "accessibility_query"
+    ACCESSIBILITY_ACTION = "accessibility_action"
     OPEN_APP = "open_app"
     FOCUS_APP = "focus_app"
     CLICK = "click"

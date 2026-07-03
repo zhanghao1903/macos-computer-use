@@ -220,8 +220,11 @@ Every object that may be clicked, focused, or scrolled keeps an
 Rules:
 
 - `axPath` is valid only for the snapshot that produced it.
-- `frame` is screen-coordinate based and can be used for coordinate fallback.
-- `actions` is advisory. Many useful WeChat rows do not expose `AXPress`.
+- `frame` is screen-coordinate based diagnostic data. It is not the normal
+  public action contract and should only support explicitly enabled internal
+  last-resort fallback.
+- `actions` is advisory. Build `actionRef` for rows or controls that expose
+  safe actions such as `AXPress`.
 - `label` should use the best available `AXTitle`, `AXDescription`, or parsed
   semantic label.
 - Raw AX attribute names are debug data and are not exposed through the normal
@@ -415,11 +418,15 @@ Allowed kinds:
 Action execution rules:
 
 - Prefer `AXPress` or other explicit AX actions when available.
-- If no AX action exists, coordinate fallback may use `frame.center`.
-- Coordinate fallback must verify app identity, window title, and snapshot
-  freshness before clicking.
-- The action API should accept `snapshotId` plus actionable `id`, not raw
-  coordinates from the caller.
+- Expose executable UI actions as WeChat `actionRef` payloads that are passed
+  back to `wechat.execute_action`.
+- If no AX action exists, selector fallback may be used only when role and label
+  are available and policy allows it.
+- Coordinate fallback is internal-only and must remain disabled by default. If a
+  future caller explicitly enables it, the tool must verify app identity, window
+  title, and snapshot freshness before acting.
+- The action API should accept `actionRef`, `snapshotId`, and actionable `id`,
+  not raw coordinates from the caller.
 
 ### Available Actions
 
@@ -433,15 +440,41 @@ entire tree.
   "kind": "ui_element",
   "status": "available",
   "label": "Open conversation: File Transfer",
-  "tool": "macos.computer_use",
-  "operation": "click",
+  "tool": "wechat.desktop",
+  "operation": "execute_action",
   "description": "Open one visible conversation row from the conversation list.",
   "inputTemplate": {
-    "targetApp": "WeChat",
-    "bundleId": "com.tencent.xinWeChat",
-    "snapshotId": "frontmost:WeChat:微信 (聊天)",
-    "selector": {"role": "AXRow", "name": "File Transfer"},
-    "coordinates": {"x": 464, "y": 330}
+    "actionRef": {
+      "schema": "wechat.action_ref.v1",
+      "id": "ui.conversation.0.open",
+      "kind": "conversation.open",
+      "snapshotId": "frontmost:WeChat:微信 (聊天)",
+      "preferredMethod": "accessibility_action",
+      "target": {
+        "axPath": "0/11/1/0/0",
+        "role": "AXRow",
+        "label": "File Transfer",
+        "actions": ["AXPress"]
+      },
+      "action": "AXPress",
+      "preconditions": {
+        "roleIn": ["AXRow"],
+        "labelIn": ["File Transfer"],
+        "actionIn": ["AXPress"]
+      },
+      "fallbacks": [
+        {
+          "method": "selector_click",
+          "selector": {"role": "AXRow", "name": "File Transfer"}
+        }
+      ],
+      "risk": "changes_current_chat",
+      "targetSummary": "Open conversation: File Transfer"
+    }
+  },
+  "actionRef": {
+    "schema": "wechat.action_ref.v1",
+    "id": "ui.conversation.0.open"
   },
   "actionableId": "conversation.0.open",
   "targetElement": {},

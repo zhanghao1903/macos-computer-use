@@ -17,6 +17,22 @@ For production-style permission stability, use a signed helper app as the
 macOS permission subject. Direct mode is acceptable for local development and
 TextEdit smoke tests.
 
+## Install From PyPI
+
+For application integration or smoke testing from released packages:
+
+```bash
+python -m pip install app-control-protocol
+python -m pip install "computer-use-macos[accessibility]"
+python -m pip install wechat-desktop-tool
+cp examples/app-control.toml app-control.toml
+```
+
+The `accessibility` extra installs PyObjC modules used for scoped
+Accessibility queries and other macOS AX-backed operations. Start
+`computer-use-macos serve` from the same Python environment you installed into;
+otherwise the service may not be able to import `ApplicationServices`.
+
 ## Install From Checkout
 
 From the repository root:
@@ -28,10 +44,8 @@ python -m pip install -e packages/wechat-desktop-tool
 cp examples/app-control.toml app-control.toml
 ```
 
-The `accessibility` extra installs PyObjC modules used for full Accessibility
-tree snapshots. Start `computer-use-macos serve` from the same Python
-environment you installed into; otherwise the service may not be able to import
-`ApplicationServices`.
+Use checkout installs when you are changing these packages or running local
+tests against source.
 
 The root compatibility package can also be installed when validating migration
 behavior:

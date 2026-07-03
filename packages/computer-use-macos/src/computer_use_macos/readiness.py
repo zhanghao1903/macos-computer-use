@@ -16,6 +16,7 @@ from .models import (
 DEFAULT_ENABLED_OPERATIONS: tuple[ComputerUseOperation, ...] = (
     ComputerUseOperation.OBSERVE,
     ComputerUseOperation.ACCESSIBILITY_QUERY,
+    ComputerUseOperation.ACCESSIBILITY_ACTION,
     ComputerUseOperation.OPEN_APP,
     ComputerUseOperation.FOCUS_APP,
     ComputerUseOperation.CLICK,

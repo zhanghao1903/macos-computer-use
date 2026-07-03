@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 from uuid import uuid4
@@ -42,6 +43,7 @@ DEFAULT_MESSAGE_LIMIT = 30
 DEFAULT_OUTPUT = "./wechat-contacts-recent-messages-test.json"
 DEFAULT_SOCKET_PATH = "/tmp/app-control.sock"
 DEFAULT_TOKEN_FILE = "./app-control.token"
+DEFAULT_WECHAT_BUNDLE_ID = "com.tencent.xinWeChat"
 
 
 class LocalServiceAppControlAdapter:
@@ -92,6 +94,9 @@ def run_contacts_recent_messages_test(
     max_contacts: int = DEFAULT_MAX_CONTACTS,
     message_limit: int = DEFAULT_MESSAGE_LIMIT,
     continue_on_error: bool = True,
+    system_open: bool = True,
+    wechat_bundle_id: str = DEFAULT_WECHAT_BUNDLE_ID,
+    system_open_runner: Any | None = None,
     service_client: Any | None = None,
 ) -> dict[str, Any]:
     if max_contacts <= 0:
@@ -99,6 +104,15 @@ def run_contacts_recent_messages_test(
     if message_limit <= 0:
         raise ValueError("message_limit must be positive")
 
+    system_opened = (
+        _open_wechat_process(wechat_bundle_id, runner=system_open_runner)
+        if system_open
+        else {
+            "operation": "system_open_wechat",
+            "success": True,
+            "skipped": True,
+        }
+    )
     concrete_service_client = service_client or UnixSocketServiceClient(
         socket_path,
         token=token,
@@ -111,10 +125,19 @@ def run_contacts_recent_messages_test(
         readiness_command(command_id="sdk_readiness_" + uuid4().hex)
     )
     wechat = WeChatDesktopTool.from_config(app_control, config_for_tool)
+    opened = (
+        wechat.open_wechat()
+        if system_opened["success"] is True and readiness.success
+        else _skipped_observation(
+            "open_wechat",
+            "system_open_wechat" if system_opened["success"] is not True else "readiness",
+            readiness,
+        )
+    )
     contacts = (
         wechat.list_contacts(limit=max_contacts)
-        if readiness.success
-        else _skipped_observation("list_contacts", "readiness", readiness)
+        if opened.success
+        else _skipped_observation("list_contacts", "open_wechat", opened)
     )
     contact_items = _contact_items(contacts)[:max_contacts] if contacts.success else []
     read_results: list[dict[str, Any]] = []
@@ -153,13 +176,19 @@ def run_contacts_recent_messages_test(
             "maxContacts": max_contacts,
             "messageLimit": message_limit,
             "continueOnError": continue_on_error,
+            "systemOpen": system_open,
+            "wechatBundleId": wechat_bundle_id,
         },
+        "systemOpenWeChat": system_opened,
         "readiness": readiness.to_dict(),
+        "openWeChat": opened.to_dict(),
         "listContacts": contacts.to_dict(),
         "contacts": read_results,
         "summary": {
             "success": (
-                readiness.success
+                system_opened["success"] is True
+                and readiness.success
+                and opened.success
                 and contacts.success
                 and len(failed_contacts) == 0
             ),
@@ -168,7 +197,13 @@ def run_contacts_recent_messages_test(
             "successfulContactCount": len(read_results) - len(failed_contacts),
             "failedContacts": failed_contacts,
             "messageLimit": message_limit,
-            "failedStep": _failed_step(readiness, contacts, read_results),
+            "failedStep": _failed_step(
+                system_opened,
+                readiness,
+                opened,
+                contacts,
+                read_results,
+            ),
         },
     }
     _write_json(output_path, payload)
@@ -189,6 +224,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_contacts=args.max_contacts,
             message_limit=args.message_limit,
             continue_on_error=not args.stop_on_error,
+            system_open=not args.skip_system_open,
+            wechat_bundle_id=args.wechat_bundle_id,
         )
     except Exception as exc:
         print(f"wechat contacts recent messages test failed: {exc}", file=sys.stderr)
@@ -220,6 +257,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--max-contacts", type=int, default=DEFAULT_MAX_CONTACTS)
     parser.add_argument("--message-limit", type=int, default=DEFAULT_MESSAGE_LIMIT)
+    parser.add_argument("--skip-system-open", action="store_true")
+    parser.add_argument("--wechat-bundle-id", default=DEFAULT_WECHAT_BUNDLE_ID)
     parser.add_argument("--stop-on-error", action="store_true")
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     return parser
@@ -277,13 +316,82 @@ def _message_count(observation: ToolObservation) -> int:
     return len(messages) if isinstance(messages, list) else 0
 
 
+def _open_wechat_process(bundle_id: str, *, runner: Any | None = None) -> dict[str, Any]:
+    concrete_runner = runner or subprocess.run
+    commands = [
+        ["open", "-b", bundle_id],
+        [
+            "osascript",
+            "-e",
+            f"tell application id {_applescript_string(bundle_id)} to reopen",
+            "-e",
+            f"tell application id {_applescript_string(bundle_id)} to activate",
+        ],
+    ]
+    results = []
+    success = True
+    for command in commands:
+        try:
+            completed = concrete_runner(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+        except Exception as exc:
+            success = False
+            results.append(
+                {
+                    "command": command,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+            break
+        command_success = getattr(completed, "returncode", 1) == 0
+        success = success and command_success
+        results.append(
+            {
+                "command": command,
+                "success": command_success,
+                "returnCode": getattr(completed, "returncode", None),
+                "stdout": _bounded_text(getattr(completed, "stdout", "")),
+                "stderr": _bounded_text(getattr(completed, "stderr", "")),
+            }
+        )
+        if not command_success:
+            break
+    return {
+        "operation": "system_open_wechat",
+        "success": success,
+        "bundleId": bundle_id,
+        "commands": results,
+    }
+
+
+def _applescript_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _bounded_text(value: object, *, limit: int = 1000) -> str:
+    text = value if isinstance(value, str) else str(value or "")
+    return text if len(text) <= limit else text[:limit] + "...<truncated>"
+
+
 def _failed_step(
+    system_opened: Mapping[str, Any],
     readiness: ToolObservation,
+    opened: ToolObservation,
     contacts: ToolObservation,
     read_results: list[dict[str, Any]],
 ) -> str | None:
+    if system_opened.get("success") is not True:
+        return "systemOpenWeChat"
     if not readiness.success:
         return "readiness"
+    if not opened.success:
+        return "openWeChat"
     if not contacts.success:
         return "listContacts"
     if any(item.get("success") is not True for item in read_results):
@@ -305,9 +413,9 @@ def _skipped_observation(
             failure_kind=f"{failed_step}_failed",
             message=f"{operation} skipped because {failed_step} failed.",
             retryable=failed.retryable,
+            evidence={failed_step: failed.to_dict()},
         ),
         summary=f"{operation} skipped because {failed_step} failed.",
-        evidence={failed_step: failed.to_dict()},
     )
 
 

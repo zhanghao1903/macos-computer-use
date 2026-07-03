@@ -324,6 +324,8 @@ EXPECTED_PUBLIC_API = {
         "computer_use_command",
         "readiness_command",
         "observe_command",
+        "accessibility_query_command",
+        "accessibility_action_command",
         "open_app_command",
         "focus_app_command",
         "click_command",
@@ -341,9 +343,15 @@ EXPECTED_PUBLIC_API = {
         "WECHAT_FAILURE_KINDS",
         "wechat_command",
         "open_wechat_command",
+        "inspect_window_command",
+        "list_contacts_command",
+        "list_conversations_command",
+        "open_contact_command",
+        "execute_action_command",
         "focus_contact_command",
         "observe_current_chat_command",
         "read_visible_messages_command",
+        "read_contact_messages_command",
         "draft_message_command",
         "submit_draft_command",
         "send_message_command",
@@ -948,6 +956,16 @@ def _check_command_builder_api(modules: dict[str, Any]) -> list[CheckResult]:
         "computer-use-macos": [
             computer_use.readiness_command().to_dict(),
             computer_use.observe_command(target_app="TextEdit").to_dict(),
+            computer_use.accessibility_query_command(
+                target_app="TextEdit",
+                root={"kind": "focusedWindow"},
+            ).to_dict(),
+            computer_use.accessibility_action_command(
+                target_app="TextEdit",
+                ax_path="0/1",
+                action="AXPress",
+                preconditions={"roleIn": ["AXButton"]},
+            ).to_dict(),
             computer_use.open_app_command("TextEdit").to_dict(),
             computer_use.focus_app_command("TextEdit").to_dict(),
             computer_use.click_accessibility_command(
@@ -962,9 +980,22 @@ def _check_command_builder_api(modules: dict[str, Any]) -> list[CheckResult]:
         ],
         "wechat-desktop-tool": [
             wechat.open_wechat_command().to_dict(),
+            wechat.inspect_window_command().to_dict(),
+            wechat.list_contacts_command().to_dict(),
+            wechat.list_conversations_command().to_dict(),
+            wechat.open_contact_command("File Transfer").to_dict(),
+            wechat.execute_action_command(
+                {
+                    "schema": "wechat.action_ref.v1",
+                    "id": "nav.contacts.press",
+                    "target": {"axPath": "0/2"},
+                    "action": "AXPress",
+                }
+            ).to_dict(),
             wechat.focus_contact_command("File Transfer").to_dict(),
             wechat.observe_current_chat_command().to_dict(),
             wechat.read_visible_messages_command(limit=5).to_dict(),
+            wechat.read_contact_messages_command("File Transfer").to_dict(),
             wechat.draft_message_command("hello").to_dict(),
             wechat.submit_draft_command().to_dict(),
             wechat.send_message_command(

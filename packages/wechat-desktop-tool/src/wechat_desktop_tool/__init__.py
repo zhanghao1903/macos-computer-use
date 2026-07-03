@@ -6,6 +6,7 @@ from .adapter import build_wechat_tool
 from .commands import (
     WECHAT_TOOL,
     draft_message_command,
+    execute_action_command,
     focus_contact_command,
     inspect_window_command,
     list_contacts_command,
@@ -72,6 +73,7 @@ __all__ = [
     "__version__",
     "build_wechat_tool",
     "draft_message_command",
+    "execute_action_command",
     "focus_contact_command",
     "inspect_window_command",
     "list_contacts_command",

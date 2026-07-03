@@ -34,6 +34,7 @@ from computer_use_macos import (
     HelperConfig,
     MacOSComputerUseClient,
     UnixSocketServiceClient,
+    accessibility_action_command,
     accessibility_query_command,
     click_accessibility_command,
     click_command,
@@ -52,6 +53,7 @@ from computer_use_macos import (
 from computer_use_macos.commands import CommandResult
 from computer_use_macos.client import ComputerUseClient as ShortClientFromModule
 from computer_use_macos.client import MacOSComputerUseClient as ClientFromModule
+from computer_use_macos.client import _accessibility_action_script
 from computer_use_macos.client import _accessibility_query_script
 from computer_use_macos.client import _accessibility_tree_snapshot_script
 from computer_use_macos.helper import (
@@ -255,6 +257,19 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                 query={"scope": "children", "limit": 5},
                 command_id="cmd_accessibility_query",
             ),
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                preconditions={
+                    "roleIn": ["AXButton"],
+                    "labelIn": ["OK"],
+                    "actionIn": ["AXPress"],
+                },
+                command_id="cmd_accessibility_action",
+            ),
             open_app_command(
                 "TextEdit",
                 bundle_id="com.apple.TextEdit",
@@ -319,17 +334,20 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(commands[1].input["bundleId"], "com.apple.TextEdit")
         self.assertEqual(commands[2].operation, "accessibility_query")
         self.assertEqual(commands[2].input["query"]["limit"], 5)
-        self.assertEqual(commands[3].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[5].input["snapshotId"], "snapshot-1")
+        self.assertEqual(commands[3].operation, "accessibility_action")
+        self.assertEqual(commands[3].input["target"]["axPath"], "0/1")
+        self.assertEqual(commands[3].input["action"], "AXPress")
+        self.assertEqual(commands[4].input["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(commands[6].input["snapshotId"], "snapshot-1")
         self.assertEqual(
-            commands[6].input["selector"],
+            commands[7].input["selector"],
             {"role": "button", "name": "OK"},
         )
-        self.assertEqual(commands[6].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[7].input["coordinates"], [12, 34])
-        self.assertEqual(commands[10].input["keys"], ["Command", "K"])
+        self.assertEqual(commands[7].input["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(commands[8].input["coordinates"], [12, 34])
+        self.assertEqual(commands[11].input["keys"], ["Command", "K"])
         self.assertEqual(commands[9].input["bundleId"], "com.apple.TextEdit")
-        self.assertEqual(commands[12].timeout_ms, 1234)
+        self.assertEqual(commands[13].timeout_ms, 1234)
 
     def test_command_builder_output_runs_through_client(self) -> None:
         runner = FakeRunner()
@@ -796,6 +814,73 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(query["nodes"][0]["description"], "Documents")
         self.assertNotIn("attributeNames", query["nodes"][0])
 
+    def test_package_local_client_supports_accessibility_action_protocol(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": True,
+                    "status": "ok",
+                    "operation": "accessibility_action",
+                    "method": "AXUIElementPerformAction",
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "action": "AXPress",
+                    "actionAttempted": True,
+                    "target": {
+                        "axPath": "0/1",
+                        "role": "AXButton",
+                        "label": "OK",
+                        "actions": ["AXPress"],
+                    },
+                    "diagnostics": {
+                        "durationMs": 12,
+                        "verifiedPreconditions": True,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {"TextEdit": "com.apple.TextEdit"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                preconditions={
+                    "roleIn": ["AXButton"],
+                    "labelIn": ["OK"],
+                    "actionIn": ["AXPress"],
+                },
+                command_id="cmd_action",
+            )
+        )
+
+        request = json.loads(runner.calls[0][-1])
+        action = observation.observation["accessibilityAction"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(observation.observation["actionAttempted"], True)
+        self.assertEqual(observation.observation["snapshotId"], "frontmost:TextEdit:Current")
+        self.assertEqual(request["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(request["target"]["axPath"], "0/1")
+        self.assertEqual(request["preconditions"]["labelIn"], ["OK"])
+        self.assertEqual(action["target"]["role"], "AXButton")
+        self.assertEqual(action["method"], "AXUIElementPerformAction")
+
     def test_package_accessibility_query_script_is_scoped_and_filtered(
         self,
     ) -> None:
@@ -807,6 +892,19 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("limit", source)
         self.assertIn("timeBudgetMs", source)
         self.assertIn("childrenCount", source)
+        self.assertIn("def focused_window_for_app(", source)
+        self.assertIn('"AXWindows"', source)
+
+    def test_package_accessibility_action_script_executes_verified_axpress(
+        self,
+    ) -> None:
+        source = _accessibility_action_script()
+
+        self.assertIn("AXUIElementPerformAction", source)
+        self.assertIn("def validate_preconditions(", source)
+        self.assertIn('"precondition_failed"', source)
+        self.assertIn('"AXPress"', source)
+        self.assertIn("resolve_ax_path", source)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()
@@ -866,6 +964,10 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         from computer_use_macos import observations, transport
 
         self.assertEqual(ComputerUseOperation.OPEN_APP.value, "open_app")
+        self.assertEqual(
+            ComputerUseOperation.ACCESSIBILITY_ACTION.value,
+            "accessibility_action",
+        )
         self.assertEqual(ComputerUseOperation.FOCUS_APP.value, "focus_app")
         self.assertEqual(ComputerUseOperation.PRESS_KEY.value, "press_key")
         self.assertEqual(ComputerUseOperation.HOTKEY.value, "hotkey")
@@ -874,6 +976,10 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("invalid_input", COMPUTER_USE_FAILURE_KINDS)
         self.assertIn("app_not_allowlisted", COMPUTER_USE_FAILURE_KINDS)
         self.assertIs(AppControlConfig, computer_use_macos.AppControlConfig)
+        self.assertIs(
+            accessibility_action_command,
+            computer_use_macos.accessibility_action_command,
+        )
         self.assertIs(
             load_app_control_config,
             computer_use_macos.load_app_control_config,

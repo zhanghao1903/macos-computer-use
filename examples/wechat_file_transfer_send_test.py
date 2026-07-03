@@ -260,9 +260,9 @@ def _skipped_observation(
             failure_kind=f"{failed_step}_failed",
             message=f"{operation} skipped because {failed_step} failed.",
             retryable=failed.retryable,
+            evidence={failed_step: failed.to_dict()},
         ),
         summary=f"{operation} skipped because {failed_step} failed.",
-        evidence={failed_step: failed.to_dict()},
     )
 
 

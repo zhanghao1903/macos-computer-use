@@ -152,15 +152,22 @@ _MODIFIER_NAMES = {
 }
 
 _ACCESSIBILITY_ROLES = {
+    "axbutton": "button",
     "button": "button",
+    "axcheckbox": "checkbox",
     "checkbox": "checkbox",
     "check_box": "checkbox",
+    "axmenuitem": "menu item",
     "menuitem": "menu item",
     "menu_item": "menu item",
+    "axradiobutton": "radio button",
     "radio_button": "radio button",
     "radiobutton": "radio button",
+    "axpopupbutton": "pop up button",
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
+    "axtextfield": "text field",
+    "axtextarea": "text field",
     "text_field": "text field",
     "textfield": "text field",
 }
@@ -452,6 +459,25 @@ class MacOSComputerUseClient:
                         "include_raw",
                         default=False,
                     ),
+                    timeout=timeout or self._default_timeout,
+                )
+            elif operation == "accessibility_action":
+                result = self.accessibility_action(
+                    target_app=_optional_string(
+                        payload,
+                        "targetApp",
+                        "target_app",
+                        "app",
+                    ),
+                    bundle_id=bundle_id,
+                    snapshot_id=_optional_string(
+                        payload,
+                        "snapshotId",
+                        "snapshot_id",
+                    ),
+                    target=_accessibility_action_target_from_payload(payload),
+                    action=_required_string(payload, "action"),
+                    preconditions=_mapping_from_payload(payload, "preconditions"),
                     timeout=timeout or self._default_timeout,
                 )
             elif operation == "type_text":
@@ -968,6 +994,186 @@ class MacOSComputerUseClient:
                 "accessibility_query": payload,
             },
         )
+
+    def accessibility_action(
+        self,
+        *,
+        target_app: str | None = None,
+        bundle_id: str | None = None,
+        snapshot_id: str | None = None,
+        target: Mapping[str, Any] | None = None,
+        action: str = "AXPress",
+        preconditions: Mapping[str, Any] | None = None,
+        timeout: float = 5.0,
+    ) -> ComputerUseResult:
+        readiness = self.readiness()
+        if readiness.status != ComputerUseReadinessStatus.READY:
+            return ComputerUseResult.not_available(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "macOS Accessibility action is unavailable until readiness is ready.",
+                metadata={"readiness": readiness.to_dict()},
+            )
+        allowlist_failure = self._accessibility_action_allowlist_failure(
+            target_app,
+            bundle_id,
+        )
+        if allowlist_failure is not None:
+            return allowlist_failure
+
+        request = _normalize_accessibility_action_request(
+            target_app=target_app,
+            bundle_id=bundle_id,
+            snapshot_id=snapshot_id,
+            target=target,
+            action=action,
+            preconditions=preconditions,
+        )
+        target_text = _accessibility_action_target_text(request)
+        risk = self._policy.classify(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
+            target=target_text,
+        )
+        if risk.requires_confirmation:
+            return ComputerUseResult.blocked(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "computer-use action requires confirmation",
+                risk=risk,
+                metadata={
+                    "confirmation_required": True,
+                    "confirmation_title": "Confirm desktop action",
+                    "confirmation_body": (
+                        "Approve the requested Accessibility action before it is "
+                        "executed."
+                    ),
+                },
+            )
+        if risk.level.value == "high":
+            return ComputerUseResult.blocked(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                risk.reason,
+                risk=risk,
+            )
+
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-c",
+                _accessibility_action_script(),
+                json.dumps(request, ensure_ascii=False),
+            ],
+            timeout=timeout,
+        )
+        if getattr(result, "timed_out", False):
+            return _timed_out_result(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "Timed out running Accessibility action.",
+                result,
+                timeout,
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_action_timeout",
+                },
+            )
+        if result.returncode != 0:
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "Failed to run Accessibility action.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_action_failed",
+                    "stderr": _bounded(result.stderr or result.stdout, 1000),
+                },
+            )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "Accessibility action returned invalid JSON.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_action_invalid_json",
+                    "stdout": _bounded(result.stdout, 1000),
+                },
+            )
+        if not isinstance(payload, dict):
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "Accessibility action did not return an object.",
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": "accessibility_action_invalid_payload",
+                },
+            )
+        if payload.get("available") is False or payload.get("status") != "ok":
+            failure_kind = payload.get("failureKind")
+            return ComputerUseResult.failed(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                str(payload.get("message") or "Accessibility action failed."),
+                metadata={
+                    **_target_identity_metadata(target_app, bundle_id),
+                    "failure_kind": (
+                        failure_kind
+                        if isinstance(failure_kind, str) and failure_kind
+                        else "accessibility_action_failed"
+                    ),
+                    "accessibility_action": payload,
+                    "action_attempted": bool(payload.get("actionAttempted")),
+                },
+            )
+
+        snapshot = payload.get("snapshotId")
+        return ComputerUseResult.ok(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
+            "Ran Accessibility action.",
+            snapshot_id=snapshot if isinstance(snapshot, str) else None,
+            metadata={
+                **_target_identity_metadata(target_app, bundle_id),
+                "accessibility_action": payload,
+                "action_attempted": bool(payload.get("actionAttempted")),
+            },
+        )
+
+    def _accessibility_action_allowlist_failure(
+        self,
+        target_app: str | None,
+        bundle_id: str | None,
+    ) -> ComputerUseResult | None:
+        metadata = _target_identity_metadata(target_app, bundle_id)
+        if target_app is None and bundle_id is None:
+            return ComputerUseResult.needs_user(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                "target_app or bundle_id is required for Accessibility action.",
+                metadata=metadata,
+            )
+        if target_app is not None:
+            if target_app not in self._allowed_apps:
+                return ComputerUseResult.blocked(
+                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    f"App is not allowlisted: {target_app}",
+                    metadata=metadata,
+                )
+            expected_bundle_id = self._allowed_apps.get(target_app)
+            if expected_bundle_id and bundle_id and expected_bundle_id != bundle_id:
+                return ComputerUseResult.blocked(
+                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    f"App bundle id is not allowlisted: {bundle_id}",
+                    metadata={
+                        **metadata,
+                        "expected_bundle_id": expected_bundle_id,
+                    },
+                )
+            return None
+        allowed_bundle_ids = {
+            item for item in self._allowed_apps.values() if isinstance(item, str) and item
+        }
+        if bundle_id not in allowed_bundle_ids:
+            return ComputerUseResult.blocked(
+                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                f"App bundle id is not allowlisted: {bundle_id}",
+                metadata=metadata,
+            )
+        return None
 
     def type_text(
         self,
@@ -2025,6 +2231,100 @@ def _normalize_accessibility_query_request(
     }
 
 
+_ACCESSIBILITY_ACTION_ALLOWLIST = {"AXPress"}
+
+
+def _accessibility_action_target_from_payload(
+    payload: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    target = _mapping_from_payload(payload, "target")
+    ax_path = _optional_string(payload, "axPath", "ax_path", "path")
+    if target is not None and ax_path is not None:
+        raise ValueError("target and axPath are mutually exclusive")
+    if target is not None:
+        return target
+    if ax_path is not None:
+        return {"kind": "axPath", "axPath": ax_path}
+    return None
+
+
+def _normalize_accessibility_action_request(
+    *,
+    target_app: str | None,
+    bundle_id: str | None,
+    snapshot_id: str | None,
+    target: Mapping[str, Any] | None,
+    action: str,
+    preconditions: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(action, str) or not action.strip():
+        raise ValueError("action must be a non-empty string")
+    normalized_action = action.strip()
+    if normalized_action not in _ACCESSIBILITY_ACTION_ALLOWLIST:
+        raise ValueError(f"unsupported accessibility action: {normalized_action}")
+
+    target_payload = dict(target or {})
+    target_kind = target_payload.get("kind", "axPath")
+    if target_kind != "axPath":
+        raise ValueError("target.kind must be axPath")
+    ax_path = target_payload.get("axPath") or target_payload.get("path")
+    if not isinstance(ax_path, str) or not ax_path.strip():
+        raise ValueError("target.axPath is required")
+    target_payload["kind"] = "axPath"
+    target_payload["axPath"] = ax_path.strip()
+
+    return {
+        "targetApp": target_app,
+        "bundleId": bundle_id,
+        "snapshotId": snapshot_id,
+        "target": target_payload,
+        "action": normalized_action,
+        "preconditions": _normalize_accessibility_action_preconditions(
+            preconditions or {}
+        ),
+    }
+
+
+def _normalize_accessibility_action_preconditions(
+    preconditions: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for input_key, output_key in (
+        ("roleIn", "roleIn"),
+        ("labelIn", "labelIn"),
+        ("actionIn", "actionIn"),
+    ):
+        value = preconditions.get(input_key)
+        if value is None:
+            continue
+        if not isinstance(value, list | tuple):
+            raise TypeError(f"preconditions.{input_key} must be a list")
+        items: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(
+                    f"preconditions.{input_key} items must be non-empty strings"
+                )
+            items.append(item.strip())
+        normalized[output_key] = items
+    if "enabled" in preconditions:
+        enabled = preconditions.get("enabled")
+        if not isinstance(enabled, bool):
+            raise TypeError("preconditions.enabled must be a boolean")
+        normalized["enabled"] = enabled
+    return normalized
+
+
+def _accessibility_action_target_text(request: Mapping[str, Any]) -> str:
+    action = request.get("action")
+    target = request.get("target")
+    if isinstance(target, Mapping):
+        path = target.get("axPath")
+        if isinstance(path, str):
+            return f"{action} {path}"
+    return str(action or "accessibility_action")
+
+
 def _bounded_int(
     value: Any,
     *,
@@ -2273,6 +2573,7 @@ APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
 CHILDREN_ATTRIBUTE = "AXChildren"
 AX_VALUE_NUMBER_RE = re.compile(r"([xywh]):(-?\d+(?:\.\d+)?)")
 STARTED_AT = time.monotonic()
+QUERY_STARTED_AT = STARTED_AT
 
 
 def fail(failure_kind: str, message: str) -> None:
@@ -2404,10 +2705,35 @@ def children_of(element: Any) -> list[Any]:
         return []
 
 
+def ax_role(element: Any) -> str:
+    value = safe_scalar(ax_get(element, "AXRole"))
+    return str(value or "")
+
+
+def windows_of(app_element: Any) -> list[Any]:
+    windows = ax_get(app_element, "AXWindows")
+    if not windows:
+        return []
+    try:
+        return list(windows)
+    except Exception:
+        return []
+
+
+def focused_window_for_app(app_element: Any) -> Any | None:
+    focused = ax_get(app_element, kAXFocusedWindowAttribute)
+    if focused is not None and ax_role(focused) == "AXWindow":
+        return focused
+    for candidate in windows_of(app_element):
+        if ax_role(candidate) == "AXWindow":
+            return candidate
+    return focused
+
+
 def time_budget_exceeded() -> bool:
     query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
     budget_ms = int(query.get("timeBudgetMs") or 500)
-    return (time.monotonic() - STARTED_AT) * 1000 >= budget_ms
+    return (time.monotonic() - QUERY_STARTED_AT) * 1000 >= budget_ms
 
 
 def resolve_root(window: Any) -> tuple[Any | None, str]:
@@ -2441,11 +2767,8 @@ def resolve_root(window: Any) -> tuple[Any | None, str]:
 def read_node(element: Any, path: str) -> dict[str, Any]:
     query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
     requested_attrs = query.get("attributes") or []
-    available_attrs = set(ax_attribute_names(element))
     raw_attrs: dict[str, Any] = {}
     for attr in requested_attrs:
-        if attr not in available_attrs:
-            continue
         value = safe_scalar(ax_get(element, attr))
         if value is not None:
             raw_attrs[attr] = value
@@ -2475,10 +2798,7 @@ def read_node(element: Any, path: str) -> dict[str, Any]:
         if actions:
             node["actions"] = actions
     if bool(query.get("includeChildrenCount", True)):
-        if CHILDREN_ATTRIBUTE in available_attrs:
-            node["childrenCount"] = len(children_of(element))
-        else:
-            node["childrenCount"] = 0
+        node["childrenCount"] = len(children_of(element))
     if bool(REQUEST.get("includeRaw", False)):
         node["raw"] = raw_attrs
     return node
@@ -2576,7 +2896,7 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
             visit(child, f"{root_path}/{index}", 1, True)
             if diagnostics["truncated"]:
                 break
-    diagnostics["durationMs"] = int(round((time.monotonic() - STARTED_AT) * 1000))
+    diagnostics["durationMs"] = int(round((time.monotonic() - QUERY_STARTED_AT) * 1000))
     return nodes, diagnostics
 
 
@@ -2597,7 +2917,7 @@ if app is None:
 
 pid = int(app.processIdentifier())
 app_ax = AXUIElementCreateApplication(pid)
-window = ax_get(app_ax, kAXFocusedWindowAttribute)
+window = focused_window_for_app(app_ax)
 if window is None:
     fail("accessibility_query_no_focused_window", "No focused window is available.")
 
@@ -2606,6 +2926,7 @@ if root_element is None:
     fail("accessibility_query_root_not_found", "Could not resolve query root.")
 
 window_title = safe_scalar(ax_get(window, "AXTitle"))
+QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
 app_name = str(app.localizedName() or "")
 bundle_id = str(app.bundleIdentifier() or "")
@@ -2630,6 +2951,317 @@ payload = {
     "diagnostics": diagnostics,
 }
 print(json.dumps(payload, ensure_ascii=False))
+'''
+
+
+def _accessibility_action_script() -> str:
+    return r'''
+from __future__ import annotations
+
+import json
+import sys
+import time
+from typing import Any
+
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+CHILDREN_ATTRIBUTE = "AXChildren"
+STARTED_AT = time.monotonic()
+
+
+def finish(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False))
+    sys.exit(0)
+
+
+def fail(failure_kind: str, message: str, *, target: dict[str, Any] | None = None) -> None:
+    payload: dict[str, Any] = {
+        "schema": "macos.accessibility.action.result.v1",
+        "available": False,
+        "status": "failed",
+        "failureKind": failure_kind,
+        "message": message,
+        "actionAttempted": False,
+        "diagnostics": {
+            "durationMs": int(round((time.monotonic() - STARTED_AT) * 1000)),
+        },
+    }
+    if target is not None:
+        payload["target"] = target
+    finish(payload)
+
+
+try:
+    REQUEST = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+except Exception as exc:
+    fail("invalid_request", str(exc))
+
+try:
+    import objc
+    from ApplicationServices import (
+        AXIsProcessTrusted,
+        AXUIElementCopyActionNames,
+        AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        AXUIElementPerformAction,
+        kAXFocusedWindowAttribute,
+    )
+except Exception as exc:
+    fail("accessibility_action_pyobjc_unavailable", str(exc))
+
+
+def ax_get(element: Any, attr: str) -> Any:
+    try:
+        err, value = AXUIElementCopyAttributeValue(element, attr, None)
+        if err != 0:
+            return None
+        return value
+    except Exception:
+        return None
+
+
+def ax_actions(element: Any) -> list[str]:
+    try:
+        err, actions = AXUIElementCopyActionNames(element, None)
+        if err != 0 or actions is None:
+            return []
+        return [str(action) for action in actions]
+    except Exception:
+        return []
+
+
+def ax_perform_action(element: Any, action: str) -> int:
+    try:
+        return int(AXUIElementPerformAction(element, action))
+    except Exception:
+        return -1
+
+
+def safe_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    text = str(value)
+    if len(text) > 500:
+        return text[:500] + "...<truncated>"
+    return text
+
+
+def children_of(element: Any) -> list[Any]:
+    children = ax_get(element, CHILDREN_ATTRIBUTE)
+    if not children:
+        return []
+    try:
+        return list(children)
+    except Exception:
+        return []
+
+
+def ax_role(element: Any) -> str:
+    value = safe_scalar(ax_get(element, "AXRole"))
+    return str(value or "")
+
+
+def windows_of(app_element: Any) -> list[Any]:
+    windows = ax_get(app_element, "AXWindows")
+    if not windows:
+        return []
+    try:
+        return list(windows)
+    except Exception:
+        return []
+
+
+def focused_window_for_app(app_element: Any) -> Any | None:
+    focused = ax_get(app_element, kAXFocusedWindowAttribute)
+    if focused is not None and ax_role(focused) == "AXWindow":
+        return focused
+    for candidate in windows_of(app_element):
+        if ax_role(candidate) == "AXWindow":
+            return candidate
+    return focused
+
+
+def selected_running_app() -> Any:
+    bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    if bundle_id:
+        running_application = objc.lookUpClass("NSRunningApplication")
+        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
+        for candidate in apps or []:
+            try:
+                if not bool(candidate.isTerminated()):
+                    return candidate
+            except Exception:
+                return candidate
+        fail(
+            "target_app_not_running",
+            f"No running app found for bundle id: {bundle_id}",
+        )
+    return workspace.frontmostApplication()
+
+
+def resolve_ax_path(window: Any, raw_path: str) -> tuple[Any | None, str]:
+    ax_path = str(raw_path or "").strip()
+    if ax_path in {"", "0"}:
+        return window, "0"
+    parts = ax_path.split("/")
+    if not parts or parts[0] != "0":
+        return None, ax_path
+    current = window
+    current_path = "0"
+    for raw_index in parts[1:]:
+        try:
+            index = int(raw_index)
+        except ValueError:
+            return None, ax_path
+        children = children_of(current)
+        if index < 0 or index >= len(children):
+            return None, ax_path
+        current = children[index]
+        current_path = f"{current_path}/{index}"
+    return current, current_path
+
+
+def label_for(element: Any) -> str:
+    for attr in ("AXDescription", "AXTitle", "AXValue", "AXPlaceholderValue", "AXHelp"):
+        value = safe_scalar(ax_get(element, attr))
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def target_facts(element: Any, ax_path: str) -> dict[str, Any]:
+    enabled = safe_scalar(ax_get(element, "AXEnabled"))
+    facts: dict[str, Any] = {
+        "axPath": ax_path,
+        "role": ax_role(element),
+        "label": label_for(element),
+        "actions": ax_actions(element),
+    }
+    if isinstance(enabled, bool):
+        facts["enabled"] = enabled
+    return facts
+
+
+def string_set(value: Any) -> set[str]:
+    if isinstance(value, list | tuple):
+        return {str(item).casefold() for item in value}
+    if value is None:
+        return set()
+    return {str(value).casefold()}
+
+
+def validate_preconditions(facts: dict[str, Any], action: str) -> str | None:
+    preconditions = REQUEST.get("preconditions")
+    if not isinstance(preconditions, dict):
+        preconditions = {}
+    role_set = string_set(preconditions.get("roleIn"))
+    if role_set and str(facts.get("role") or "").casefold() not in role_set:
+        return "role did not match preconditions.roleIn"
+    label_set = string_set(preconditions.get("labelIn"))
+    if label_set and str(facts.get("label") or "").casefold() not in label_set:
+        return "label did not match preconditions.labelIn"
+    expected_enabled = bool(preconditions.get("enabled"))
+    if "enabled" in preconditions and facts.get("enabled") is not expected_enabled:
+        return "enabled did not match preconditions.enabled"
+    action_set = string_set(preconditions.get("actionIn"))
+    if action_set and action.casefold() not in action_set:
+        return "action did not match preconditions.actionIn"
+    action_names = {str(item).casefold() for item in facts.get("actions") or []}
+    if action.casefold() not in action_names:
+        return f"target does not expose action: {action}"
+    return None
+
+
+if not AXIsProcessTrusted():
+    fail(
+        "missing_accessibility",
+        "Accessibility permission is not available for the Python process.",
+    )
+
+action = str(REQUEST.get("action") or "").strip()
+if action != "AXPress":
+    fail("unsupported_accessibility_action", f"Unsupported Accessibility action: {action}")
+
+target = REQUEST.get("target")
+if not isinstance(target, dict):
+    fail("invalid_request", "target must be an object")
+if target.get("kind", "axPath") != "axPath":
+    fail("invalid_request", "target.kind must be axPath")
+ax_path = str(target.get("axPath") or target.get("path") or "").strip()
+if not ax_path:
+    fail("invalid_request", "target.axPath is required")
+
+try:
+    objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+    app = selected_running_app()
+except Exception as exc:
+    fail("target_app_not_running", str(exc))
+
+if app is None:
+    fail("target_app_not_running", "No frontmost app is available.")
+
+pid = int(app.processIdentifier())
+app_ax = AXUIElementCreateApplication(pid)
+window = focused_window_for_app(app_ax)
+if window is None:
+    fail("focused_window_missing", "No focused window is available.")
+
+window_title = safe_scalar(ax_get(window, "AXTitle"))
+app_name = str(app.localizedName() or "")
+bundle_id = str(app.bundleIdentifier() or "")
+snapshot_id = f"frontmost:{app_name}:{window_title or ''}"
+expected_snapshot_id = str(REQUEST.get("snapshotId") or "").strip()
+if expected_snapshot_id and expected_snapshot_id != snapshot_id:
+    fail(
+        "snapshot_stale",
+        "Target snapshot is stale.",
+        target={"axPath": ax_path},
+    )
+
+element, resolved_path = resolve_ax_path(window, ax_path)
+if element is None:
+    fail("ax_path_not_found", "Could not resolve target axPath.", target={"axPath": ax_path})
+
+facts = target_facts(element, resolved_path)
+precondition_failure = validate_preconditions(facts, action)
+if precondition_failure is not None:
+    fail("precondition_failed", precondition_failure, target=facts)
+
+err = ax_perform_action(element, action)
+if err != 0:
+    fail(
+        "accessibility_action_failed",
+        f"AXUIElementPerformAction returned error: {err}",
+        target=facts,
+    )
+
+finish(
+    {
+        "schema": "macos.accessibility.action.result.v1",
+        "available": True,
+        "status": "ok",
+        "operation": "accessibility_action",
+        "method": "AXUIElementPerformAction",
+        "snapshotId": snapshot_id,
+        "action": action,
+        "actionAttempted": True,
+        "target": facts,
+        "app": {
+            "name": app_name,
+            "bundleId": bundle_id,
+            "pid": pid,
+        },
+        "window": {
+            "title": str(window_title or ""),
+            "role": str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow"),
+        },
+        "diagnostics": {
+            "durationMs": int(round((time.monotonic() - STARTED_AT) * 1000)),
+            "verifiedPreconditions": True,
+        },
+    }
+)
 '''
 
 
@@ -3245,6 +3877,7 @@ _PUBLIC_METADATA_FIELDS = {
     "window_title": "windowTitle",
     "accessibility": "accessibility",
     "accessibility_query": "accessibilityQuery",
+    "accessibility_action": "accessibilityAction",
 }
 
 

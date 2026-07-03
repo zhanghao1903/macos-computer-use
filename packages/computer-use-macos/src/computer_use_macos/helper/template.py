@@ -379,15 +379,22 @@ MODIFIER_NAMES = {{
     "shift": "shift down",
 }}
 ACCESSIBILITY_ROLES = {{
+    "axbutton": "button",
     "button": "button",
+    "axcheckbox": "checkbox",
     "checkbox": "checkbox",
     "check_box": "checkbox",
+    "axmenuitem": "menu item",
     "menuitem": "menu item",
     "menu_item": "menu item",
+    "axradiobutton": "radio button",
     "radio_button": "radio button",
     "radiobutton": "radio button",
+    "axpopupbutton": "pop up button",
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
+    "axtextfield": "text field",
+    "axtextarea": "text field",
     "text_field": "text field",
     "textfield": "text field",
 }}

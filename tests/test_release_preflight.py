@@ -49,6 +49,17 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("public-api:wechat-desktop-tool", names)
         self.assertIn("command-builder:computer-use-macos", names)
         self.assertIn("command-builder:wechat-desktop-tool", names)
+        wechat_builder = next(
+            result
+            for result in results
+            if result.name == "command-builder:wechat-desktop-tool"
+        )
+        self.assertIn("inspect_window", wechat_builder.summary)
+        self.assertIn("list_contacts", wechat_builder.summary)
+        self.assertIn("list_conversations", wechat_builder.summary)
+        self.assertIn("open_contact", wechat_builder.summary)
+        self.assertIn("execute_action", wechat_builder.summary)
+        self.assertIn("read_contact_messages", wechat_builder.summary)
         self.assertIn("service-envelope:app-control-protocol", names)
         self.assertIn("observer-surface:app-control-protocol", names)
         self.assertIn("observer-surface:computer-use-macos", names)
@@ -1671,6 +1682,8 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         for builder in (
             "readiness_command",
             "observe_command",
+            "accessibility_query_command",
+            "accessibility_action_command",
             "open_app_command",
             "focus_app_command",
             "click_command",
@@ -1697,9 +1710,15 @@ class TestPyPIInstallReportTests(unittest.TestCase):
 
         for builder in (
             "open_wechat_command",
+            "inspect_window_command",
+            "list_contacts_command",
+            "list_conversations_command",
+            "open_contact_command",
+            "execute_action_command",
             "focus_contact_command",
             "observe_current_chat_command",
             "read_visible_messages_command",
+            "read_contact_messages_command",
             "draft_message_command",
             "submit_draft_command",
             "send_message_command",

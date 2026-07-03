@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 from typing import Any
+from types import SimpleNamespace
 import unittest
 
 from app_control_protocol import ServiceResponse, ToolObservation
@@ -210,7 +211,13 @@ class FakeContactsRecentMessagesServiceClient:
         self.commands.append(command)
         operation = command["operation"]
         observation_payload: dict[str, Any] = {}
-        if operation == "accessibility_query":
+        if operation == "observe":
+            observation_payload = {
+                "frontmostApp": "WeChat",
+                "frontmostBundleId": "com.tencent.xinWeChat",
+                "windowTitle": "微信 (聊天)",
+            }
+        elif operation == "accessibility_query":
             observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
@@ -225,6 +232,52 @@ class FakeContactsRecentMessagesServiceClient:
                 request_id=request_id or "fake_request",
             ).to_dict()
         ]
+
+
+class FakeContactsOpenFailureServiceClient:
+    def __init__(self) -> None:
+        self.commands: list[dict[str, Any]] = []
+
+    def run_command(
+        self,
+        command: dict[str, Any],
+        *,
+        action: str = "run",
+        request_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del action
+        self.commands.append(command)
+        operation = command["operation"]
+        observation_payload: dict[str, Any] = {}
+        if operation == "observe":
+            observation_payload = {
+                "frontmostApp": "Codex",
+                "frontmostBundleId": "com.openai.codex",
+                "windowTitle": "",
+            }
+        observation = ToolObservation.ok(
+            command_id=command["commandId"],
+            tool=command["tool"],
+            operation=operation,
+            summary=f"fake {operation}",
+            observation=observation_payload,
+        )
+        return [
+            ServiceResponse.complete(
+                observation,
+                request_id=request_id or "fake_request",
+            ).to_dict()
+        ]
+
+
+class FakeSystemOpenRunner:
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command: list[str], **kwargs: Any) -> Any:
+        del kwargs
+        self.commands.append(list(command))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
 class SdkExampleTests(unittest.TestCase):
@@ -294,10 +347,10 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "type_text",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "accessibility_query",
                 "type_text",
                 "press_key",
@@ -313,6 +366,7 @@ class SdkExampleTests(unittest.TestCase):
     def test_wechat_contacts_recent_messages_test_reads_listed_contacts(self) -> None:
         module = _load_wechat_contacts_recent_messages_test_module()
         service_client = FakeContactsRecentMessagesServiceClient()
+        system_open = FakeSystemOpenRunner()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "contacts-output.json"
@@ -321,6 +375,7 @@ class SdkExampleTests(unittest.TestCase):
                 output_path=output_path,
                 socket_path="/tmp/app-control.sock",
                 service_client=service_client,
+                system_open_runner=system_open,
                 max_contacts=1,
                 message_limit=30,
             )
@@ -330,6 +385,8 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["success"], True)
         self.assertEqual(payload["summary"]["listedContactCount"], 1)
         self.assertEqual(payload["summary"]["processedContactCount"], 1)
+        self.assertEqual(payload["systemOpenWeChat"]["success"], True)
+        self.assertEqual([command[:2] for command in system_open.commands], [["open", "-b"], ["osascript", "-e"]])
         self.assertEqual(payload["contacts"][0]["contact"], "Ada")
         self.assertEqual(payload["contacts"][0]["messageCount"], 2)
         self.assertEqual(
@@ -341,25 +398,52 @@ class SdkExampleTests(unittest.TestCase):
             [
                 "readiness",
                 "open_app",
+                "observe",
+                "open_app",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "type_text",
                 "accessibility_query",
-                "click",
+                "accessibility_action",
                 "accessibility_query",
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(service_client.commands[10]["input"]["text"], "Ada")
+        self.assertEqual(service_client.commands[12]["input"]["text"], "Ada")
         self.assertEqual(persisted["summary"]["messageLimit"], 30)
+
+    def test_wechat_contacts_recent_messages_reports_open_failure(self) -> None:
+        module = _load_wechat_contacts_recent_messages_test_module()
+        service_client = FakeContactsOpenFailureServiceClient()
+        system_open = FakeSystemOpenRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "contacts-output.json"
+            payload = module.run_contacts_recent_messages_test(
+                config_path=None,
+                output_path=output_path,
+                socket_path="/tmp/app-control.sock",
+                service_client=service_client,
+                system_open_runner=system_open,
+                max_contacts=1,
+                message_limit=30,
+            )
+
+        self.assertEqual(payload["summary"]["success"], False)
+        self.assertEqual(payload["summary"]["failedStep"], "openWeChat")
+        self.assertEqual(payload["listContacts"]["failureKind"], "open_wechat_failed")
+        self.assertEqual(
+            [command["operation"] for command in service_client.commands],
+            ["readiness", "open_app", "observe"],
+        )
 
     def test_wechat_window_sdk_test_rejects_missing_token_file(self) -> None:
         module = _load_wechat_window_sdk_test_module()

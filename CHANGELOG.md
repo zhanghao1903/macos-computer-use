@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+- Rework the product workflow gate skill for this package suite, emphasizing
+  public API contracts, developer documentation, tests, release records, and
+  package publishing hygiene.
+
+### Docs
+
+- Add a documentation index, refresh README installation/API guidance, and
+  expand the API reference for package roles and command builders.
+- Add a feature design for WeChat Accessibility action APIs, including public
+  response contracts, action references, performance strategy, and fake-service
+  test coverage.
+
 ## 0.1.1 - 2026-07-02
 
 - Add scoped `macos.computer_use/accessibility_query` for bounded macOS

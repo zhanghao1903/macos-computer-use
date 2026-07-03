@@ -17,6 +17,7 @@ from app_control_protocol import (
 from app_control_protocol.errors import ProtocolValidationError
 
 from ..commands import (
+    accessibility_action_command,
     click_accessibility_command,
     click_command,
     click_coordinate_command,
@@ -298,6 +299,38 @@ class HelperTransportClient:
                 target_app=target_app,
                 bundle_id=bundle_id,
                 snapshot_id=snapshot_id,
+                command_id=command_id,
+                timeout_ms=_command_timeout_ms(timeout, timeout_ms),
+            ),
+            observer=observer,
+        )
+
+    def accessibility_action(
+        self,
+        *,
+        target_app: str | None = None,
+        bundle_id: str | None = None,
+        snapshot_id: str | None = None,
+        target: Mapping[str, JsonValue] | None = None,
+        ax_path: str | None = None,
+        action: str = "AXPress",
+        preconditions: Mapping[str, JsonValue] | None = None,
+        command_id: str | None = None,
+        timeout: float | None = None,
+        timeout_ms: int | None = None,
+        observer: "ToolObserver | None" = None,
+    ) -> "ToolObservation":
+        """Execute an Accessibility action through the helper protocol."""
+
+        return self.run_command(
+            accessibility_action_command(
+                target_app=target_app,
+                bundle_id=bundle_id,
+                snapshot_id=snapshot_id,
+                target=target,
+                ax_path=ax_path,
+                action=action,
+                preconditions=preconditions,
                 command_id=command_id,
                 timeout_ms=_command_timeout_ms(timeout, timeout_ms),
             ),

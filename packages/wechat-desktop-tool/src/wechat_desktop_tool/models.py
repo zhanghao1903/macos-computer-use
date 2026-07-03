@@ -17,6 +17,7 @@ WeChatOperation = Literal[
     "list_contacts",
     "list_conversations",
     "open_contact",
+    "execute_action",
     "focus_contact",
     "observe_current_chat",
     "read_visible_messages",
@@ -273,6 +274,7 @@ class WeChatAvailableAction:
     description: str | None = None
     input_schema: Mapping[str, Any] | None = None
     input_template: Mapping[str, Any] | None = None
+    action_ref: Mapping[str, Any] | None = None
     actionable_id: str | None = None
     target_element: WeChatElementRef | None = None
     risk: str | None = None
@@ -309,6 +311,8 @@ class WeChatAvailableAction:
             object.__setattr__(self, "input_schema", dict(self.input_schema))
         if self.input_template is not None:
             object.__setattr__(self, "input_template", dict(self.input_template))
+        if self.action_ref is not None:
+            object.__setattr__(self, "action_ref", dict(self.action_ref))
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -327,6 +331,8 @@ class WeChatAvailableAction:
             payload["inputSchema"] = dict(self.input_schema)
         if self.input_template is not None:
             payload["inputTemplate"] = dict(self.input_template)
+        if self.action_ref is not None:
+            payload["actionRef"] = dict(self.action_ref)
         if self.actionable_id is not None:
             payload["actionableId"] = self.actionable_id
         if self.target_element is not None:

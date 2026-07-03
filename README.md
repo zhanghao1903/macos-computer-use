@@ -29,11 +29,23 @@ their own task, confirmation, evidence, and audit systems.
 
 ## Install
 
-During local development:
+From PyPI:
+
+```bash
+python -m pip install app-control-protocol
+python -m pip install "computer-use-macos[accessibility]"
+python -m pip install wechat-desktop-tool
+```
+
+The `accessibility` extra installs the PyObjC modules needed for macOS
+Accessibility-backed reads and actions. For protocol-only consumers,
+`app-control-protocol` has no runtime dependencies.
+
+During local development from this checkout:
 
 ```bash
 python -m pip install -e packages/app-control-protocol
-python -m pip install -e packages/computer-use-macos
+python -m pip install -e "packages/computer-use-macos[accessibility]"
 python -m pip install -e packages/wechat-desktop-tool
 ```
 
@@ -46,6 +58,11 @@ Agent application developers should start with
 how to choose direct/helper/service mode, call the SDK, package a helper, and
 handle macOS permissions, local token authentication, confirmation, and audit
 boundaries.
+
+The documentation index is [docs/README.md](docs/README.md). Stable public API
+is documented in [docs/api.md](docs/api.md). Draft feature designs live under
+[docs/feature/](docs/feature/) and are not part of the stable contract until
+they are implemented and added to the API docs.
 
 ## Quick Start
 
@@ -135,7 +152,16 @@ both `serve` and `request` can read the local service connection settings from
 
 ## API
 
-See [docs/api.md](docs/api.md) for the API contract.
+See [docs/api.md](docs/api.md) for the API contract. The most common
+integration path is:
+
+1. use `app-control-protocol` models for command, observation, event, error,
+   and service envelopes;
+2. use `computer-use-macos` for macOS readiness, app focus, bounded
+   Accessibility reads, keyboard/text primitives, helper transport, and local
+   service mode;
+3. use `wechat-desktop-tool` when the caller needs normalized WeChat concepts
+   such as contacts, conversations, messages, and semantic actions.
 
 ```python
 client.readiness()
@@ -153,8 +179,23 @@ client.click_coordinate(120, 240)  # requires allow_coordinate_click=True
 client.wait(seconds=1.0)
 ```
 
-All methods return dataclass models with `.to_dict()` for JSON-friendly
-transport.
+Direct backend convenience methods return dataclass models with `.to_dict()`.
+Protocol and helper-backed calls return `ToolObservation` values. WeChat
+semantic APIs build on the same observation surface:
+
+```python
+from computer_use_macos import ComputerUseClient
+from wechat_desktop_tool import WeChatDesktopTool
+
+app_control = ComputerUseClient.from_config("app-control.toml")
+wechat = WeChatDesktopTool.from_config(app_control, "app-control.toml")
+
+window = wechat.inspect_window()
+contacts = wechat.list_contacts(limit=30)
+messages = wechat.read_contact_messages("File Transfer", limit=20)
+```
+
+The caller owns authorization, confirmation, retry policy, and durable audit.
 
 ## Development
 
