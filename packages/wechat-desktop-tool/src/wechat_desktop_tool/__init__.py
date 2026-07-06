@@ -1,0 +1,91 @@
+"""Protocol-first WeChat Desktop semantic tools."""
+
+from app_control_protocol import AppControlClient
+
+from .adapter import build_wechat_tool
+from .commands import (
+    WECHAT_TOOL,
+    draft_message_command,
+    execute_action_command,
+    focus_contact_command,
+    inspect_window_command,
+    list_contacts_command,
+    list_conversations_command,
+    observe_current_chat_command,
+    open_wechat_command,
+    open_contact_command,
+    read_contact_messages_command,
+    read_visible_messages_command,
+    send_message_command,
+    submit_draft_command,
+    wechat_command,
+)
+from .errors import WECHAT_FAILURE_KINDS
+from .models import (
+    WECHAT_WINDOW_SCHEMA,
+    WeChatActionableRegion,
+    WeChatChatPanel,
+    WeChatComposer,
+    WeChatConversationList,
+    WeChatConversationRow,
+    WeChatDesktopConfig,
+    WeChatElementRef,
+    WeChatFrame,
+    WeChatMessageList,
+    WeChatMessageRow,
+    WeChatNavigationItem,
+    WeChatOperation,
+    WeChatScrollRegion,
+    WeChatSearchBox,
+    WeChatToolbarButton,
+    WeChatVisibleMessage,
+    WeChatWindow,
+    wechat_message_hash,
+)
+from .recipes import send_message
+from .tool import WeChatDesktopTool
+
+__version__ = "0.1.1"
+
+__all__ = [
+    "WECHAT_TOOL",
+    "WECHAT_WINDOW_SCHEMA",
+    "WECHAT_FAILURE_KINDS",
+    "AppControlClient",
+    "WeChatActionableRegion",
+    "WeChatChatPanel",
+    "WeChatComposer",
+    "WeChatConversationList",
+    "WeChatConversationRow",
+    "WeChatDesktopConfig",
+    "WeChatDesktopTool",
+    "WeChatElementRef",
+    "WeChatFrame",
+    "WeChatMessageList",
+    "WeChatMessageRow",
+    "WeChatNavigationItem",
+    "WeChatOperation",
+    "WeChatScrollRegion",
+    "WeChatSearchBox",
+    "WeChatToolbarButton",
+    "WeChatVisibleMessage",
+    "WeChatWindow",
+    "__version__",
+    "build_wechat_tool",
+    "draft_message_command",
+    "execute_action_command",
+    "focus_contact_command",
+    "inspect_window_command",
+    "list_contacts_command",
+    "list_conversations_command",
+    "observe_current_chat_command",
+    "open_contact_command",
+    "open_wechat_command",
+    "read_contact_messages_command",
+    "read_visible_messages_command",
+    "send_message_command",
+    "send_message",
+    "submit_draft_command",
+    "wechat_command",
+    "wechat_message_hash",
+]

@@ -18,11 +18,61 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run unit tests
-        run: python -m unittest discover -s tests
+        run: |
+          PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+            python -m unittest discover -s tests
+          PYTHONPATH=packages/app-control-protocol/src \
+            python -m unittest discover -s packages/app-control-protocol/tests
+          PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+            python -m unittest discover -s packages/computer-use-macos/tests
+          PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
+            python -m unittest discover -s packages/wechat-desktop-tool/tests
+      - name: Run release preflight
+        run: python scripts/release_preflight.py
+      - name: Verify release tag
+        run: python scripts/release_tag_check.py --tag "${{ github.event.release.tag_name }}"
       - name: Build distributions
         run: |
           python -m pip install build
-          python -m build --sdist --wheel --outdir dist
+          python -m build packages/app-control-protocol --sdist --wheel --outdir dist
+          python -m build packages/computer-use-macos --sdist --wheel --outdir dist
+          python -m build packages/wechat-desktop-tool --sdist --wheel --outdir dist
+      - name: Verify wheel contents
+        run: python scripts/release_preflight.py --wheel-dir dist --sdist-dir dist
+      - name: Download release proof assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-proof
+          gh release download "${{ github.event.release.tag_name }}" \
+            --pattern helper-doctor.json \
+            --pattern textedit-smoke.json \
+            --pattern wechat-focus-draft-smoke.json \
+            --pattern wechat-submit-smoke.json \
+            --pattern testpypi-install.json \
+            --pattern trusted-publisher.json \
+            --pattern release-proof.json \
+            --dir release-proof
+          test -f release-proof/helper-doctor.json
+          test -f release-proof/textedit-smoke.json
+          test -f release-proof/wechat-focus-draft-smoke.json
+          test -f release-proof/wechat-submit-smoke.json
+          test -f release-proof/testpypi-install.json
+          test -f release-proof/trusted-publisher.json
+          test -f release-proof/release-proof.json
+      - name: Run strict release preflight
+        run: |
+          python scripts/release_preflight.py \
+            --wheel-dir dist \
+            --sdist-dir dist \
+            --helper-doctor-report release-proof/helper-doctor.json \
+            --textedit-smoke-report release-proof/textedit-smoke.json \
+            --wechat-smoke-report release-proof/wechat-focus-draft-smoke.json \
+            --wechat-smoke-report release-proof/wechat-submit-smoke.json \
+            --testpypi-install-report release-proof/testpypi-install.json \
+            --trusted-publisher-report release-proof/trusted-publisher.json \
+            --proof release-proof/release-proof.json \
+            --require-external
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app-control.local/schemas/app_control.event.v1.schema.json",
+  "title": "App Control ToolEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "commandId", "seq", "type"],
+  "properties": {
+    "schema": { "const": "app_control.event.v1" },
+    "commandId": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "type": {
+      "type": "string",
+      "enum": ["started", "progress", "observation", "warning", "error"]
+    },
+    "phase": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "not_found",
+        "not_ready",
+        "permission_missing",
+        "timeout",
+        "failed",
+        "unknown"
+      ]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "data": { "$ref": "#/$defs/jsonObject" }
+  },
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        { "$ref": "#/$defs/jsonObject" }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    }
+  }
+}

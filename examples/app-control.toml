@@ -1,0 +1,46 @@
+# Copy this file to app-control.toml and adjust the values for your helper app.
+# Smoke tests and CI can override runtime values with APP_CONTROL_* variables.
+
+[logging]
+level = "info"
+redact_text = true
+json = false
+event_sink = "stderr"
+# Optional JSONL file for full, unredacted raw app-control observations.
+# raw_data_log_path = "./app-control-rawdata.jsonl"
+
+[computer_use]
+# Use "direct" for local development and "helper" for a signed app permission
+# subject in production.
+backend = "direct"
+allowed_apps = ["TextEdit", "WeChat"]
+allow_coordinate_click = false
+screen_recording_required = false
+timeout_ms = 10000
+
+[computer_use.allowed_app_bundle_ids]
+TextEdit = "com.apple.TextEdit"
+WeChat = "com.tencent.xinWeChat"
+
+[helper]
+transport = "unix_socket"
+# Set these when backend = "helper":
+# helper_app_path = "/Applications/Example Computer Use Helper.app"
+# bundle_id = "com.example.computer-use-helper"
+# manifest_path = "./helper_config.json"
+# endpoint = "/tmp/example-computer-use-helper.sock"
+# token = "optional-local-token"
+allowed_apps = ["TextEdit", "WeChat"]
+auto_launch = false
+launch_timeout_ms = 90000
+
+[wechat]
+app_name = "WeChat"
+bundle_id = "com.tencent.xinWeChat"
+app_control_tool = "macos.computer_use"
+search_hotkey = ["Command", "F"]
+search_clear_hotkey = ["Command", "A"]
+clear_key = "Delete"
+submit_key = "Return"
+max_message_chars = 2000
+default_timeout_ms = 30000
