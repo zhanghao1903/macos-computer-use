@@ -195,6 +195,86 @@ Remaining slices:
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
 
+## Slice 3B: Collection Item Element References
+
+Status: implemented.
+
+Commit scope:
+
+- add allowlisted `computed` collection field support for `elementRef`;
+- return normalized item element references from collection extraction without
+  exposing raw AX nodes or attribute-name dumps;
+- request item actions and frame attributes when a collection asks for
+  `elementRef`;
+- reject unknown computed field attributes fail-closed during profile
+  validation;
+- add focused selector tests for normalized item element references.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new app-control protocol command;
+- no new JSON Schema;
+- no CLI change;
+- no stable API docs update;
+- `elementRef` remains an internal selector-profile field for the MVP.
+
+Implemented behavior:
+
+- collection profiles can define a field with
+  `source = "computed"` and `attribute = "elementRef"`;
+- collection extraction returns a normalized element dictionary with
+  `kind`, `axPath`, `role`, optional label, optional frame, optional actions,
+  and safe boolean state fields;
+- collection extraction still returns semantic item dictionaries, not raw AX
+  nodes;
+- unknown computed fields such as `rawNode` are rejected by profile validation.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 23 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/*.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 74 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 3 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 83 tests passed.
+
+Remaining slices:
+
+- wire WeChat list APIs to generic collection extraction using normalized
+  `elementRef` while preserving WeChat action refs;
+- add profile override config after packaged profile migration is proven;
+- defer public selector protocol until parity tests and real WeChat smoke proof.
+
 ## Slice 4A: WeChat Packaged Profile Loading
 
 Status: implemented.

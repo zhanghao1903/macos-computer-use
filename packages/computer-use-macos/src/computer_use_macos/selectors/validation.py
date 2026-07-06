@@ -53,6 +53,7 @@ ACTION_PRECONDITIONS = {
     "selectorStillMatches",
 }
 ALLOWED_TRANSFORMS = {"strip", "firstText", "joinText", "toBool"}
+COMPUTED_FIELD_ATTRIBUTES = {"summary", "elementRef"}
 
 
 class SelectorProfileValidationError(ValueError):
@@ -323,6 +324,24 @@ def _validate_field(
         raise SelectorProfileValidationError(
             f"{field_name}.attribute is required for {field.source} fields"
         )
+    if (
+        field.source == "computed"
+        and field.attribute is not None
+        and field.attribute not in COMPUTED_FIELD_ATTRIBUTES
+    ):
+        raise SelectorProfileValidationError(
+            f"{field_name}.attribute is not an allowlisted computed field: "
+            f"{field.attribute!r}"
+        )
+    if field.source == "computed" and field.attribute == "elementRef":
+        if field.selector is not None:
+            raise SelectorProfileValidationError(
+                f"{field_name}.selector is not valid for computed elementRef"
+            )
+        if field.transform is not None:
+            raise SelectorProfileValidationError(
+                f"{field_name}.transform is not valid for computed elementRef"
+            )
     if field.selector is not None:
         _validate_selector(
             field.selector,

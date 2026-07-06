@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from .diagnostics import selector_diagnostics
-from .matching import effective_step_match, match_node, node_attribute, node_ax_path
+from .matching import (
+    effective_step_match,
+    match_node,
+    node_actions,
+    node_attribute,
+    node_ax_path,
+    node_frame,
+    node_label,
+    node_role,
+)
 from .models import (
     CollectionDefinition,
     CollectionResult,
@@ -175,8 +184,12 @@ class CollectionExtractor:
                     "AXValue",
                     "AXDescription",
                     "AXPlaceholderValue",
+                    "AXFrame",
+                    "AXEnabled",
+                    "AXFocused",
                 ],
-                "actions": bool(step.match.actions_include),
+                "actions": bool(step.match.actions_include)
+                or _collection_needs_item_actions(collection),
                 "match": {"roleIn": list(step.role_in or step.match.role_in)},
             },
             include_raw=debug,
@@ -258,7 +271,7 @@ class CollectionExtractor:
         if field.source == "attribute" and field.attribute is not None:
             return _FieldExtraction(value=node_attribute(item_node, field.attribute))
         if field.source == "computed":
-            return _FieldExtraction(value=_node_summary(item_node))
+            return _FieldExtraction(value=_computed_value(item_node, field.attribute))
         if field.source != "descendant" or field.selector is None:
             return _FieldExtraction()
         item_path = node_ax_path(item_node)
@@ -345,6 +358,51 @@ def _node_summary(node: Mapping[str, Any]) -> JsonValue:
         if value is not None:
             return value
     return node_ax_path(node)
+
+
+def _computed_value(node: Mapping[str, Any], attribute: str | None) -> JsonValue:
+    if attribute in {None, "summary"}:
+        return _node_summary(node)
+    if attribute == "elementRef":
+        return _element_ref(node)
+    return None
+
+
+def _element_ref(node: Mapping[str, Any]) -> JsonValue:
+    path = node_ax_path(node)
+    if path is None:
+        return None
+    payload: dict[str, JsonValue] = {
+        "kind": "accessibilityElement",
+        "axPath": path,
+        "role": node_role(node),
+    }
+    label = node_label(node)
+    if label is not None:
+        payload["label"] = label
+    frame = node_frame(node)
+    if frame is not None:
+        payload["frame"] = {
+            "x": frame.x,
+            "y": frame.y,
+            "width": frame.width,
+            "height": frame.height,
+        }
+    actions = node_actions(node)
+    if actions:
+        payload["actions"] = list(actions)
+    for key in ("enabled", "focused"):
+        value = node.get(key)
+        if isinstance(value, bool):
+            payload[key] = value
+    return payload
+
+
+def _collection_needs_item_actions(collection: CollectionDefinition) -> bool:
+    return any(
+        field.source == "computed" and field.attribute == "elementRef"
+        for field in collection.fields.values()
+    )
 
 
 @dataclass(frozen=True)

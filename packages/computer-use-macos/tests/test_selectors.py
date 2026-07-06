@@ -203,6 +203,20 @@ class SelectorProfileTests(unittest.TestCase):
         ):
             parse_selector_profile(profile)
 
+    def test_unknown_computed_field_is_rejected(self) -> None:
+        profile = _valid_profile()
+        fields = profile["collections"]["contacts"]["fields"]  # type: ignore[index]
+        fields["unsafe"] = {  # type: ignore[index]
+            "source": "computed",
+            "attribute": "rawNode",
+        }
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "not an allowlisted computed field",
+        ):
+            parse_selector_profile(profile)
+
     def test_cache_requires_signature_validation_when_enabled(self) -> None:
         profile = _valid_profile()
         selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
@@ -627,6 +641,76 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.pagination.has_more, True)
         self.assertEqual(result.diagnostics.query_count, 3)
         self.assertEqual(runner.calls[1]["query"]["limit"], 2)
+
+    def test_computed_element_ref_returns_normalized_item_element(self) -> None:
+        raw = _valid_profile()
+        fields = raw["collections"]["contacts"]["fields"]  # type: ignore[index]
+        fields["element"] = {  # type: ignore[index]
+            "source": "computed",
+            "attribute": "elementRef",
+            "required": True,
+        }
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0",
+                            "role": "AXRow",
+                            "description": "Ada",
+                            "actions": ["AXPress"],
+                            "enabled": True,
+                            "frame": {
+                                "x": 10,
+                                "y": 20,
+                                "width": 200,
+                                "height": 44,
+                            },
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Ada",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items[0]["displayName"], "Ada")
+        self.assertEqual(
+            result.items[0]["element"],
+            {
+                "kind": "accessibilityElement",
+                "axPath": "0/11/0",
+                "role": "AXRow",
+                "label": "Ada",
+                "frame": {"x": 10.0, "y": 20.0, "width": 200.0, "height": 44.0},
+                "actions": ["AXPress"],
+                "enabled": True,
+            },
+        )
+        self.assertEqual(runner.calls[1]["query"]["actions"], True)
+        self.assertIn("AXFrame", runner.calls[1]["query"]["attributes"])
 
 
 if __name__ == "__main__":
