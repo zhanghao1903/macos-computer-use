@@ -3,14 +3,25 @@
 This directory contains draft designs for upcoming features that are not yet
 part of the stable public API.
 
-Use this directory for detailed technical designs, including proposed data
-structures, protocol/API shapes, data flows, sequence diagrams, implementation
-plans, migration notes, and test strategy. Once a feature is implemented and
-stabilized, update the stable docs such as `docs/api.md`, package READMEs, or
-architecture docs, and keep the feature design as historical context or mark it
-superseded.
+Use one subdirectory per new feature. The directory is the documentation carrier
+for the feature's requirements, technical design, architect review,
+implementation plan, verification notes, migration notes, and release readiness.
+Prefer this layout:
 
-Current drafts:
+```text
+docs/feature/<feature-slug>/
+  requirements.md
+  design.md
+  technical-review-YYYY-MM-DD.md
+  implementation-plan.md
+  verification.md
+```
 
-- [Accessibility Selector Engine Technical Design](./accessibility-selector-engine-design.md)
+Once a feature is implemented and stabilized, update the stable docs such as
+`docs/api.md`, package READMEs, or architecture docs, and keep the feature
+directory as historical context or mark it superseded.
+
+Current drafts, including older single-file designs:
+
+- [Accessibility Selector Engine Technical Design](./accessibility-selector-engine/design.md)
 - [WeChat Accessibility Action API Design](./wechat-accessibility-action-api-design.md)
