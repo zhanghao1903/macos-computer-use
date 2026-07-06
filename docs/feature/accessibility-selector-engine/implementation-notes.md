@@ -760,3 +760,106 @@ Remaining Slice 4 work:
   visible messages, and open-contact flows;
 - add profile override configuration after packaged-profile parity is proven;
 - defer public selector protocol until smoke proof and release-readiness review.
+
+## Slice 5: Selector Profile Override Configuration
+
+Status: implemented.
+
+Commit scope:
+
+- add `wechat.selector_profile_path` to shared `AppControlConfig` and
+  `WeChatDesktopConfig`;
+- add `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH` as the environment override
+  for smoke tests and CI;
+- load a configured selector profile path when constructing WeChat selector
+  resolvers;
+- fall back to the packaged WeChat selector profile if the override file cannot
+  be read, parsed, or validated;
+- document the field in the protocol docs, package README files, and example
+  TOML;
+- add config, loader, and WeChat config propagation tests.
+
+Public surface:
+
+- new optional config field: `wechat.selector_profile_path`;
+- new optional environment override:
+  `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH`;
+- no new app-control command, WeChat command, or public selector protocol;
+- invalid override files do not expose raw validation errors to WeChat API
+  callers and do not block packaged-profile fallback.
+
+Implemented behavior:
+
+- application code can point `[wechat] selector_profile_path` at a local TOML
+  selector profile without rebuilding `wechat-desktop-tool`;
+- `WeChatDesktopTool.from_config(...)` carries the configured path into the
+  WeChat runtime config;
+- selector-backed WeChat operations use the configured profile when it validates;
+- malformed TOML, unreadable files, and selector-profile validation failures
+  fall back to the packaged `wechat.macos` profile.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src \
+  python -m unittest packages/app-control-protocol/tests/test_config.py
+```
+
+Result: 7 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 86 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src \
+  python -m unittest discover -s packages/app-control-protocol/tests
+```
+
+Result: 54 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m py_compile \
+    packages/app-control-protocol/src/app_control_protocol/config.py \
+    packages/wechat-desktop-tool/src/wechat_desktop_tool/models.py \
+    packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py \
+    packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+    packages/app-control-protocol/tests/test_config.py \
+    packages/wechat-desktop-tool/tests/test_profiles.py \
+    packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.
+
+```bash
+git diff --check -- packages/app-control-protocol/src/app_control_protocol/config.py \
+  packages/app-control-protocol/tests/test_config.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/models.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_profiles.py \
+  packages/wechat-desktop-tool/tests/test_tool.py \
+  examples/app-control.toml docs/protocol.md \
+  packages/wechat-desktop-tool/README.md \
+  packages/app-control-protocol/README.md
+```
+
+Result: passed.
+
+Remaining work:
+
+- record real macOS/WeChat smoke evidence in `verification.md`;
+- run merge-readiness checks after smoke proof;
+- keep public `resolve_selector` / `extract_collection` protocol commands
+  deferred until a separate API proposal.

@@ -170,6 +170,7 @@ WeChat = "com.tencent.xinWeChat"
 app_name = "WeChat"
 bundle_id = "com.tencent.xinWeChat"
 app_control_tool = "macos.computer_use"
+# selector_profile_path = "./profiles/wechat-local.toml"
 search_hotkey = ["Command", "K"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
@@ -184,4 +185,5 @@ as `APP_CONTROL_COMPUTER_USE_BACKEND`,
 `APP_CONTROL_COMPUTER_USE_ALLOWED_APP_BUNDLE_IDS`,
 `APP_CONTROL_HELPER_ENDPOINT`,
 `APP_CONTROL_HELPER_TOKEN`, `APP_CONTROL_WECHAT_BUNDLE_ID`,
+`APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH`,
 `APP_CONTROL_WECHAT_MAX_MESSAGE_CHARS`, and `APP_CONTROL_WECHAT_DEFAULT_TIMEOUT_MS`.

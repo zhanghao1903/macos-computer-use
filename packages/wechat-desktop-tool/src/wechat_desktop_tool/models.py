@@ -66,6 +66,7 @@ class WeChatDesktopConfig:
     app_name: str = "WeChat"
     bundle_id: str | None = "com.tencent.xinWeChat"
     app_control_tool: str = "macos.computer_use"
+    selector_profile_path: str | None = None
     search_hotkey: tuple[str, ...] = ("Command", "K")
     search_clear_hotkey: tuple[str, ...] = ("Command", "A")
     clear_key: str = "Delete"
@@ -85,6 +86,14 @@ class WeChatDesktopConfig:
             self,
             "app_control_tool",
             _non_empty(self.app_control_tool, "app_control_tool"),
+        )
+        object.__setattr__(
+            self,
+            "selector_profile_path",
+            _optional_non_empty(
+                self.selector_profile_path,
+                "selector_profile_path",
+            ),
         )
         object.__setattr__(
             self,
@@ -124,6 +133,7 @@ class WeChatDesktopConfig:
             app_name=wechat.app_name,
             bundle_id=wechat.bundle_id,
             app_control_tool=wechat.app_control_tool,
+            selector_profile_path=wechat.selector_profile_path,
             search_hotkey=wechat.search_hotkey,
             search_clear_hotkey=wechat.search_clear_hotkey,
             clear_key=wechat.clear_key,

@@ -650,6 +650,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
+            selector_profile_path=self._config.selector_profile_path,
         )
         navigation = resolver.resolve(navigation_selector_id)
         if navigation.status != "resolved" or not navigation.elements:
@@ -747,6 +748,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
+            selector_profile_path=self._config.selector_profile_path,
         )
         main_content = resolver.resolve("regions.mainContent")
         if main_content.status != "resolved" or not main_content.elements:
@@ -1266,6 +1268,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
+            selector_profile_path=self._config.selector_profile_path,
         )
         chat_panel = resolver.resolve("regions.chatPanel")
         if chat_panel.status != "resolved" or not chat_panel.elements:

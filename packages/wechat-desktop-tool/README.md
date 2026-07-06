@@ -163,6 +163,9 @@ The package consumes the shared `AppControlConfig` `wechat` section:
 app_name = "WeChat"
 bundle_id = "com.tencent.xinWeChat"
 app_control_tool = "macos.computer_use"
+# Optional custom selector profile. Invalid files fall back to the packaged
+# WeChat selector profile.
+# selector_profile_path = "./profiles/wechat-local.toml"
 search_hotkey = ["Command", "K"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"

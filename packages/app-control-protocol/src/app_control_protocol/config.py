@@ -133,6 +133,7 @@ class WeChatConfig:
     app_name: str = "WeChat"
     bundle_id: str | None = "com.tencent.xinWeChat"
     app_control_tool: str = "macos.computer_use"
+    selector_profile_path: str | None = None
     search_hotkey: tuple[str, ...] = ("Command", "K")
     search_clear_hotkey: tuple[str, ...] = ("Command", "A")
     clear_key: str = "Delete"
@@ -146,6 +147,11 @@ class WeChatConfig:
             self,
             "app_control_tool",
             _non_empty(self.app_control_tool, "app_control_tool"),
+        )
+        object.__setattr__(
+            self,
+            "selector_profile_path",
+            _optional_string(self.selector_profile_path),
         )
         object.__setattr__(
             self,
@@ -183,6 +189,9 @@ class WeChatConfig:
             app_control_tool=_string(
                 payload.get("app_control_tool"),
                 default="macos.computer_use",
+            ),
+            selector_profile_path=_optional_string(
+                payload.get("selector_profile_path")
             ),
             search_hotkey=_string_tuple(payload.get("search_hotkey", ("Command", "K"))),
             search_clear_hotkey=_string_tuple(
@@ -252,6 +261,7 @@ class AppControlConfig:
                 "app_name": self.wechat.app_name,
                 "bundle_id": self.wechat.bundle_id,
                 "app_control_tool": self.wechat.app_control_tool,
+                "selector_profile_path": self.wechat.selector_profile_path,
                 "search_hotkey": list(self.wechat.search_hotkey),
                 "search_clear_hotkey": list(self.wechat.search_clear_hotkey),
                 "clear_key": self.wechat.clear_key,
@@ -351,6 +361,10 @@ def _apply_env_overrides(
     if "APP_CONTROL_WECHAT_APP_CONTROL_TOOL" in env:
         payload["wechat"]["app_control_tool"] = env[
             "APP_CONTROL_WECHAT_APP_CONTROL_TOOL"
+        ]
+    if "APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH" in env:
+        payload["wechat"]["selector_profile_path"] = env[
+            "APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH"
         ]
     if "APP_CONTROL_WECHAT_SEARCH_HOTKEY" in env:
         payload["wechat"]["search_hotkey"] = _string_tuple(

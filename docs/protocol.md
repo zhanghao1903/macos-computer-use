@@ -350,6 +350,9 @@ auto_launch = true
 app_name = "WeChat"
 bundle_id = "com.tencent.xinWeChat"
 app_control_tool = "macos.computer_use"
+# Optional custom selector profile. Invalid files fall back to the packaged
+# WeChat selector profile.
+# selector_profile_path = "./profiles/wechat-local.toml"
 search_hotkey = ["Command", "K"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
@@ -374,5 +377,6 @@ Common environment overrides are also supported for smoke tests and CI:
 | `APP_CONTROL_HELPER_TOKEN` | `helper.token` |
 | `APP_CONTROL_WECHAT_APP_NAME` | `wechat.app_name` |
 | `APP_CONTROL_WECHAT_BUNDLE_ID` | `wechat.bundle_id` |
+| `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH` | `wechat.selector_profile_path` |
 | `APP_CONTROL_WECHAT_MAX_MESSAGE_CHARS` | `wechat.max_message_chars` |
 | `APP_CONTROL_WECHAT_DEFAULT_TIMEOUT_MS` | `wechat.default_timeout_ms` |

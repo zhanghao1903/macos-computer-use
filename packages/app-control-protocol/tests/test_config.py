@@ -40,6 +40,7 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.helper.allowed_apps, ())
         self.assertEqual(config.wechat.app_name, "WeChat")
         self.assertEqual(config.wechat.app_control_tool, "macos.computer_use")
+        self.assertIsNone(config.wechat.selector_profile_path)
         self.assertEqual(config.wechat.search_hotkey, ("Command", "K"))
         self.assertEqual(config.wechat.search_clear_hotkey, ("Command", "A"))
         self.assertEqual(config.wechat.clear_key, "Delete")
@@ -70,6 +71,7 @@ class AppControlConfigTests(unittest.TestCase):
                 "wechat": {
                     "app_name": "WeChat",
                     "app_control_tool": "custom.computer_use",
+                    "selector_profile_path": "./profiles/wechat-local.toml",
                     "search_hotkey": ["Command", "K"],
                     "search_clear_hotkey": ["Command", "L"],
                     "clear_key": "Backspace",
@@ -105,6 +107,10 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.helper.allowed_apps, ("WeChat",))
         self.assertEqual(config.helper.manifest_path, "~/helper.json")
         self.assertEqual(config.wechat.app_control_tool, "custom.computer_use")
+        self.assertEqual(
+            config.wechat.selector_profile_path,
+            "./profiles/wechat-local.toml",
+        )
         self.assertEqual(config.wechat.search_hotkey, ("Command", "K"))
         self.assertEqual(config.wechat.search_clear_hotkey, ("Command", "L"))
         self.assertEqual(config.wechat.clear_key, "Backspace")
@@ -139,8 +145,11 @@ class AppControlConfigTests(unittest.TestCase):
                     ),
                     "APP_CONTROL_HELPER_ALLOWED_APPS": "TextEdit",
                     "APP_CONTROL_HELPER_AUTO_LAUNCH": "true",
-                    "APP_CONTROL_WECHAT_APP_NAME": "WeChat",
-                    "APP_CONTROL_WECHAT_SEARCH_HOTKEY": "Command, K",
+                "APP_CONTROL_WECHAT_APP_NAME": "WeChat",
+                "APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH": (
+                    "./profiles/wechat-env.toml"
+                ),
+                "APP_CONTROL_WECHAT_SEARCH_HOTKEY": "Command, K",
                     "APP_CONTROL_WECHAT_SEARCH_CLEAR_HOTKEY": "Command, L",
                     "APP_CONTROL_WECHAT_CLEAR_KEY": "Backspace",
                     "APP_CONTROL_WECHAT_SUBMIT_KEY": "Enter",
@@ -159,6 +168,10 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.helper.allowed_apps, ("TextEdit",))
         self.assertTrue(config.helper.auto_launch)
         self.assertEqual(config.wechat.app_name, "WeChat")
+        self.assertEqual(
+            config.wechat.selector_profile_path,
+            "./profiles/wechat-env.toml",
+        )
         self.assertEqual(config.wechat.search_hotkey, ("Command", "K"))
         self.assertEqual(config.wechat.search_clear_hotkey, ("Command", "L"))
         self.assertEqual(config.wechat.clear_key, "Backspace")
@@ -187,6 +200,9 @@ class AppControlConfigTests(unittest.TestCase):
                 "APP_CONTROL_HELPER_LAUNCH_TIMEOUT_MS": "120000",
                 "APP_CONTROL_WECHAT_BUNDLE_ID": "com.tencent.xinWeChat",
                 "APP_CONTROL_WECHAT_APP_CONTROL_TOOL": "custom.computer_use",
+                "APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH": (
+                    "./profiles/wechat-env.toml"
+                ),
                 "APP_CONTROL_WECHAT_MAX_MESSAGE_CHARS": "42",
                 "APP_CONTROL_WECHAT_DEFAULT_TIMEOUT_MS": "1234",
             },
@@ -217,6 +233,10 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.helper.launch_timeout_ms, 120000)
         self.assertEqual(config.wechat.bundle_id, "com.tencent.xinWeChat")
         self.assertEqual(config.wechat.app_control_tool, "custom.computer_use")
+        self.assertEqual(
+            config.wechat.selector_profile_path,
+            "./profiles/wechat-env.toml",
+        )
         self.assertEqual(config.wechat.max_message_chars, 42)
         self.assertEqual(config.wechat.default_timeout_ms, 1234)
 

@@ -2393,6 +2393,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     "app_name": "Weixin",
                     "bundle_id": "com.example.Weixin",
                     "app_control_tool": "custom.computer_use",
+                    "selector_profile_path": "./profiles/wechat-local.toml",
                     "search_hotkey": ["Command", "K"],
                     "search_clear_hotkey": ["Command", "L"],
                     "clear_key": "Backspace",
@@ -2409,6 +2410,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(tool.config.app_name, "Weixin")
         self.assertEqual(tool.config.bundle_id, "com.example.Weixin")
+        self.assertEqual(
+            tool.config.selector_profile_path,
+            "./profiles/wechat-local.toml",
+        )
         self.assertEqual(app_control.commands[0].tool, "custom.computer_use")
         self.assertEqual(
             app_control.commands[0].input["bundleId"],

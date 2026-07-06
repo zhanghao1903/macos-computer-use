@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from importlib import resources
+from pathlib import Path
+import tempfile
 import unittest
 
 from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_ID,
+    DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE,
     build_packaged_collection_extractor,
     build_packaged_selector_resolver,
     load_packaged_selector_profile,
+    load_selector_profile,
 )
 
 
@@ -105,6 +110,37 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         extractor = build_packaged_collection_extractor(resolver)
 
         self.assertIs(extractor.resolver, resolver)
+
+    def test_selector_profile_override_loads_from_path(self) -> None:
+        packaged_text = (
+            resources.files("wechat_desktop_tool")
+            .joinpath(DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+        override_text = packaged_text.replace(
+            'profile_id = "wechat.macos"',
+            'profile_id = "wechat.override"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-override.toml"
+            profile_path.write_text(override_text, encoding="utf-8")
+
+            profile = load_selector_profile(profile_path)
+
+        self.assertEqual(profile.profile_id, "wechat.override")
+        self.assertIn("navigation.contacts", profile.selectors)
+
+    def test_invalid_selector_profile_override_falls_back_to_packaged(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-invalid.toml"
+            profile_path.write_text("schema_version = [", encoding="utf-8")
+
+            profile = load_selector_profile(profile_path)
+
+        self.assertEqual(profile.profile_id, DEFAULT_WECHAT_SELECTOR_PROFILE_ID)
 
 
 if __name__ == "__main__":
