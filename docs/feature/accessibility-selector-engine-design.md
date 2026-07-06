@@ -4,8 +4,7 @@ Status: design proposal.
 
 Lifecycle phase: F0 intake and repository hygiene started.
 Feature branch: `codex/accessibility-selector-engine`.
-Branch base: `c2b26ac` on `codex/app-control-monorepo-cleanup`; this branch is
-stacked until PR #2 is merged, then it should be rebased onto `main`.
+Branch base: `fed6523` on `main` after PR #2 was merged.
 Phase document: this file.
 
 This document defines the proposed selector/profile architecture for solving
@@ -18,9 +17,8 @@ execution capabilities.
 
 - A dedicated feature branch has been created:
   `codex/accessibility-selector-engine`.
-- The current branch is intentionally based on the PR #2 head because the
-  package-suite work it depends on has passed CI but is not yet reflected in the
-  local `main` branch.
+- The branch has been rebased from the temporary PR #2 stack onto `main` after
+  PR #2 was merged.
 - This phase is documentation-only. No package code, protocol schema, public
   API, or behavior is changed in F0.
 - Local raw outputs, smoke reports, build artifacts, and generated lock files
