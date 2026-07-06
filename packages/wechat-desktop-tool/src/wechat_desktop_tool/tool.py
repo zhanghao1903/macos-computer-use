@@ -590,15 +590,38 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        return self._list_contacts_with_selector_profile(
+        return self._list_row_items_with_selector_profile(
             command,
+            section="contacts",
+            schema="wechat.contacts.v1",
+            navigation_selector_id="navigation.contacts",
+            summary="Listed visible WeChat contacts.",
             phase_events=phase_events,
         )
 
-    def _list_contacts_with_selector_profile(
+    def _list_conversations(
         self,
         command: ToolCommand,
         *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        return self._list_row_items_with_selector_profile(
+            command,
+            section="chats",
+            schema="wechat.conversations.v1",
+            navigation_selector_id="navigation.chats",
+            summary="Listed visible WeChat conversations.",
+            phase_events=phase_events,
+        )
+
+    def _list_row_items_with_selector_profile(
+        self,
+        command: ToolCommand,
+        *,
+        section: str,
+        schema: str,
+        navigation_selector_id: str,
+        summary: str,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         limit = _positive_int(command.input.get("limit"), default=30)
@@ -624,30 +647,31 @@ class WeChatDesktopTool:
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
         )
-        contacts_nav = resolver.resolve("navigation.contacts")
-        if contacts_nav.status != "resolved" or not contacts_nav.elements:
+        navigation = resolver.resolve(navigation_selector_id)
+        if navigation.status != "resolved" or not navigation.elements:
             return _failure_from_selector_result(
                 command,
-                contacts_nav,
+                navigation,
                 failure_kind="wechat_navigation_failed",
-                message="Could not locate WeChat contacts navigation item.",
+                message=f"Could not locate WeChat {section} navigation item.",
                 evidence=evidence,
             )
-        clicked = self._click_node_phase(
-            command,
-            _node_from_selector_element(contacts_nav.elements[0]),
-            phase="switch_contacts",
-            evidence=evidence,
-            snapshot_id=contacts_nav.snapshot_id,
-            phase_events=phase_events,
-        )
-        if not clicked.success:
-            return _from_app_control_failure(
+        if not _selector_element_selected(navigation.elements[0]):
+            clicked = self._click_node_phase(
                 command,
-                "wechat_navigation_failed",
-                clicked,
+                _node_from_selector_element(navigation.elements[0]),
+                phase=f"switch_{section}",
                 evidence=evidence,
+                snapshot_id=navigation.snapshot_id,
+                phase_events=phase_events,
             )
+            if not clicked.success:
+                return _from_app_control_failure(
+                    command,
+                    "wechat_navigation_failed",
+                    clicked,
+                    evidence=evidence,
+                )
 
         main_content = resolver.resolve("regions.mainContent")
         if main_content.status != "resolved" or not main_content.elements:
@@ -661,7 +685,7 @@ class WeChatDesktopTool:
         rows_result = self._query_descendants(
             command,
             root_node=_node_from_selector_element(main_content.elements[0]),
-            phase="contacts:rows",
+            phase=f"{section}:rows",
             role_in=["AXRow", "AXCell", "AXStaticText"],
             limit=max(limit * 4, 60),
             evidence=evidence,
@@ -676,7 +700,7 @@ class WeChatDesktopTool:
             )
         rows = _row_items_from_nodes(
             _query_nodes(rows_result),
-            section="contacts",
+            section=section,
             limit=limit,
             snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
         )
@@ -684,16 +708,16 @@ class WeChatDesktopTool:
             command_id=command.command_id,
             tool=WECHAT_TOOL,
             operation=command.operation,
-            summary="Listed visible WeChat contacts.",
+            summary=summary,
             observation={
-                "schema": "wechat.contacts.v1",
-                "section": "contacts",
+                "schema": schema,
+                "section": section,
                 "items": rows,
                 "pagination": {
                     "limit": limit,
                     "pageToken": page_token,
                     "hasMore": _query_truncated(rows_result),
-                    "nextPageToken": _next_page_token("contacts", rows_result),
+                    "nextPageToken": _next_page_token(section, rows_result),
                 },
                 "availableActions": [
                     {
@@ -704,19 +728,6 @@ class WeChatDesktopTool:
                 ],
             },
             evidence=evidence,
-        )
-
-    def _list_conversations(
-        self,
-        command: ToolCommand,
-        *,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        return self._list_row_items(
-            command,
-            section="chats",
-            schema="wechat.conversations.v1",
-            phase_events=phase_events,
         )
 
     def _list_row_items(
@@ -2032,6 +2043,17 @@ def _node_from_selector_element(element: Any) -> dict[str, Any]:
             "height": element.frame.height,
         }
     return node
+
+
+def _selector_element_selected(element: Any) -> bool:
+    value = element.evidence.matched_attributes.get("AXValue")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "selected"}
+    return False
 
 
 def _failure_from_selector_result(

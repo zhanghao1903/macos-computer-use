@@ -1103,10 +1103,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["open_app", "accessibility_query"],
         )
 
-    def test_list_conversations_uses_accessibility_query_stub(self) -> None:
+    def test_list_conversations_uses_packaged_selector_profile(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
+                _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response(
                     [
@@ -1139,8 +1140,24 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(rows[1]["muted"], True)
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "accessibility_query", "accessibility_query"],
+            [
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
+            ],
         )
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(
+            app_control.commands[1].input["query"]["match"]["roleIn"],
+            ["AXRadioButton"],
+        )
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(
+            app_control.commands[2].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 8_000)
 
     def test_execute_action_runs_accessibility_action_ref(self) -> None:
         app_control = FakeAppControl([_accessibility_action_response()])

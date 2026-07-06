@@ -54,6 +54,7 @@ class WeChatSelectorProfileTests(unittest.TestCase):
                         "axPath": "0/2",
                         "role": "AXRadioButton",
                         "description": "通讯录",
+                        "value": 0,
                         "actions": ["AXPress"],
                     }
                 ],
@@ -66,6 +67,10 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         self.assertEqual(result.status, "resolved")
         self.assertEqual(result.profile_id, DEFAULT_WECHAT_SELECTOR_PROFILE_ID)
         self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(
+            result.elements[0].evidence.matched_attributes["AXValue"],
+            0,
+        )
 
 
 if __name__ == "__main__":

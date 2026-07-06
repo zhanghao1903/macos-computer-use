@@ -29,11 +29,14 @@ actions_include = ["AXPress"]
 [selectors.navigation.chats.steps.match.attributes.AXDescription]
 alias_ref = "navigation.chats"
 
+[selectors.navigation.chats.steps.match.attributes.AXValue]
+exists = true
+
 [selectors.navigation.chats.cache]
 mode = "readWrite"
 ttl_seconds = 300
 validate_signature = true
-key_attributes = ["AXDescription"]
+key_attributes = ["AXDescription", "AXValue"]
 
 [selectors.navigation.contacts.root]
 kind = "focusedWindow"
@@ -49,11 +52,14 @@ actions_include = ["AXPress"]
 [selectors.navigation.contacts.steps.match.attributes.AXDescription]
 alias_ref = "navigation.contacts"
 
+[selectors.navigation.contacts.steps.match.attributes.AXValue]
+exists = true
+
 [selectors.navigation.contacts.cache]
 mode = "readWrite"
 ttl_seconds = 300
 validate_signature = true
-key_attributes = ["AXDescription"]
+key_attributes = ["AXDescription", "AXValue"]
 
 [selectors.navigation.favorites.root]
 kind = "focusedWindow"
@@ -69,11 +75,14 @@ actions_include = ["AXPress"]
 [selectors.navigation.favorites.steps.match.attributes.AXDescription]
 alias_ref = "navigation.favorites"
 
+[selectors.navigation.favorites.steps.match.attributes.AXValue]
+exists = true
+
 [selectors.navigation.favorites.cache]
 mode = "readWrite"
 ttl_seconds = 300
 validate_signature = true
-key_attributes = ["AXDescription"]
+key_attributes = ["AXDescription", "AXValue"]
 
 [selectors.regions.mainContent.root]
 kind = "focusedWindow"
