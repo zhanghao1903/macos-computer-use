@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import re
 from typing import Any
 
@@ -13,6 +14,7 @@ from .models import (
     MatchRule,
     SelectorConstraint,
     SelectorEvidence,
+    SelectorStep,
 )
 
 
@@ -112,6 +114,14 @@ def match_node(
         matched_actions=match.actions_include,
         score_breakdown=score_breakdown,
     )
+
+
+def effective_step_match(step: SelectorStep) -> MatchRule:
+    """Return the match rule including step-level role filters."""
+
+    if step.role_in and not step.match.role_in:
+        return replace(step.match, role_in=step.role_in)
+    return step.match
 
 
 def attribute_matches_rule(

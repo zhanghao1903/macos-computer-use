@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import unittest
 
+from computer_use_macos.selectors.collections import CollectionExtractor
 from computer_use_macos.selectors.profile import parse_selector_profile
 from computer_use_macos.selectors.resolver import SelectorResolver
 from computer_use_macos.selectors.validation import SelectorProfileValidationError
@@ -449,6 +450,183 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.diagnostics.failure_kind, "selector_query_truncated")
         self.assertEqual(result.diagnostics.truncated, True)
         self.assertEqual(len(runner.calls), 1)
+
+
+class CollectionExtractorTests(unittest.TestCase):
+    def test_extracts_semantic_items_from_row_descendants(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": " Alice ",
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=2)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(
+            result.items,
+            ({"displayName": "Alice"}, {"displayName": "Bob"}),
+        )
+        self.assertEqual(result.pagination.limit, 2)
+        self.assertEqual(result.pagination.returned, 2)
+        self.assertEqual(result.pagination.has_more, False)
+        self.assertEqual(result.diagnostics.query_count, 4)
+        self.assertEqual(result.diagnostics.node_count, 5)
+        self.assertEqual(runner.calls[1]["root"], {"kind": "axPath", "axPath": "0/1"})
+        self.assertEqual(
+            runner.calls[2]["root"],
+            {"kind": "axPath", "axPath": "0/11/0"},
+        )
+
+    def test_missing_required_field_returns_partial_collection(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload([]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=2)
+
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.items, ({"displayName": "Bob"},))
+        self.assertEqual(result.pagination.returned, 1)
+        self.assertEqual(result.diagnostics.query_count, 4)
+        self.assertEqual(result.diagnostics.node_count, 4)
+        self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
+        self.assertEqual(
+            result.diagnostics.message,
+            "skipped 1 item(s); field failures 1",
+        )
+
+    def test_missing_all_required_fields_fails_collection(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload([{"axPath": "0/11/0", "role": "AXRow"}]),
+                _query_payload([]),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.items, ())
+        self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
+
+    def test_pagination_uses_limit_plus_one_for_has_more(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Alice"},))
+        self.assertEqual(result.pagination.limit, 1)
+        self.assertEqual(result.pagination.has_more, True)
+        self.assertEqual(result.diagnostics.query_count, 3)
+        self.assertEqual(runner.calls[1]["query"]["limit"], 2)
 
 
 if __name__ == "__main__":

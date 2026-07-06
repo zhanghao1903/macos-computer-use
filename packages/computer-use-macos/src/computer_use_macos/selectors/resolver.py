@@ -11,6 +11,7 @@ from .diagnostics import selector_diagnostics
 from .matching import (
     constraints_match,
     confidence_score,
+    effective_step_match,
     match_node,
     node_actions,
     node_ax_path,
@@ -219,7 +220,7 @@ class SelectorResolver:
         payload: Mapping[str, Any],
         debug: bool,
     ) -> ResolvedElement | None:
-        step_match = selector.steps[0].match if selector.steps else None
+        step_match = effective_step_match(selector.steps[0]) if selector.steps else None
         if step_match is None:
             return None
         matched, evidence = match_node(node, step_match, self.profile.locale_aliases)

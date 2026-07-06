@@ -126,3 +126,71 @@ Remaining slices:
 - add WeChat packaged profile and semantic migration;
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
+
+## Slice 3: Collection Extraction
+
+Status: implemented.
+
+Commit scope:
+
+- add `CollectionExtractor` for internal collection extraction;
+- add allowlisted scalar field transforms;
+- apply step-level role filters consistently when matching resolver and
+  collection candidates;
+- aggregate diagnostics across root, item, and descendant field queries;
+- add fake-query tests for semantic item extraction, required-field failures,
+  and visible-window pagination.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new app-control protocol command;
+- no new JSON Schema;
+- no CLI change;
+- no stable API docs update;
+- `computer_use_macos.selectors.CollectionExtractor` remains package-internal
+  MVP surface alongside `SelectorResolver`.
+
+Implemented behavior:
+
+- resolves a collection root through the selector resolver;
+- queries item candidates relative to the resolved root with a bounded
+  `limit + 1` pagination probe;
+- extracts field values from self, attribute, computed, or descendant sources;
+- returns normalized semantic item dictionaries instead of raw AX nodes;
+- skips items missing required fields and reports partial collections when any
+  valid item remains;
+- fails with `selector_field_missing` when every item is rejected because
+  required fields are missing;
+- carries `query_count`, `node_count`, truncation state, cache state, and
+  skipped-item messages in normalized diagnostics.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 21 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/*.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 72 tests passed, 1 skipped.
+
+Remaining slices:
+
+- add WeChat packaged profile and semantic migration;
+- add profile override config after packaged profile migration is proven;
+- defer public selector protocol until parity tests and real WeChat smoke proof.
