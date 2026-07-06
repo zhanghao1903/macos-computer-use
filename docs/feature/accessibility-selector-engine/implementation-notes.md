@@ -665,3 +665,98 @@ Remaining Slice 4 work:
 - add fixture-backed parity tests for generic collection extraction against
   WeChat-style rows;
 - run real WeChat smoke proof before merge readiness.
+
+## Slice 4F: WeChat List APIs Use Collection Extraction
+
+Status: implemented.
+
+Commit scope:
+
+- add `build_packaged_collection_extractor` as the WeChat-owned factory for the
+  generic selector `CollectionExtractor`;
+- add computed `elementRef` fields to the packaged `contacts` and
+  `conversations` collection definitions;
+- migrate `list_contacts` and `list_conversations` from hand-written row
+  descendant scans to packaged collection extraction;
+- map collection items back into the existing WeChat `element` and `actionRef`
+  shapes without exposing raw AX attributes or `attributeNames`;
+- update selector-profile and list API parity tests for the new collection
+  query sequence.
+
+Public surface:
+
+- no command builder or method signature change;
+- no `wechat.contacts.v1` or `wechat.conversations.v1` field removal or rename;
+- no raw AX node, `attributeNames`, or selector engine type is exposed to API
+  callers;
+- `wechat-desktop-tool` still imports `computer_use_macos.selectors` only from
+  `wechat_desktop_tool.profiles`.
+
+Implemented behavior:
+
+- list operations still open/focus WeChat and switch the requested navigation
+  tab through the packaged navigation selector;
+- collection extraction resolves `regions.mainContent`, queries bounded
+  visible rows, and extracts configured fields;
+- contacts use a descendant `AXStaticText` value as `displayName` so row labels
+  with noisy structure do not leak into the public contact name;
+- conversations use row `AXDescription` as `rawLabel`, then preserve the
+  existing WeChat parsing for display name, preview, timestamp, pin, and mute
+  flags;
+- collection pagination now uses the collection visible-window state plus
+  query truncation diagnostics to populate `hasMore` and `nextPageToken`.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m py_compile \
+    packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py \
+    packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+    packages/wechat-desktop-tool/tests/test_tool.py \
+    packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 4 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k list_contacts
+```
+
+Result: 2 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k list_conversations
+```
+
+Result: 1 test passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_package_boundary.py
+```
+
+Result: 5 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 84 tests passed.
+
+Remaining Slice 4 work:
+
+- run real WeChat smoke proof for selector-backed contacts, conversations,
+  visible messages, and open-contact flows;
+- add profile override configuration after packaged-profile parity is proven;
+- defer public selector protocol until smoke proof and release-readiness review.

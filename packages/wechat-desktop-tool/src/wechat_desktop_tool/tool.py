@@ -29,6 +29,7 @@ from .models import (
     WeChatVisibleMessage,
     wechat_message_hash,
 )
+from .profiles import build_packaged_collection_extractor
 from .profiles import build_packaged_selector_resolver
 from .window_model import build_wechat_window_model
 
@@ -594,6 +595,7 @@ class WeChatDesktopTool:
             command,
             section="contacts",
             schema="wechat.contacts.v1",
+            collection_id="contacts",
             navigation_selector_id="navigation.contacts",
             summary="Listed visible WeChat contacts.",
             phase_events=phase_events,
@@ -609,6 +611,7 @@ class WeChatDesktopTool:
             command,
             section="chats",
             schema="wechat.conversations.v1",
+            collection_id="conversations",
             navigation_selector_id="navigation.chats",
             summary="Listed visible WeChat conversations.",
             phase_events=phase_events,
@@ -620,6 +623,7 @@ class WeChatDesktopTool:
         *,
         section: str,
         schema: str,
+        collection_id: str,
         navigation_selector_id: str,
         summary: str,
         phase_events: "_PhaseEventCollector | None" = None,
@@ -640,7 +644,7 @@ class WeChatDesktopTool:
             self,
             command,
             evidence=evidence,
-            phase_prefix="selectors.contacts",
+            phase_prefix=f"selectors.{section}",
             phase_events=phase_events,
         )
         resolver = build_packaged_selector_resolver(
@@ -673,36 +677,23 @@ class WeChatDesktopTool:
                     evidence=evidence,
                 )
 
-        main_content = resolver.resolve("regions.mainContent")
-        if main_content.status != "resolved" or not main_content.elements:
-            return _failure_from_selector_result(
-                command,
-                main_content,
-                failure_kind="main_content_not_found",
-                message="Could not locate WeChat main content region.",
-                evidence=evidence,
-            )
-        rows_result = self._query_descendants(
-            command,
-            root_node=_node_from_selector_element(main_content.elements[0]),
-            phase=f"{section}:rows",
-            role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=max(limit * 4, 60),
-            evidence=evidence,
-            phase_events=phase_events,
+        collection = build_packaged_collection_extractor(resolver).extract(
+            collection_id,
+            limit=limit,
         )
-        if not rows_result.success:
-            return _from_app_control_failure(
+        if collection.status == "failed":
+            return _failure_from_collection_result(
                 command,
-                "wechat_list_failed",
-                rows_result,
+                collection,
+                failure_kind="wechat_list_failed",
+                message=f"Could not list WeChat {section} items.",
                 evidence=evidence,
             )
-        rows = _row_items_from_nodes(
-            _query_nodes(rows_result),
+        rows = _row_items_from_collection_items(
+            collection.items,
             section=section,
             limit=limit,
-            snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
+            snapshot_id=collection.snapshot_id,
         )
         return ToolObservation.ok(
             command_id=command.command_id,
@@ -714,10 +705,10 @@ class WeChatDesktopTool:
                 "section": section,
                 "items": rows,
                 "pagination": {
-                    "limit": limit,
+                    "limit": collection.pagination.limit,
                     "pageToken": page_token,
-                    "hasMore": _query_truncated(rows_result),
-                    "nextPageToken": _next_page_token(section, rows_result),
+                    "hasMore": _collection_has_more(collection),
+                    "nextPageToken": _next_collection_page_token(section, collection),
                 },
                 "availableActions": [
                     {
@@ -1959,6 +1950,33 @@ def _failure_from_selector_result(
     )
 
 
+def _failure_from_collection_result(
+    command: ToolCommand,
+    result: Any,
+    *,
+    failure_kind: str,
+    message: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=ToolStatus.NOT_FOUND,
+        failure_kind=failure_kind,
+        message=message,
+        retryable=True,
+        observation={
+            "collection": {
+                "id": result.collection_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            }
+        },
+        evidence=evidence,
+    )
+
+
 def _selector_diagnostics_payload(diagnostics: Any) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
         "triedSelectors": list(diagnostics.tried_selectors),
@@ -2383,6 +2401,101 @@ def _frame_area(node: Mapping[str, Any]) -> float:
     return width * height
 
 
+def _row_items_from_collection_items(
+    collection_items: tuple[dict[str, JsonValue], ...],
+    *,
+    section: str,
+    limit: int,
+    snapshot_id: str | None = None,
+) -> list[dict[str, JsonValue]]:
+    items: list[dict[str, JsonValue]] = []
+    for item in collection_items:
+        if len(items) >= limit:
+            break
+        element_node = _node_from_collection_element(item.get("element"))
+        if element_node is None:
+            continue
+        if section == "contacts":
+            display_name = _string_value(item.get("displayName"))
+            if display_name is None:
+                continue
+            parsed: dict[str, Any] = {
+                "displayName": display_name,
+                "badges": [],
+            }
+        else:
+            raw_label = _string_value(item.get("rawLabel"))
+            if raw_label is None:
+                continue
+            parsed = _parse_row_label(raw_label)
+
+        item_id = f"{section}.visible.{len(items)}"
+        payload: dict[str, JsonValue] = {
+            "id": item_id,
+            "displayName": parsed["displayName"],
+            "actionId": f"{item_id}.open",
+            "element": _element_from_query_node(
+                element_node,
+                label=parsed["displayName"],
+            ),
+            "confidence": 0.88,
+        }
+        action_ref = _action_ref_from_node(
+            element_node,
+            action_id=f"{item_id}.open",
+            kind=f"{section}.open",
+            risk="changes_current_chat",
+            target_summary=f"Open {parsed['displayName']}",
+            snapshot_id=snapshot_id,
+        )
+        if action_ref is not None:
+            payload["actionRef"] = action_ref
+        if section == "contacts":
+            payload["kind"] = "contact"
+        else:
+            if parsed.get("preview") is not None:
+                payload["preview"] = parsed["preview"]
+            if parsed.get("timestamp") is not None:
+                payload["timestamp"] = parsed["timestamp"]
+            payload["badges"] = parsed["badges"]
+            badges = " ".join(parsed["badges"]).casefold()
+            payload["pinned"] = "置顶" in badges or "pinned" in badges
+            payload["muted"] = "免打扰" in badges or "muted" in badges
+        items.append(payload)
+    return items
+
+
+def _node_from_collection_element(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    ax_path = value.get("axPath")
+    if not isinstance(ax_path, str) or not ax_path.strip():
+        return None
+    role = value.get("role")
+    node: dict[str, Any] = {
+        "axPath": ax_path.strip(),
+        "role": role if isinstance(role, str) and role.strip() else "AXUnknown",
+    }
+    label = value.get("label")
+    if isinstance(label, str) and label.strip():
+        node["label"] = label.strip()
+    frame = value.get("frame")
+    if isinstance(frame, Mapping):
+        node["frame"] = {
+            "x": _number_value(frame.get("x")) or 0,
+            "y": _number_value(frame.get("y")) or 0,
+            "width": _number_value(frame.get("width")) or 0,
+            "height": _number_value(frame.get("height")) or 0,
+        }
+    actions = value.get("actions")
+    if isinstance(actions, list):
+        node["actions"] = [str(action) for action in actions]
+    for key in ("enabled", "focused"):
+        if isinstance(value.get(key), bool):
+            node[key] = value[key]
+    return node
+
+
 def _row_items_from_nodes(
     nodes: list[dict[str, Any]],
     *,
@@ -2540,6 +2653,22 @@ def _next_page_token(
         return None
     snapshot_id = _query_snapshot_id(_query_payload(observation)) or "snapshot"
     return f"{section}:{direction}:{snapshot_id}"
+
+
+def _collection_has_more(result: Any) -> bool:
+    return bool(result.pagination.has_more or result.diagnostics.truncated)
+
+
+def _next_collection_page_token(
+    section: str,
+    result: Any,
+    *,
+    direction: str = "next",
+) -> str | None:
+    if not _collection_has_more(result):
+        return None
+    cursor = result.pagination.next_cursor or result.snapshot_id or "snapshot"
+    return f"{section}:{direction}:{cursor}"
 
 
 def _string_value(value: object) -> str | None:

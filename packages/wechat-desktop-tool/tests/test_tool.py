@@ -1015,8 +1015,25 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         _normalized_row("0/11/1/0/0", "Ada"),
                         _normalized_row("0/11/1/0/1", "Bob", y=184),
                         _normalized_row("0/11/1/0/2", "Charlie", y=248),
-                    ],
-                    truncated=True,
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/0/0",
+                            "AXStaticText",
+                            value="Ada",
+                        )
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/1/0",
+                            "AXStaticText",
+                            value="Bob",
+                        )
+                    ]
                 ),
             ]
         )
@@ -1051,6 +1068,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
             ],
         )
         self.assertEqual(app_control.commands[2].input["target"]["axPath"], "0/2")
@@ -1065,7 +1084,13 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[3].input["query"]["match"]["roleIn"],
             ["AXSplitGroup"],
         )
-        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 8_000)
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 5_000)
+        self.assertEqual(app_control.commands[4].input["query"]["limit"], 3)
+        self.assertEqual(
+            app_control.commands[4].input["query"]["match"]["roleIn"],
+            ["AXRow"],
+        )
+        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 1_000)
         self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
 
     def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
@@ -1157,7 +1182,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[2].input["query"]["match"]["roleIn"],
             ["AXSplitGroup"],
         )
-        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 8_000)
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 5_000)
+        self.assertEqual(
+            app_control.commands[3].input["query"]["match"]["roleIn"],
+            ["AXRow"],
+        )
 
     def test_execute_action_runs_accessibility_action_ref(self) -> None:
         app_control = FakeAppControl([_accessibility_action_response()])

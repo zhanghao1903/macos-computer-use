@@ -152,6 +152,11 @@ limit = 8
 time_budget_ms = 1000
 role_in = ["AXStaticText"]
 
+[collections.contacts.fields.element]
+source = "computed"
+attribute = "elementRef"
+required = true
+
 [collections.conversations]
 root_selector_id = "regions.mainContent"
 
@@ -172,6 +177,11 @@ source = "attribute"
 attribute = "AXDescription"
 required = true
 transform = "strip"
+
+[collections.conversations.fields.element]
+source = "computed"
+attribute = "elementRef"
+required = true
 
 [collections.visibleMessages]
 root_selector_id = "regions.chatPanel"

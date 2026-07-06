@@ -4,6 +4,7 @@ import unittest
 
 from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_ID,
+    build_packaged_collection_extractor,
     build_packaged_selector_resolver,
     load_packaged_selector_profile,
 )
@@ -38,6 +39,14 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             profile.collections["contacts"].fields["displayName"].attribute,
             "AXValue",
         )
+        self.assertEqual(
+            profile.collections["contacts"].fields["element"].attribute,
+            "elementRef",
+        )
+        self.assertEqual(
+            profile.collections["conversations"].fields["element"].attribute,
+            "elementRef",
+        )
 
     def test_packaged_selector_resolver_uses_default_profile(self) -> None:
         def query_runner(
@@ -71,6 +80,31 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             result.elements[0].evidence.matched_attributes["AXValue"],
             0,
         )
+
+    def test_packaged_collection_extractor_uses_default_profile(self) -> None:
+        def query_runner(
+            *,
+            root: object,
+            query: object,
+            include_raw: bool = False,
+        ) -> dict[str, object]:
+            del root, query, include_raw
+            return {
+                "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                "nodes": [
+                    {
+                        "axPath": "0/11",
+                        "role": "AXSplitGroup",
+                        "description": "main-content",
+                    }
+                ],
+                "diagnostics": {"truncated": False},
+            }
+
+        resolver = build_packaged_selector_resolver(query_runner)
+        extractor = build_packaged_collection_extractor(resolver)
+
+        self.assertIs(extractor.resolver, resolver)
 
 
 if __name__ == "__main__":

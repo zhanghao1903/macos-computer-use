@@ -7,6 +7,7 @@ import tomllib
 
 from computer_use_macos.selectors import (
     AccessibilitySelectorProfile,
+    CollectionExtractor,
     SelectorResolver,
     parse_selector_profile,
 )
@@ -43,7 +44,16 @@ def build_packaged_selector_resolver(
     )
 
 
+def build_packaged_collection_extractor(
+    resolver: SelectorResolver,
+) -> CollectionExtractor:
+    """Build a collection extractor for the packaged WeChat selector profile."""
+
+    return CollectionExtractor(resolver)
+
+
 __all__ = [
+    "build_packaged_collection_extractor",
     "build_packaged_selector_resolver",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_ID",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE",
