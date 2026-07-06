@@ -7,6 +7,7 @@ import tomllib
 
 from computer_use_macos.selectors import (
     AccessibilitySelectorProfile,
+    SelectorResolver,
     parse_selector_profile,
 )
 
@@ -26,7 +27,24 @@ def load_packaged_selector_profile() -> AccessibilitySelectorProfile:
     return parse_selector_profile(tomllib.loads(profile_text))
 
 
+def build_packaged_selector_resolver(
+    query_runner: object,
+    *,
+    app_bundle_id: str = "",
+    window_fingerprint: str = "",
+) -> SelectorResolver:
+    """Build a resolver for the packaged WeChat selector profile."""
+
+    return SelectorResolver(
+        load_packaged_selector_profile(),
+        query_runner,  # type: ignore[arg-type]
+        app_bundle_id=app_bundle_id,
+        window_fingerprint=window_fingerprint,
+    )
+
+
 __all__ = [
+    "build_packaged_selector_resolver",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_ID",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE",
     "load_packaged_selector_profile",

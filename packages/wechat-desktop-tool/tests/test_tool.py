@@ -1000,7 +1000,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             False,
         )
 
-    def test_list_contacts_uses_accessibility_query_stub(self) -> None:
+    def test_list_contacts_uses_packaged_selector_profile(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
@@ -1032,7 +1032,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["Ada", "Bob"],
         )
         self.assertEqual(result.observation["items"][0]["kind"], "contact")
-        self.assertEqual(result.observation["items"][0]["actionId"], "contacts.visible.0.open")
+        self.assertEqual(
+            result.observation["items"][0]["actionId"],
+            "contacts.visible.0.open",
+        )
         self.assertEqual(
             result.observation["items"][0]["actionRef"]["action"],
             "AXPress",
@@ -1052,9 +1055,53 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[2].input["target"]["axPath"], "0/2")
         self.assertEqual(app_control.commands[2].input["action"], "AXPress")
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 10_000)
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(
+            app_control.commands[1].input["query"]["match"]["roleIn"],
+            ["AXRadioButton"],
+        )
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(
+            app_control.commands[3].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
         self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 8_000)
         self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
+
+    def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/1",
+                            "AXRadioButton",
+                            description="聊天",
+                            value=1,
+                            actions=["AXPress"],
+                        ),
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.list_contacts(limit=2)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, ToolStatus.NOT_FOUND)
+        self.assertEqual(result.failure_kind, "wechat_navigation_failed")
+        self.assertEqual(result.observation["selector"]["id"], "navigation.contacts")
+        self.assertEqual(result.observation["selector"]["status"], "not_found")
+        self.assertEqual(
+            result.observation["selector"]["diagnostics"]["failureKind"],
+            "selector_not_found",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "accessibility_query"],
+        )
 
     def test_list_conversations_uses_accessibility_query_stub(self) -> None:
         app_control = FakeAppControl(

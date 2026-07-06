@@ -4,6 +4,7 @@ import unittest
 
 from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_ID,
+    build_packaged_selector_resolver,
     load_packaged_selector_profile,
 )
 
@@ -37,6 +38,34 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             profile.collections["contacts"].fields["displayName"].attribute,
             "AXValue",
         )
+
+    def test_packaged_selector_resolver_uses_default_profile(self) -> None:
+        def query_runner(
+            *,
+            root: object,
+            query: object,
+            include_raw: bool = False,
+        ) -> dict[str, object]:
+            del root, query, include_raw
+            return {
+                "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                "nodes": [
+                    {
+                        "axPath": "0/2",
+                        "role": "AXRadioButton",
+                        "description": "通讯录",
+                        "actions": ["AXPress"],
+                    }
+                ],
+                "diagnostics": {"truncated": False},
+            }
+
+        resolver = build_packaged_selector_resolver(query_runner)
+        result = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.profile_id, DEFAULT_WECHAT_SELECTOR_PROFILE_ID)
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
 
 
 if __name__ == "__main__":

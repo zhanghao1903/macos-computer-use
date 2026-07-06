@@ -29,6 +29,7 @@ from .models import (
     WeChatVisibleMessage,
     wechat_message_hash,
 )
+from .profiles import build_packaged_selector_resolver
 from .window_model import build_wechat_window_model
 
 if TYPE_CHECKING:
@@ -589,11 +590,120 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        return self._list_row_items(
+        return self._list_contacts_with_selector_profile(
             command,
-            section="contacts",
-            schema="wechat.contacts.v1",
             phase_events=phase_events,
+        )
+
+    def _list_contacts_with_selector_profile(
+        self,
+        command: ToolCommand,
+        *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        limit = _positive_int(command.input.get("limit"), default=30)
+        page_token = _optional_string_input(command, "pageToken", "page_token")
+        evidence: dict[str, JsonValue] = {}
+        opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
+        if not opened.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_open_failed",
+                opened,
+                evidence=evidence,
+            )
+
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
+            command,
+            evidence=evidence,
+            phase_prefix="selectors.contacts",
+            phase_events=phase_events,
+        )
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+        )
+        contacts_nav = resolver.resolve("navigation.contacts")
+        if contacts_nav.status != "resolved" or not contacts_nav.elements:
+            return _failure_from_selector_result(
+                command,
+                contacts_nav,
+                failure_kind="wechat_navigation_failed",
+                message="Could not locate WeChat contacts navigation item.",
+                evidence=evidence,
+            )
+        clicked = self._click_node_phase(
+            command,
+            _node_from_selector_element(contacts_nav.elements[0]),
+            phase="switch_contacts",
+            evidence=evidence,
+            snapshot_id=contacts_nav.snapshot_id,
+            phase_events=phase_events,
+        )
+        if not clicked.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_navigation_failed",
+                clicked,
+                evidence=evidence,
+            )
+
+        main_content = resolver.resolve("regions.mainContent")
+        if main_content.status != "resolved" or not main_content.elements:
+            return _failure_from_selector_result(
+                command,
+                main_content,
+                failure_kind="main_content_not_found",
+                message="Could not locate WeChat main content region.",
+                evidence=evidence,
+            )
+        rows_result = self._query_descendants(
+            command,
+            root_node=_node_from_selector_element(main_content.elements[0]),
+            phase="contacts:rows",
+            role_in=["AXRow", "AXCell", "AXStaticText"],
+            limit=max(limit * 4, 60),
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not rows_result.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_list_failed",
+                rows_result,
+                evidence=evidence,
+            )
+        rows = _row_items_from_nodes(
+            _query_nodes(rows_result),
+            section="contacts",
+            limit=limit,
+            snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
+        )
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Listed visible WeChat contacts.",
+            observation={
+                "schema": "wechat.contacts.v1",
+                "section": "contacts",
+                "items": rows,
+                "pagination": {
+                    "limit": limit,
+                    "pageToken": page_token,
+                    "hasMore": _query_truncated(rows_result),
+                    "nextPageToken": _next_page_token("contacts", rows_result),
+                },
+                "availableActions": [
+                    {
+                        "id": "wechat.open_contact",
+                        "status": "needs_input",
+                        "operation": "open_contact",
+                    }
+                ],
+            },
+            evidence=evidence,
         )
 
     def _list_conversations(
@@ -1847,10 +1957,130 @@ class WeChatDesktopTool:
         )
 
 
+class _WeChatSelectorQueryRunner:
+    def __init__(
+        self,
+        tool: WeChatDesktopTool,
+        command: ToolCommand,
+        *,
+        evidence: dict[str, JsonValue],
+        phase_prefix: str,
+        phase_events: "_PhaseEventCollector | None",
+    ) -> None:
+        self._tool = tool
+        self._command = command
+        self._evidence = evidence
+        self._phase_prefix = phase_prefix
+        self._phase_events = phase_events
+        self._count = 0
+
+    def __call__(
+        self,
+        *,
+        root: Mapping[str, JsonValue],
+        query: Mapping[str, JsonValue],
+        include_raw: bool = False,
+    ) -> Mapping[str, Any]:
+        self._count += 1
+        phase = f"{self._phase_prefix}:{self._count}"
+        result = self._tool._app_control_command(
+            self._command,
+            phase=phase,
+            operation="accessibility_query",
+            input=self._tool._accessibility_query_input(
+                root=root,
+                query=query,
+                include_raw=include_raw,
+            ),
+            phase_events=self._phase_events,
+        )
+        self._evidence[phase] = _safe_app_control_observation(result)
+        if result.success:
+            return _query_payload(result)
+        return {
+            "schema": "macos.accessibility.query.v1",
+            "available": False,
+            "nodes": [],
+            "diagnostics": {
+                "truncated": False,
+                "failureKind": result.failure_kind or "accessibility_query_failed",
+                "message": result.summary,
+            },
+        }
+
+
 def _coerce_command(command: ToolCommand | Mapping[str, Any]) -> ToolCommand:
     if isinstance(command, Mapping):
         return ToolCommand.from_dict(dict(command))
     return command
+
+
+def _node_from_selector_element(element: Any) -> dict[str, Any]:
+    element_ref = element.element_ref
+    node: dict[str, Any] = {
+        "axPath": element_ref.ax_path,
+        "role": element.role,
+        "actions": list(element.actions),
+    }
+    if element.label is not None:
+        node["description"] = element.label
+    if element.frame is not None:
+        node["frame"] = {
+            "x": element.frame.x,
+            "y": element.frame.y,
+            "width": element.frame.width,
+            "height": element.frame.height,
+        }
+    return node
+
+
+def _failure_from_selector_result(
+    command: ToolCommand,
+    result: Any,
+    *,
+    failure_kind: str,
+    message: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    status = (
+        ToolStatus.NOT_FOUND
+        if result.status in {"not_found", "failed"}
+        else ToolStatus.FAILED
+    )
+    return _failure(
+        command,
+        status=status,
+        failure_kind=failure_kind,
+        message=message,
+        retryable=True,
+        observation={
+            "selector": {
+                "id": result.selector_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            }
+        },
+        evidence=evidence,
+    )
+
+
+def _selector_diagnostics_payload(diagnostics: Any) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {
+        "triedSelectors": list(diagnostics.tried_selectors),
+        "queryCount": diagnostics.query_count,
+        "nodeCount": diagnostics.node_count,
+        "truncated": diagnostics.truncated,
+        "cacheStatus": diagnostics.cache_status,
+    }
+    if diagnostics.truncation_reason is not None:
+        payload["truncationReason"] = diagnostics.truncation_reason
+    if diagnostics.failure_kind is not None:
+        payload["failureKind"] = diagnostics.failure_kind
+    if diagnostics.message is not None:
+        payload["message"] = diagnostics.message
+    return payload
 
 
 def _query_payload(observation: ToolObservation) -> dict[str, Any]:
