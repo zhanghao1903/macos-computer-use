@@ -730,126 +730,6 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
-    def _list_row_items(
-        self,
-        command: ToolCommand,
-        *,
-        section: str,
-        schema: str,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        limit = _positive_int(command.input.get("limit"), default=30)
-        page_token = _optional_string_input(command, "pageToken", "page_token")
-        evidence: dict[str, JsonValue] = {}
-        opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
-        if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
-        top_level = self._query_top_level(command, evidence, phase_events=phase_events)
-        if not top_level.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_not_ready",
-                top_level,
-                evidence=evidence,
-            )
-        top_snapshot_id = _query_snapshot_id(_query_payload(top_level))
-        navigation = _navigation_from_query_nodes(
-            _query_nodes(top_level),
-            snapshot_id=top_snapshot_id,
-        )
-        nav_item = next(
-            (item for item in navigation if item.get("label") == section),
-            None,
-        )
-        if nav_item is not None and nav_item.get("selected") is not True:
-            clicked = self._click_node_phase(
-                command,
-                nav_item["element"],
-                phase=f"switch_{section}",
-                evidence=evidence,
-                snapshot_id=top_snapshot_id,
-                phase_events=phase_events,
-            )
-            if not clicked.success:
-                return _from_app_control_failure(
-                    command,
-                    "wechat_navigation_failed",
-                    clicked,
-                    evidence=evidence,
-                )
-            top_level = self._query_top_level(
-                command,
-                evidence,
-                phase=f"{section}:top_level",
-                phase_events=phase_events,
-            )
-        main_content = _main_content_node(_query_nodes(top_level))
-        if main_content is None:
-            return _failure(
-                command,
-                status=ToolStatus.NOT_FOUND,
-                failure_kind="main_content_not_found",
-                message="Could not locate WeChat main content region.",
-                retryable=True,
-                evidence=evidence,
-            )
-        rows_result = self._query_descendants(
-            command,
-            root_node=main_content,
-            phase=f"{section}:rows",
-            role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=max(limit * 4, 60),
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if not rows_result.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_list_failed",
-                rows_result,
-                evidence=evidence,
-            )
-        rows = _row_items_from_nodes(
-            _query_nodes(rows_result),
-            section=section,
-            limit=limit,
-            snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
-        )
-        return ToolObservation.ok(
-            command_id=command.command_id,
-            tool=WECHAT_TOOL,
-            operation=command.operation,
-            summary=(
-                "Listed visible WeChat contacts."
-                if section == "contacts"
-                else "Listed visible WeChat conversations."
-            ),
-            observation={
-                "schema": schema,
-                "section": section,
-                "items": rows,
-                "pagination": {
-                    "limit": limit,
-                    "pageToken": page_token,
-                    "hasMore": _query_truncated(rows_result),
-                    "nextPageToken": _next_page_token(section, rows_result),
-                },
-                "availableActions": [
-                    {
-                        "id": "wechat.open_contact",
-                        "status": "needs_input",
-                        "operation": "open_contact",
-                    }
-                ],
-            },
-            evidence=evidence,
-        )
-
     def _open_contact(
         self,
         command: ToolCommand,
@@ -866,49 +746,43 @@ class WeChatDesktopTool:
                 opened,
                 evidence=evidence,
             )
-        top_level = self._query_top_level(command, evidence, phase_events=phase_events)
-        if not top_level.success:
-            return _from_app_control_failure(
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
+            command,
+            evidence=evidence,
+            phase_prefix="selectors.open_contact",
+            phase_events=phase_events,
+        )
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+        )
+        main_content = resolver.resolve("regions.mainContent")
+        if main_content.status != "resolved" or not main_content.elements:
+            return _failure_from_selector_result(
                 command,
-                "wechat_not_ready",
-                top_level,
+                main_content,
+                failure_kind="main_content_not_found",
+                message="Could not locate WeChat main content region.",
                 evidence=evidence,
             )
-        main_content = _main_content_node(_query_nodes(top_level))
-        search_node = None
-        if main_content is not None:
-            main_result = self._query_children(
+        search_box = resolver.resolve("regions.searchBox")
+        if search_box.status != "resolved" or not search_box.elements:
+            return _failure_from_selector_result(
                 command,
-                root_node=main_content,
-                phase="open_contact:main_content",
-                role_in=["AXTextArea", "AXTextField", "AXScrollArea", "AXTable", "AXRow"],
+                search_box,
+                failure_kind="search_focus_failed",
+                message="Could not locate WeChat search box.",
                 evidence=evidence,
-                phase_events=phase_events,
             )
-            if main_result.success:
-                search_node = _search_node(_query_nodes(main_result))
-        if search_node is not None:
-            focused = self._click_node_phase(
-                command,
-                search_node,
-                phase="focus_search",
-                evidence=evidence,
-                snapshot_id=(
-                    _query_snapshot_id(_query_payload(main_result))
-                    if main_result.success
-                    else None
-                ),
-                phase_events=phase_events,
-            )
-        else:
-            focused = self._app_control_command(
-                command,
-                phase="focus_search",
-                operation="hotkey",
-                input=self._target_app_input(keys=list(self._config.search_hotkey)),
-                phase_events=phase_events,
-            )
-            evidence["focus_search"] = _safe_app_control_observation(focused)
+        focused = self._click_node_phase(
+            command,
+            _node_from_selector_element(search_box.elements[0]),
+            phase="focus_search",
+            evidence=evidence,
+            snapshot_id=search_box.snapshot_id,
+            phase_events=phase_events,
+        )
         if not focused.success:
             return _from_app_control_failure(
                 command,
@@ -933,13 +807,13 @@ class WeChatDesktopTool:
             )
         results = self._query_descendants(
             command,
-            root_node=main_content,
+            root_node=_node_from_selector_element(main_content.elements[0]),
             phase="search_results",
             role_in=["AXRow", "AXCell", "AXStaticText"],
             limit=80,
             evidence=evidence,
             phase_events=phase_events,
-        ) if main_content is not None else typed
+        )
         candidates = (
             _search_candidates_from_nodes(
                 _query_nodes(results),
@@ -990,13 +864,13 @@ class WeChatDesktopTool:
             )
         verification = self._query_descendants(
             command,
-            root_node=main_content,
+            root_node=_node_from_selector_element(main_content.elements[0]),
             phase="verify_contact",
             role_in=["AXStaticText"],
             limit=40,
             evidence=evidence,
             phase_events=phase_events,
-        ) if main_content is not None else selected
+        )
         chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
         return ToolObservation.ok(
             command_id=command.command_id,

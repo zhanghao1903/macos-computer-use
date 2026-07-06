@@ -1271,10 +1271,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertNotIn("coordinates", app_control.commands[0].input)
 
-    def test_open_contact_uses_search_result_query_stub(self) -> None:
+    def test_open_contact_uses_packaged_selector_profile(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
+                _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _main_children_query_response(),
                 {},
@@ -1309,6 +1310,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "type_text",
                 "accessibility_query",
@@ -1316,12 +1318,16 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[4].input["text"], "Ada")
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(app_control.commands[5].input["text"], "Ada")
 
     def test_open_contact_reports_disambiguation_from_query_stub(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
+                _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _main_children_query_response(),
                 {},
@@ -1350,8 +1356,50 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "type_text",
+                "accessibility_query",
+            ],
+        )
+
+    def test_open_contact_maps_missing_search_box_to_wechat_failure(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/2",
+                            "AXButton",
+                            description="发起群聊",
+                            actions=["AXPress"],
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("Ada")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, ToolStatus.NOT_FOUND)
+        self.assertEqual(result.failure_kind, "search_focus_failed")
+        self.assertEqual(result.observation["selector"]["id"], "regions.searchBox")
+        self.assertEqual(result.observation["selector"]["status"], "not_found")
+        self.assertEqual(
+            result.observation["selector"]["diagnostics"]["failureKind"],
+            "selector_not_found",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
                 "accessibility_query",
             ],
         )
@@ -1360,6 +1408,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
+                _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _main_children_query_response(),
                 {},

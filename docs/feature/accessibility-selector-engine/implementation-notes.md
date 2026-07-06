@@ -506,3 +506,82 @@ Remaining Slice 4 work:
   without losing action references;
 - add fixture-backed parity tests for migrated operations;
 - run real WeChat smoke proof before merge readiness.
+
+## Slice 4E: Selector-Backed Contact Opening
+
+Status: implemented.
+
+Commit scope:
+
+- migrate `open_contact` main-content and search-box lookup to packaged
+  selectors;
+- resolve `regions.mainContent` and `regions.searchBox` through the selector
+  profile before typing search text;
+- remove the dead legacy row-list helper that still contained the old
+  top-level navigation/main-content lookup path;
+- disable per-operation caching for `regions.mainContent` in the packaged
+  profile because a new resolver is built per WeChat operation and same-operation
+  cache validation added queries without cross-operation reuse;
+- add parity and failure tests for selector-backed contact opening.
+
+Public surface:
+
+- no command builder or method signature change;
+- no `wechat.open_contact.v1` response field removal or rename;
+- no top-level selector API export;
+- internal phase evidence now includes `selectors.open_contact:*` query phases
+  for contact opening.
+
+Implemented behavior:
+
+- `open_contact` opens/focuses WeChat as before;
+- resolves `regions.mainContent` through the packaged profile;
+- resolves `regions.searchBox` through the packaged profile and focuses it
+  through the existing validated click/action path;
+- searches, handles disambiguation, opens a selected result, and verifies the
+  chat title with the existing semantic response shape;
+- maps missing search-box selector results to `search_focus_failed` with
+  normalized selector diagnostics;
+- keeps search-result parsing and row action execution in
+  `wechat-desktop-tool`.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k open_contact
+```
+
+Result: 3 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 3 tests passed.
+
+```bash
+python -m py_compile \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_tool.py \
+  packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 83 tests passed.
+
+Remaining Slice 4 work:
+
+- add generic collection item element/actionRef support or an equivalent
+  internal adapter so WeChat list APIs can consume collection extraction
+  without losing action references;
+- add fixture-backed parity tests for generic collection extraction against
+  WeChat-style rows;
+- run real WeChat smoke proof before merge readiness.

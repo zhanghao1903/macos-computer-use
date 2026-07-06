@@ -95,8 +95,7 @@ time_budget_ms = 2500
 role_in = ["AXSplitGroup"]
 
 [selectors.regions.mainContent.cache]
-mode = "readWrite"
-ttl_seconds = 120
+mode = "disabled"
 validate_signature = true
 key_attributes = ["AXRole"]
 
