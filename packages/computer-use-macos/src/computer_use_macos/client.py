@@ -916,7 +916,7 @@ class MacOSComputerUseClient:
             query=query,
             include_raw=include_raw,
         )
-        snapshot_timeout = min(timeout, 5.0)
+        snapshot_timeout = min(timeout, 15.0)
         result = self._runner.run(
             [
                 sys.executable,
@@ -2172,7 +2172,7 @@ def _normalize_accessibility_query_request(
         query_payload.get("timeBudgetMs"),
         default=500,
         minimum=50,
-        maximum=5_000,
+        maximum=15_000,
         name="query.timeBudgetMs",
     )
 

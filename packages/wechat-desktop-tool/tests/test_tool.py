@@ -819,6 +819,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[1].input["root"]["kind"], "focusedWindow")
         self.assertEqual(app_control.commands[1].input["query"]["scope"], "children")
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 10_000)
         self.assertIn("AXDescription", app_control.commands[1].input["query"]["attributes"])
         self.assertEqual(app_control.commands[2].input["root"]["kind"], "axPath")
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11")
@@ -1051,6 +1052,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[2].input["target"]["axPath"], "0/2")
         self.assertEqual(app_control.commands[2].input["action"], "AXPress")
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 10_000)
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 8_000)
         self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
 
     def test_list_conversations_uses_accessibility_query_stub(self) -> None:

@@ -799,12 +799,14 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                     "match": {"roleIn": ["AXRadioButton"]},
                 },
                 command_id="cmd_query",
+                timeout_ms=30_000,
             )
         )
 
         query = observation.observation["accessibilityQuery"]
         request = json.loads(runner.calls[0][-1])
         self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(runner.timeouts[0], 15.0)
         self.assertEqual(observation.observation["snapshotId"], "frontmost:TextEdit:Current")
         self.assertEqual(runner.calls[0][0], sys.executable)
         self.assertEqual(request["bundleId"], "com.apple.TextEdit")
@@ -813,6 +815,55 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(query["nodes"][0]["axPath"], "0/1")
         self.assertEqual(query["nodes"][0]["description"], "Documents")
         self.assertNotIn("attributeNames", query["nodes"][0])
+
+    def test_package_accessibility_query_preserves_longer_time_budget(self) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "Current", "role": "AXWindow"},
+                    "root": {"axPath": "0"},
+                    "nodes": [],
+                    "diagnostics": {
+                        "durationMs": 10,
+                        "truncated": False,
+                        "nodeCount": 0,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "focusedWindow"},
+                query={
+                    "scope": "children",
+                    "timeBudgetMs": 10_000,
+                },
+                command_id="cmd_query_budget",
+                timeout_ms=30_000,
+            )
+        )
+
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(runner.timeouts[0], 15.0)
+        self.assertEqual(request["query"]["timeBudgetMs"], 10_000)
 
     def test_package_local_client_supports_accessibility_action_protocol(
         self,

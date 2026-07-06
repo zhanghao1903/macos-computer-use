@@ -134,6 +134,68 @@ class FakeFileTransferSendServiceClient:
         ]
 
 
+class FakeContactsListServiceClient:
+    def __init__(self) -> None:
+        self.commands: list[dict[str, Any]] = []
+        self._queries = [
+            _wechat_query(
+                [
+                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
+                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
+                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
+                    _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            ),
+            _wechat_query(
+                [
+                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
+                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
+                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
+                    _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            ),
+            _wechat_query(
+                [
+                    _query_node("0/11/1/0/0", "AXRow", description="Ada"),
+                    _query_node("0/11/1/0/1", "AXRow", description="Bob"),
+                ]
+            ),
+        ]
+
+    def run_command(
+        self,
+        command: dict[str, Any],
+        *,
+        action: str = "run",
+        request_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del action
+        self.commands.append(command)
+        operation = command["operation"]
+        observation_payload: dict[str, Any] = {}
+        if operation == "observe":
+            observation_payload = {
+                "frontmostApp": "WeChat",
+                "frontmostBundleId": "com.tencent.xinWeChat",
+                "windowTitle": "微信 (聊天)",
+            }
+        elif operation == "accessibility_query":
+            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+        observation = ToolObservation.ok(
+            command_id=command["commandId"],
+            tool=command["tool"],
+            operation=operation,
+            summary=f"fake {operation}",
+            observation=observation_payload,
+        )
+        return [
+            ServiceResponse.complete(
+                observation,
+                request_id=request_id or "fake_request",
+            ).to_dict()
+        ]
+
+
 class FakeContactsRecentMessagesServiceClient:
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
@@ -363,6 +425,52 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(service_client.commands[11]["input"]["text"], "hello")
         self.assertEqual(persisted["submitDraft"]["operation"], "submit_draft")
 
+    def test_wechat_contacts_list_test_lists_contacts(self) -> None:
+        module = _load_wechat_contacts_list_test_module()
+        service_client = FakeContactsListServiceClient()
+        system_open = FakeSystemOpenRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "contacts-list-output.json"
+            payload = module.run_contacts_list_test(
+                config_path=None,
+                output_path=output_path,
+                socket_path="/tmp/app-control.sock",
+                service_client=service_client,
+                system_open_runner=system_open,
+                limit=2,
+            )
+
+            persisted = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["summary"]["success"], True)
+        self.assertEqual(payload["summary"]["listedContactCount"], 2)
+        self.assertEqual(payload["contactNames"], ["Ada", "Bob"])
+        self.assertEqual(
+            [item["displayName"] for item in payload["contacts"]],
+            ["Ada", "Bob"],
+        )
+        self.assertEqual(payload["systemOpenWeChat"]["success"], True)
+        self.assertEqual(
+            [command[:2] for command in system_open.commands],
+            [["open", "-b"], ["osascript", "-e"]],
+        )
+        self.assertEqual(
+            [command["operation"] for command in service_client.commands],
+            [
+                "readiness",
+                "open_app",
+                "observe",
+                "open_app",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(persisted["summary"]["listedContactCount"], 2)
+        self.assertEqual(persisted["contactNames"], ["Ada", "Bob"])
+
     def test_wechat_contacts_recent_messages_test_reads_listed_contacts(self) -> None:
         module = _load_wechat_contacts_recent_messages_test_module()
         service_client = FakeContactsRecentMessagesServiceClient()
@@ -473,6 +581,12 @@ def _load_wechat_file_transfer_send_test_module() -> Any:
     root = Path(__file__).resolve().parents[1]
     example_path = root / "examples" / "wechat_file_transfer_send_test.py"
     return _load_example_module(example_path, "wechat_file_transfer_send_test")
+
+
+def _load_wechat_contacts_list_test_module() -> Any:
+    root = Path(__file__).resolve().parents[1]
+    example_path = root / "examples" / "wechat_contacts_list_test.py"
+    return _load_example_module(example_path, "wechat_contacts_list_test")
 
 
 def _load_wechat_contacts_recent_messages_test_module() -> Any:

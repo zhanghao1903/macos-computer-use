@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- Add an SDK-style WeChat contacts list example that opens WeChat, runs
+  `list_contacts`, writes a JSON report, and prints contact names.
+
 ### Internal
 
+- Add a `feature-lifecycle` agent skill to manage features from requirements
+  through design, implementation, review, merge, release readiness, and
+  traceable release notes.
+- Tighten the `feature-lifecycle` workflow so every phase requires a
+  documentation carrier, a dedicated feature branch, and a phase-level
+  commit/push.
 - Rework the product workflow gate skill for this package suite, emphasizing
   public API contracts, developer documentation, tests, release records, and
   package publishing hygiene.
@@ -12,9 +23,19 @@
 
 - Add a documentation index, refresh README installation/API guidance, and
   expand the API reference for package roles and command builders.
+- Add architecture documents for `computer-use-macos` and
+  `wechat-desktop-tool`.
+- Document the docs placement rules and new feature workflow, separating stable
+  architecture documents from detailed feature designs.
 - Add a feature design for WeChat Accessibility action APIs, including public
   response contracts, action references, performance strategy, and fake-service
   test coverage.
+
+### Fixed
+
+- Allow scoped Accessibility queries to use a longer bounded timeout and give
+  WeChat contact/conversation row queries larger time budgets, avoiding
+  `list_contacts` failures on slower real WeChat windows.
 
 ## 0.1.1 - 2026-07-02
 
