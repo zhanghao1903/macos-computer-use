@@ -12,4 +12,5 @@ superseded.
 
 Current drafts:
 
+- [Accessibility Selector Engine Technical Design](./accessibility-selector-engine-design.md)
 - [WeChat Accessibility Action API Design](./wechat-accessibility-action-api-design.md)
