@@ -63,3 +63,66 @@ Remaining slices:
 - add WeChat packaged profile and semantic migration;
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
+
+## Slice 2: Selector Resolver Over Bounded Queries
+
+Status: implemented.
+
+Commit scope:
+
+- add `SelectorResolver` for internal selector resolution;
+- add in-memory `SelectorCache`;
+- add candidate matching/scoring helpers;
+- add resolver diagnostics helpers;
+- add fake-query tests for resolver behavior.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new app-control protocol command;
+- no new JSON Schema;
+- no CLI change;
+- no stable API docs update.
+
+Implemented behavior:
+
+- resolves selector roots from focused window, AX path, or another selector;
+- converts selector steps into bounded `accessibility_query` payloads;
+- applies role/action/attribute/alias hard filters;
+- returns redacted `SelectorResult` evidence by default;
+- detects ambiguous candidates;
+- follows fallback selectors;
+- stores and validates in-memory cache hints;
+- falls back to fresh queries when cache validation is stale;
+- reports truncation through `selector_query_truncated` diagnostics.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 17 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/*.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 68 tests passed, 1 skipped.
+
+Remaining slices:
+
+- implement collection extraction;
+- add WeChat packaged profile and semantic migration;
+- add profile override config after packaged profile migration is proven;
+- defer public selector protocol until parity tests and real WeChat smoke proof.
