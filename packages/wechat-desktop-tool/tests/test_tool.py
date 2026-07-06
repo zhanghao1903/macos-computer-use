@@ -2275,19 +2275,29 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
     def test_package_boundary_has_no_product_or_backend_imports(self) -> None:
         package_dir = Path(__file__).parents[1] / "src" / "wechat_desktop_tool"
-        source = "\n".join(
-            path.read_text(encoding="utf-8") for path in package_dir.rglob("*.py")
+        allowed_selector_profile_import = package_dir / "profiles.py"
+        lower_source = "\n".join(
+            path.read_text(encoding="utf-8").lower()
+            for path in package_dir.rglob("*.py")
         )
 
         for forbidden in (
             "taskweavn",
             "plato",
-            "macos_computer_use",
-            "computer_use_macos",
+            "computer_use_macos.client",
+            "computer_use_macos.service",
+            "computer_use_macos.cli",
             "openai",
             "anthropic",
         ):
-            self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, lower_source)
+
+        for path in package_dir.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            if "computer_use_macos" not in source:
+                continue
+            self.assertEqual(path, allowed_selector_profile_import)
+            self.assertIn("computer_use_macos.selectors", source)
 
 
 class WeChatDesktopCliTests(unittest.TestCase):

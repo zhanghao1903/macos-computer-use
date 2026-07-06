@@ -7,7 +7,10 @@ WeChat models for application developers.
 
 It does not execute macOS APIs directly. It depends on an
 `app_control_protocol.AppControlClient` implementation, normally provided by
-`computer-use-macos`.
+`computer-use-macos`. It may also consume the generic
+`computer_use_macos.selectors` profile model so packaged WeChat selector rules
+can be validated with the same engine that resolves bounded Accessibility
+queries.
 
 ## Position In The Stack
 
@@ -193,10 +196,12 @@ full raw tree exposure.
 
 ## Package Boundary
 
-`wechat-desktop-tool` must not import macOS-specific implementation modules
-directly. It depends on `app-control-protocol` and a compatible app-control
-client. It owns WeChat operation names, WeChat configuration, semantic schemas,
-selector profiles, and WeChat-specific normalization.
+`wechat-desktop-tool` must not import macOS-specific backend, client, service,
+or CLI implementation modules directly. It depends on `app-control-protocol`, a
+compatible app-control client, and the generic
+`computer_use_macos.selectors` profile model. It owns WeChat operation names,
+WeChat configuration, semantic schemas, selector profiles, and WeChat-specific
+normalization.
 
 It must not own application UI, LLM provider integrations, durable task state,
 business authorization, or global audit storage.

@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
   "app-control-protocol>=0.1.0",
+  "computer-use-macos>=0.1.1",
 ]
 keywords = ["wechat", "desktop", "automation", "app-control", "agent-tools"]
 classifiers = [
@@ -41,7 +42,7 @@ wechat-desktop-tool = "wechat_desktop_tool.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-wechat_desktop_tool = ["py.typed"]
+wechat_desktop_tool = ["py.typed", "profiles/*.toml"]
 
 [tool.ruff]
 line-length = 88

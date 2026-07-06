@@ -194,3 +194,79 @@ Remaining slices:
 - add WeChat packaged profile and semantic migration;
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
+
+## Slice 4A: WeChat Packaged Profile Loading
+
+Status: implemented.
+
+Commit scope:
+
+- add packaged `profiles/wechat-macos.toml` under `wechat-desktop-tool`;
+- add `wechat_desktop_tool.profiles.load_packaged_selector_profile`;
+- include profile TOML files in package data;
+- declare the `computer-use-macos` selector model dependency for
+  `wechat-desktop-tool`;
+- update package-boundary tests to allow only the generic selector profile
+  import path while continuing to reject backend/client/service imports;
+- update WeChat architecture documentation for the narrowed selector dependency
+  boundary.
+
+Public surface:
+
+- no top-level `wechat_desktop_tool.__all__` export;
+- no WeChat operation response shape change;
+- no new app-control protocol command;
+- package metadata now includes a runtime dependency on `computer-use-macos`
+  because the packaged profile is validated through
+  `computer_use_macos.selectors`.
+
+Implemented behavior:
+
+- packaged profile covers navigation tabs, main content, search box, chat
+  panel, contacts, conversations, visible messages, and navigation press
+  actions;
+- profile loading uses `importlib.resources` so installed wheels can read the
+  same TOML asset;
+- profile validation rejects schema, reference, bound, transform, cache, and
+  action-risk mistakes through the generic selector validator.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 2 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_package_boundary.py
+```
+
+Result: 5 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 80 tests passed.
+
+```bash
+python -m py_compile \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py \
+  packages/wechat-desktop-tool/tests/test_profiles.py \
+  packages/wechat-desktop-tool/tests/test_package_boundary.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.
+
+Remaining Slice 4 work:
+
+- migrate `list_contacts`, `list_conversations`, `read_visible_messages`, and
+  `open_contact` lookup internals to the packaged profile;
+- add fixture-backed parity tests for migrated operations;
+- map generic selector failures into WeChat failure diagnostics;
+- run real WeChat smoke proof before merge readiness.

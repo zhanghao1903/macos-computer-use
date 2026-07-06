@@ -1,0 +1,212 @@
+schema_version = "app-control.selector-profile.v1"
+profile_id = "wechat.macos"
+profile_version = "2026.07"
+
+[app]
+app_id = "wechat"
+bundle_ids = ["com.tencent.xinWeChat"]
+app_names = ["WeChat", "微信"]
+supported_locales = ["zh-CN", "en-US"]
+window_title_patterns = ["微信.*", "WeChat.*"]
+
+[locale_aliases]
+"navigation.chats" = ["聊天", "__EN_CHATS_PLACEHOLDER__"]
+"navigation.contacts" = ["通讯录", "__EN_CONTACTS_PLACEHOLDER__"]
+"navigation.favorites" = ["收藏", "__EN_FAVORITES_PLACEHOLDER__"]
+"search.placeholder" = ["搜索", "search", "__EN_SEARCH_PLACEHOLDER__"]
+
+[selectors.navigation.chats.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.chats.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.chats.steps.match.attributes.AXDescription]
+alias_ref = "navigation.chats"
+
+[selectors.navigation.chats.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription"]
+
+[selectors.navigation.contacts.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.contacts.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.contacts.steps.match.attributes.AXDescription]
+alias_ref = "navigation.contacts"
+
+[selectors.navigation.contacts.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription"]
+
+[selectors.navigation.favorites.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.favorites.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.favorites.steps.match.attributes.AXDescription]
+alias_ref = "navigation.favorites"
+
+[selectors.navigation.favorites.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription"]
+
+[selectors.regions.mainContent.root]
+kind = "focusedWindow"
+
+[[selectors.regions.mainContent.steps]]
+scope = "children"
+max_depth = 1
+limit = 40
+time_budget_ms = 2500
+role_in = ["AXSplitGroup"]
+
+[selectors.regions.mainContent.cache]
+mode = "readWrite"
+ttl_seconds = 120
+validate_signature = true
+key_attributes = ["AXRole"]
+
+[selectors.regions.searchBox.root]
+kind = "selector"
+selector_id = "regions.mainContent"
+
+[[selectors.regions.searchBox.steps]]
+scope = "children"
+max_depth = 1
+limit = 30
+time_budget_ms = 2000
+role_in = ["AXTextArea", "AXTextField"]
+
+[selectors.regions.searchBox.steps.match.attributes.AXDescription]
+alias_ref = "search.placeholder"
+
+[selectors.regions.chatPanel.root]
+kind = "selector"
+selector_id = "regions.mainContent"
+
+[[selectors.regions.chatPanel.steps]]
+scope = "children"
+max_depth = 1
+limit = 40
+time_budget_ms = 2500
+role_in = ["AXSplitGroup"]
+
+[collections.contacts]
+root_selector_id = "regions.mainContent"
+
+[collections.contacts.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.contacts.item.steps]]
+scope = "descendants"
+max_depth = 8
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.contacts.fields.displayName]
+source = "descendant"
+attribute = "AXValue"
+required = true
+transform = "strip"
+
+[[collections.contacts.fields.displayName.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 8
+time_budget_ms = 1000
+role_in = ["AXStaticText"]
+
+[collections.conversations]
+root_selector_id = "regions.mainContent"
+
+[collections.conversations.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.conversations.item.steps]]
+scope = "descendants"
+max_depth = 6
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.conversations.fields.rawLabel]
+source = "attribute"
+attribute = "AXDescription"
+required = true
+transform = "strip"
+
+[collections.visibleMessages]
+root_selector_id = "regions.chatPanel"
+
+[collections.visibleMessages.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.visibleMessages.item.steps]]
+scope = "descendants"
+max_depth = 6
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.visibleMessages.fields.text]
+source = "descendant"
+attribute = "AXValue"
+required = true
+transform = "strip"
+
+[[collections.visibleMessages.fields.text.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 10
+time_budget_ms = 1000
+role_in = ["AXStaticText", "AXCell"]
+
+[actions.navigation.contacts.press]
+selector_id = "navigation.contacts"
+ax_action = "AXPress"
+risk = "changes_focus"
+
+[[actions.navigation.contacts.press.preconditions]]
+kind = "appFrontmost"
+value = true
+
+[actions.navigation.chats.press]
+selector_id = "navigation.chats"
+ax_action = "AXPress"
+risk = "changes_focus"
+
+[[actions.navigation.chats.press.preconditions]]
+kind = "appFrontmost"
+value = true
