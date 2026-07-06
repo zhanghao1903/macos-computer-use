@@ -6,9 +6,15 @@
 
 - Add an SDK-style WeChat contacts list example that opens WeChat, runs
   `list_contacts`, writes a JSON report, and prints contact names.
+- Add `wechat.selector_profile_path` and
+  `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH` so applications can inject a local
+  WeChat selector profile without rebuilding `wechat-desktop-tool`.
 
 ### Internal
 
+- Add the internal Accessibility selector engine, packaged WeChat selector
+  profile, collection extraction, and selector-backed WeChat semantic operation
+  migration while keeping public selector protocol commands deferred.
 - Add a `feature-lifecycle` agent skill to manage features from requirements
   through design, implementation, review, merge, release readiness, and
   traceable release notes.
