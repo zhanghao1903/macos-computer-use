@@ -1373,6 +1373,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 ),
                 {},
                 _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
@@ -1937,6 +1938,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [{} for _ in range(12)]
             + [
                 _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
@@ -1972,6 +1974,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
             ],
         )
         self.assertEqual(app_control.commands[-1].input["query"]["scope"], "descendants")
@@ -1981,6 +1984,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [{} for _ in range(12)]
             + [
                 _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
@@ -2097,6 +2101,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 {},
                 _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
@@ -2124,10 +2129,25 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertIsNotNone(result.observation["pagination"]["olderPageToken"])
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "accessibility_query", "accessibility_query"],
+            [
+                "open_app",
+                "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
+            ],
         )
+        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(
+            app_control.commands[1].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(
+            app_control.commands[3].input["query"]["match"]["roleIn"],
             ["AXRow", "AXCell", "AXStaticText"],
         )
 

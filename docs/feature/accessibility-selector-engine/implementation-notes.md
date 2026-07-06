@@ -439,3 +439,70 @@ Remaining Slice 4 work:
   without losing action references;
 - add fixture-backed parity tests for migrated operations;
 - run real WeChat smoke proof before merge readiness.
+
+## Slice 4D: Selector-Backed Visible Message Reading
+
+Status: implemented.
+
+Commit scope:
+
+- migrate `read_visible_messages` region lookup to packaged selectors;
+- resolve `regions.chatPanel` through `regions.mainContent` before querying
+  message rows;
+- preserve the existing `wechat.messages.v1` response shape, pagination fields,
+  truncation flag, and message parsing behavior;
+- update direct and composed message-reading tests for the new selector query
+  sequence.
+
+Public surface:
+
+- no command builder or method signature change;
+- no `wechat.messages.v1` response field removal or rename;
+- no top-level selector API export;
+- internal phase evidence now includes `selectors.messages:*` query phases for
+  visible-message reads.
+
+Implemented behavior:
+
+- `read_visible_messages` opens/focuses WeChat as before;
+- resolves `regions.chatPanel` from the packaged profile using bounded
+  `accessibility_query` calls;
+- queries visible message rows under the resolved chat panel instead of the
+  broader main-content region;
+- maps selector lookup failure to `message_region_not_found` with normalized
+  selector diagnostics;
+- composed flows such as `read_contact_messages` and send-message verification
+  consume the selector-backed visible-message read path.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k read_visible_messages
+```
+
+Result: 2 tests passed.
+
+```bash
+python -m py_compile \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 82 tests passed.
+
+Remaining Slice 4 work:
+
+- migrate `open_contact` lookup internals to packaged selectors;
+- add generic collection item element/actionRef support or an equivalent
+  internal adapter so WeChat list APIs can consume collection extraction
+  without losing action references;
+- add fixture-backed parity tests for migrated operations;
+- run real WeChat smoke proof before merge readiness.

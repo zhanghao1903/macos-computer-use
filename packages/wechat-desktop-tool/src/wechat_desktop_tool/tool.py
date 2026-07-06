@@ -1391,32 +1391,29 @@ class WeChatDesktopTool:
                 opened,
                 evidence=evidence,
             )
-        top_level = self._query_top_level(
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
             command,
-            evidence,
-            phase="read_visible_messages:top_level",
+            evidence=evidence,
+            phase_prefix="selectors.messages",
             phase_events=phase_events,
         )
-        if not top_level.success:
-            return _from_app_control_failure(
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+        )
+        chat_panel = resolver.resolve("regions.chatPanel")
+        if chat_panel.status != "resolved" or not chat_panel.elements:
+            return _failure_from_selector_result(
                 command,
-                "wechat_not_ready",
-                top_level,
-                evidence=evidence,
-            )
-        main_content = _main_content_node(_query_nodes(top_level))
-        if main_content is None:
-            return _failure(
-                command,
-                status=ToolStatus.NOT_FOUND,
+                chat_panel,
                 failure_kind="message_region_not_found",
-                message="Could not locate WeChat main content region.",
-                retryable=True,
+                message="Could not locate WeChat chat panel region.",
                 evidence=evidence,
             )
         messages_result = self._query_descendants(
             command,
-            root_node=main_content,
+            root_node=_node_from_selector_element(chat_panel.elements[0]),
             phase="read_visible_messages:rows",
             role_in=["AXRow", "AXCell", "AXStaticText"],
             limit=max(limit * 4, 80),
