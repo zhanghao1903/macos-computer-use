@@ -33,6 +33,8 @@
 
 ### Fixed
 
+- Track the `examples/app-control.toml` template so CI release preflight checks
+  pass in clean checkouts.
 - Allow scoped Accessibility queries to use a longer bounded timeout and give
   WeChat contact/conversation row queries larger time budgets, avoiding
   `list_contacts` failures on slower real WeChat windows.
