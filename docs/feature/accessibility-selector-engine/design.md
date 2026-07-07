@@ -48,6 +48,22 @@ No package code or stable protocol schema is changed by this document. The MVP
 remains internal to `computer-use-macos` and `wechat-desktop-tool` until fixture
 coverage and real WeChat smoke proof are available.
 
+### 2026-07-06 Review Gap Closure Matrix
+
+This table is the handoff index for the failed review. Developers should use it
+to verify that each implementation slice preserves the design decisions made to
+close the review gaps.
+
+| Review gap | Design closure | Implementation requirement | Acceptance evidence |
+| --- | --- | --- | --- |
+| Field-level contract incomplete. | `Field Contract Matrix` defines new/internal/future-public status, requiredness, defaults, owner, validation, and compatibility for each proposed object and TOML shape. | Slice 1 implements model validation from the matrix before resolver logic is added. Later slices must update the matrix or implementation plan when a field is revised or deferred. | Unit tests for required fields, defaults, unsupported schema versions, invalid references, invalid regexes, invalid cache policies, and risky actions. |
+| Referenced types missing or undefined. | `Referenced Type Definitions` defines `JsonValue`, `PickStrategy`, `Frame`, `SelectorEvidence`, `ActionDefinition`, `CachePolicy`, `RelationRule`, `PaginationPolicy`, `CollectionDiagnosticsPolicy`, `CollectionResult`, and `PaginationState`. | Slice 1 creates package-private dataclasses/types for the helper types actually used by the MVP. Types not implemented in Slice 1 must be explicitly marked deferred in `implementation-plan.md`. | Type/model tests construct minimal and full profiles without developers inventing extra shapes. |
+| Core object lifecycle incomplete. | `Core Object Lifecycle` defines profile, selector result, collection result, actionRef, and cache entry states, ownership, invalidation, and expiration. | Slices 1-4 add tests for invalid overrides, stale cache fallback, selector result states, partial collections, and actionRef precondition failure. | Verification records show lifecycle tests and real WeChat smoke for stale cache and precondition rejection before merge readiness. |
+| Open questions were implementation-blocking. | `Resolved Architectural Decisions` fixes MVP decisions for profile storage, public API timing, transform ownership, cache locality, and locale fallback. | Implementation must follow the MVP decision table. Any change to public API timing, service-owned cache, override exposure, action risk, or WeChat semantic response shape requires design re-review. | PR/MR description states internal-only scope; public command/config slices include separate docs, tests, and migration notes. |
+| Failure and recovery behavior under-specified. | `Failure Kinds And Recovery` maps each generic failure kind to producer, recoverability, retry policy, semantic mapping, and caller response. | Resolver and WeChat adapters preserve generic failure kinds in diagnostics while mapping to WeChat-specific failures. Automatic retries are limited to stale-cache fallback and explicitly transient query failure. | Unit tests cover failure mapping, ambiguity, not-found, truncation, missing fields, action preconditions, and retry limits. |
+| Public API migration path too high-level. | `API Direction` and `Implementation Slices And Handoff Gates` keep selector commands internal until WeChat migration and parity proof pass. | Slices 1-5 must not add public protocol commands. Slice 6 is a separate public protocol proposal with docs, schemas, changelog, migration notes, and parity tests. | Release/merge readiness confirms no premature public schema/CLI/config exposure before the phase gate. |
+| Direct/helper/service behavior not reconciled. | `Runtime Ownership` defines where profile loading, resolver state, cache, diagnostics, and action execution live across direct, helper, local-service, and future service-owned modes. | MVP resolver state stays in the Python caller process and uses the configured transport for underlying AX query/action operations. | Tests use fake transports for direct/service-like paths; public service-owned resolver requires later parity tests. |
+
 ## Problem
 
 macOS Accessibility exposes a large tree-shaped graph. Absolute paths such as

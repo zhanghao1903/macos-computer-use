@@ -25,6 +25,25 @@ The final feature remains broader than Slice 1:
 5. optional config override path;
 6. public protocol proposal only after the internal model is proven.
 
+## Review-Driven Handoff Checklist
+
+The 2026-07-06 technical review is the source of truth for the gaps this plan
+must close. Each implementation slice should update this checklist when work is
+completed, deferred, or revised.
+
+| Review requirement | Owning slice | Files/modules | Required proof |
+| --- | --- | --- | --- |
+| Field matrix implemented before behavior. | Slice 1 | `selectors/models.py`, `selectors/validation.py`, `test_selectors.py` | Profile/model validation tests cover required/default fields, unsupported schema versions, invalid references, invalid regexes, unbounded steps, invalid confidence/cache policies, and risky action definitions. |
+| Missing helper types defined or explicitly deferred. | Slice 1 | `selectors/models.py` | Tests can construct full profiles, selector results, collection results, actionRefs, and cache entries without ad hoc dictionaries. Deferred helper types are listed in this plan before Slice 1 is committed. |
+| Profile lifecycle is executable. | Slices 1 and 5 | `selectors/profile.py`, config/override loader when added | Tests cover packaged profile load, valid override activation, invalid override rejection, optional packaged fallback, profile version cache invalidation, and unsupported schema rejection. |
+| Selector result lifecycle is executable. | Slice 2 | `selectors/resolver.py`, `selectors/diagnostics.py` | Tests cover `resolved`, `ambiguous`, `not_found`, `stale`, and `failed` states, with redacted evidence by default. |
+| Collection result lifecycle is executable. | Slice 3 | `selectors/collections.py`, `selectors/transforms.py` | Tests cover visible-window limits, skipped items, missing required fields, partial results, transform allowlist, and truncation diagnostics. |
+| ActionRef lifecycle is executable. | Slices 2 and 4 | `selectors/resolver.py`, WeChat adapter modules | Tests cover actionRef creation, risk metadata, caller-visible preconditions, stale target rejection, and no auto-execution of high-risk actions. |
+| Cache lifecycle is executable. | Slice 2 | `selectors/cache.py` | Tests cover cache hit, signature validation, stale fallback, TTL expiry, disabled cache, and profile/window mismatch invalidation. |
+| Open architecture decisions stay closed during MVP. | All slices | Feature docs and PR/MR description | Any change to profile storage, public API timing, transform ownership, cache locality, locale fallback, or WeChat semantic response shape triggers design update and re-review before code merge. |
+| Failure recovery is consistent. | Slices 2-4 | `selectors/diagnostics.py`, WeChat failure mapping | Tests map generic selector failures to WeChat diagnostics while preserving generic `failure_kind`; retry behavior remains bounded. |
+| Direct/helper/local-service ownership remains consistent. | Slices 2, 4, and 6 | Resolver integration and future protocol modules | MVP resolver state is process-local; public service-owned selector commands are blocked until Slice 6 parity tests and API docs exist. |
+
 ## Phase Rules
 
 - Each implementation slice must update this feature directory with notes or
@@ -36,6 +55,9 @@ The final feature remains broader than Slice 1:
 - `computer-use-macos` must not import `wechat-desktop-tool`.
 - Public protocol schemas, command builders, CLI surfaces, and stable docs are
   not changed until the public protocol phase gate.
+- Before committing a slice, update the row status in the handoff checklist by
+  recording proof in `verification.md` or noting the explicit deferral in this
+  plan.
 
 ## Slice 1: Internal Contract And Profile Validation
 
