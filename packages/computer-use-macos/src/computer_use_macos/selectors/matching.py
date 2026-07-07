@@ -93,6 +93,20 @@ def node_enabled(node: Mapping[str, Any]) -> bool | None:
     return None
 
 
+def node_selected(node: Mapping[str, Any]) -> bool | None:
+    selected = node.get("selected")
+    if isinstance(selected, bool):
+        return selected
+    ax_selected = node.get("AXSelected")
+    if isinstance(ax_selected, bool):
+        return ax_selected
+    if "raw" in node and isinstance(node["raw"], Mapping):
+        raw_selected = node["raw"].get("AXSelected")
+        if isinstance(raw_selected, bool):
+            return raw_selected
+    return None
+
+
 def node_attribute(node: Mapping[str, Any], attribute: str) -> JsonValue | None:
     key = ATTRIBUTE_ALIASES.get(attribute, attribute)
     value = node.get(key)
@@ -248,7 +262,8 @@ def _constraint_passes(
         except (TypeError, ValueError):
             return False
     if constraint.kind == "selected":
-        return bool(node.get("selected")) == bool(constraint.value)
+        selected = node_selected(node)
+        return selected is not None and selected == constraint.value
     if constraint.kind in {"hasChildRole", "hasDescendantRole"}:
         roles = node.get("childRoles") or node.get("descendantRoles") or ()
         return isinstance(roles, list | tuple) and str(constraint.value) in roles

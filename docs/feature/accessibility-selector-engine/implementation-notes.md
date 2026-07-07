@@ -1662,6 +1662,69 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 
 Result: 6 tests passed.
 
+## Selector Corrective Slice: Selected Constraint Evidence
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- apply `SelectorConstraint.kind = "selected"` using explicit selected-state
+  evidence instead of Python truthiness;
+- read selected evidence from normalized `selected`, top-level `AXSelected`, or
+  raw `AXSelected`;
+- reject candidates with missing selected evidence when a required selected
+  constraint is applied;
+- add `AXSelected` to selector query attributes so real Accessibility queries
+  can supply selected-state evidence;
+- add resolver fixtures proving `selected = false` does not match candidates
+  whose selected-state evidence is missing.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- behavior remains inside the internal selector-profile MVP.
+
+Implemented behavior:
+
+- required `selected = false` constraints no longer treat missing selected
+  evidence as false;
+- raw `AXSelected = true` rejects a `selected = false` constraint;
+- top-level `AXSelected = false` satisfies a `selected = false` constraint;
+- matched selected constraints are recorded in selector evidence.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 46 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 100 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.
+
 ## Selector Corrective Slice: Nearest-To-Anchor Pick Strategy
 
 Status: implemented; automated verification passed; live profile proof still

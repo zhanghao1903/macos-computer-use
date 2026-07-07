@@ -731,6 +731,56 @@ class SelectorResolverTests(unittest.TestCase):
             ("frameWithin", "rightOf", "below"),
         )
 
+    def test_resolver_applies_selected_constraint_fail_closed(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "selected",
+                "value": False,
+                "required": True,
+            },
+        ]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "raw": {"AXSelected": True},
+                        },
+                        {
+                            "axPath": "0/3",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "AXSelected": False,
+                        },
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/3")
+        self.assertEqual(
+            result.elements[0].evidence.matched_constraints,
+            ("selected",),
+        )
+        self.assertIn("AXSelected", runner.calls[0]["query"]["attributes"])
+
     def test_resolver_chains_steps_under_previous_candidate(self) -> None:
         raw = _valid_profile()
         raw["selectors"]["regions"] = {  # type: ignore[index]

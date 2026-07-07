@@ -397,6 +397,30 @@ New coverage:
 - descendant collection field queries request `AXEnabled` when they may need to
   apply enabled filters.
 
+## Additional Verification: Selected Constraint Evidence
+
+Date: 2026-07-07.
+
+This verification covers the `selected` structural constraint as a fail-closed
+selector constraint. Previously the matcher used Python truthiness on
+`node.get("selected")`, which made missing selected-state evidence satisfy
+`selected = false`.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 46 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 100 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+
+New coverage:
+
+- required `selected = false` constraints reject candidates without selected
+  evidence;
+- raw `AXSelected = true` rejects a `selected = false` constraint;
+- top-level `AXSelected = false` can satisfy a `selected = false` constraint;
+- selector query payloads request `AXSelected`.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
