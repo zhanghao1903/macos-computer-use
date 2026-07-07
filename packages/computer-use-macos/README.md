@@ -68,6 +68,10 @@ observation = client.run_command(
 nodes = observation.observation["accessibilityQuery"]["nodes"]
 ```
 
+Set `includeChildRoles` or `includeDescendantRoles` in the query when a caller
+needs bounded structural summaries for selector matching. These fields return
+role names only and avoid exposing full child nodes.
+
 Helper manifests can be used directly:
 
 ```python

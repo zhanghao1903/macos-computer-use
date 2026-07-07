@@ -781,6 +781,65 @@ class SelectorResolverTests(unittest.TestCase):
         )
         self.assertIn("AXSelected", runner.calls[0]["query"]["attributes"])
 
+    def test_resolver_applies_structural_role_constraints_precisely(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "hasChildRole",
+                "value": "AXRow",
+                "required": True,
+            },
+            {
+                "kind": "hasDescendantRole",
+                "value": "AXStaticText",
+                "required": True,
+            },
+        ]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "descendantRoles": ["AXRow", "AXStaticText"],
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "childRoles": ["AXRow"],
+                            "descendantRoles": ["AXButton"],
+                        },
+                        {
+                            "axPath": "0/3",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "childRoles": ["AXRow"],
+                            "descendantRoles": ["AXStaticText"],
+                        },
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/3")
+        self.assertEqual(
+            result.elements[0].evidence.matched_constraints,
+            ("hasChildRole", "hasDescendantRole"),
+        )
+        self.assertTrue(runner.calls[0]["query"]["includeChildRoles"])
+        self.assertTrue(runner.calls[0]["query"]["includeDescendantRoles"])
+
     def test_resolver_chains_steps_under_previous_candidate(self) -> None:
         raw = _valid_profile()
         raw["selectors"]["regions"] = {  # type: ignore[index]

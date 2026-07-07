@@ -822,6 +822,8 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                     "limit": 10,
                     "attributes": ["AXRole", "AXDescription", "AXValue"],
                     "actions": True,
+                    "includeChildRoles": True,
+                    "includeDescendantRoles": True,
                     "match": {"roleIn": ["AXRadioButton"]},
                 },
                 command_id="cmd_query",
@@ -838,6 +840,8 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(request["bundleId"], "com.apple.TextEdit")
         self.assertEqual(request["query"]["scope"], "children")
         self.assertEqual(request["query"]["match"]["roleIn"], ["AXRadioButton"])
+        self.assertEqual(request["query"]["includeChildRoles"], True)
+        self.assertEqual(request["query"]["includeDescendantRoles"], True)
         self.assertEqual(query["nodes"][0]["axPath"], "0/1")
         self.assertEqual(query["nodes"][0]["description"], "Documents")
         self.assertNotIn("attributeNames", query["nodes"][0])
@@ -1033,6 +1037,10 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("limit", source)
         self.assertIn("timeBudgetMs", source)
         self.assertIn("childrenCount", source)
+        self.assertIn("includeChildRoles", source)
+        self.assertIn("childRoles", source)
+        self.assertIn("includeDescendantRoles", source)
+        self.assertIn("descendantRoles", source)
         self.assertIn("def focused_window_for_app(", source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
         self.assertIn("bool(candidate.isActive())", source)

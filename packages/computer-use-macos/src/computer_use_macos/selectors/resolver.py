@@ -148,7 +148,10 @@ class SelectorResolver:
             step_candidates: list[ResolvedElement] = []
             is_final_step = step_index == len(selector.steps) - 1
             for step_root in current_roots:
-                query_payload = self._query_payload(step)
+                query_payload = self._query_payload(
+                    step,
+                    constraints=selector.constraints if is_final_step else (),
+                )
                 payload = self.query_runner(
                     root=step_root,
                     query=query_payload,
@@ -539,7 +542,12 @@ class SelectorResolver:
             anchors[step_index] = anchor_result.elements
         return anchors, query_count, node_count
 
-    def _query_payload(self, step: object) -> dict[str, JsonValue]:
+    def _query_payload(
+        self,
+        step: object,
+        *,
+        constraints: tuple[object, ...] = (),
+    ) -> dict[str, JsonValue]:
         step_obj = step
         attributes = {
             "AXFrame",
@@ -554,7 +562,7 @@ class SelectorResolver:
         }
         for attribute in step_obj.match.attributes:  # type: ignore[attr-defined]
             attributes.add(attribute)
-        return {
+        payload: dict[str, JsonValue] = {
             "scope": step_obj.scope,  # type: ignore[attr-defined]
             "maxDepth": step_obj.max_depth,  # type: ignore[attr-defined]
             "limit": step_obj.limit,  # type: ignore[attr-defined]
@@ -565,6 +573,17 @@ class SelectorResolver:
                 "roleIn": list(step_obj.role_in or step_obj.match.role_in),  # type: ignore[attr-defined]
             },
         }
+        if any(
+            getattr(constraint, "kind", None) == "hasChildRole"
+            for constraint in constraints
+        ):
+            payload["includeChildRoles"] = True
+        if any(
+            getattr(constraint, "kind", None) == "hasDescendantRole"
+            for constraint in constraints
+        ):
+            payload["includeDescendantRoles"] = True
+        return payload
 
     def _signature_attributes(
         self,

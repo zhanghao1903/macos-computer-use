@@ -2225,6 +2225,16 @@ def _normalize_accessibility_query_request(
         raise TypeError("query.includeChildrenCount must be a boolean")
     query_payload["includeChildrenCount"] = include_children_count
 
+    include_child_roles = query_payload.get("includeChildRoles", False)
+    if not isinstance(include_child_roles, bool):
+        raise TypeError("query.includeChildRoles must be a boolean")
+    query_payload["includeChildRoles"] = include_child_roles
+
+    include_descendant_roles = query_payload.get("includeDescendantRoles", False)
+    if not isinstance(include_descendant_roles, bool):
+        raise TypeError("query.includeDescendantRoles must be a boolean")
+    query_payload["includeDescendantRoles"] = include_descendant_roles
+
     match = query_payload.get("match")
     if match is None:
         query_payload["match"] = {}
@@ -2803,6 +2813,37 @@ def ax_role(element: Any) -> str:
     return str(value or "")
 
 
+def append_unique_role(roles: list[str], role: str) -> None:
+    if role and role not in roles:
+        roles.append(role)
+
+
+def child_roles_of(element: Any) -> list[str]:
+    roles: list[str] = []
+    for child in children_of(element):
+        append_unique_role(roles, ax_role(child))
+    return roles
+
+
+def descendant_roles_of(element: Any, max_depth: int, limit: int = 200) -> list[str]:
+    roles: list[str] = []
+    visited = 0
+
+    def visit(current: Any, depth: int) -> None:
+        nonlocal visited
+        if depth <= 0 or visited >= limit:
+            return
+        for child in children_of(current):
+            if visited >= limit:
+                return
+            visited += 1
+            append_unique_role(roles, ax_role(child))
+            visit(child, depth - 1)
+
+    visit(element, max_depth)
+    return roles
+
+
 def windows_of(app_element: Any) -> list[Any]:
     windows = ax_get(app_element, "AXWindows")
     if not windows:
@@ -2892,6 +2933,13 @@ def read_node(element: Any, path: str) -> dict[str, Any]:
             node["actions"] = actions
     if bool(query.get("includeChildrenCount", True)):
         node["childrenCount"] = len(children_of(element))
+    if bool(query.get("includeChildRoles", False)):
+        node["childRoles"] = child_roles_of(element)
+    if bool(query.get("includeDescendantRoles", False)):
+        node["descendantRoles"] = descendant_roles_of(
+            element,
+            int(query.get("maxDepth") or 1),
+        )
     if bool(REQUEST.get("includeRaw", False)):
         node["raw"] = raw_attrs
     return node

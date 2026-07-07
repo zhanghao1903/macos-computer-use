@@ -1725,6 +1725,92 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 
 Result: 6 tests passed.
 
+## Selector Corrective Slice: Structural Role Constraint Evidence
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- add optional `accessibility_query` structural summaries:
+  `includeChildRoles` and `includeDescendantRoles`;
+- return normalized `childRoles` and `descendantRoles` role-name lists without
+  exposing full child nodes;
+- make `hasChildRole` read only direct-child role evidence;
+- make `hasDescendantRole` read only descendant-role evidence;
+- make role structural constraints fail closed when their required evidence is
+  absent;
+- make selector resolver request structural summaries only for final selector
+  steps whose constraints need them;
+- document the new query flags in `docs/api.md` and
+  `packages/computer-use-macos/README.md`.
+
+Public surface:
+
+- additive `accessibility_query` query flags;
+- no command builder signature change;
+- no protocol schema or CLI change;
+- structural summaries contain role names only, not raw Accessibility child
+  nodes or app text.
+
+Implemented behavior:
+
+- descendant role evidence no longer satisfies `hasChildRole`;
+- child role evidence no longer satisfies `hasDescendantRole` unless the query
+  also supplied descendant role evidence;
+- real Accessibility queries can provide structural role evidence for selector
+  constraints without full tree dumps;
+- selector queries keep the structural summary flags disabled unless the final
+  selector constraints require them.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 47 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_package.py
+```
+
+Result: 54 tests passed, 1 skipped.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/client.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/tests/test_selectors.py \
+  packages/computer-use-macos/tests/test_package.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 101 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python scripts/release_preflight.py
+```
+
+Result: passed with existing external-proof warnings for real desktop/PyPI
+proof that remain outside this automated slice.
+
 ## Selector Corrective Slice: Nearest-To-Anchor Pick Strategy
 
 Status: implemented; automated verification passed; live profile proof still

@@ -421,6 +421,35 @@ New coverage:
 - top-level `AXSelected = false` can satisfy a `selected = false` constraint;
 - selector query payloads request `AXSelected`.
 
+## Additional Verification: Structural Role Constraint Evidence
+
+Date: 2026-07-08.
+
+This verification covers structural role constraints and their supporting
+`accessibility_query` summaries. Previously `hasChildRole` and
+`hasDescendantRole` both read `childRoles or descendantRoles`, allowing deeper
+descendant evidence to satisfy a direct-child constraint.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 47 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py` | Passed: 54 tests, 1 skipped |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/tests/test_selectors.py packages/computer-use-macos/tests/test_package.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 101 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python scripts/release_preflight.py` | Passed with existing external-proof warnings |
+
+New coverage:
+
+- `hasChildRole` requires direct `childRoles` evidence;
+- `hasDescendantRole` requires `descendantRoles` evidence;
+- selector query payloads enable `includeChildRoles` and
+  `includeDescendantRoles` only when final-step constraints require them;
+- `accessibility_query` preserves the structural summary flags in normalized
+  requests;
+- the direct backend script contains `childRoles` and `descendantRoles`
+  generation support.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

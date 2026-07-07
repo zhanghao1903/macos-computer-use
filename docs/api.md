@@ -205,10 +205,17 @@ result = client.run_command(
                 "AXSize",
             ],
             "actions": True,
+            "includeChildRoles": True,
+            "includeDescendantRoles": True,
         },
     )
 )
 ```
+
+`includeChildRoles` and `includeDescendantRoles` return bounded role-name
+summaries for structural matching. They are intended for selector engines and
+semantic adapters that need to verify UI shape without returning full child
+subtrees.
 
 Use `accessibility_action` for elements that expose stable AX actions such as
 `AXPress`. The direct backend validates the target app allowlist, resolves the

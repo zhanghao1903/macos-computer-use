@@ -107,6 +107,15 @@ def node_selected(node: Mapping[str, Any]) -> bool | None:
     return None
 
 
+def node_roles(node: Mapping[str, Any], key: str) -> tuple[str, ...] | None:
+    roles = node.get(key)
+    if roles is None and "raw" in node and isinstance(node["raw"], Mapping):
+        roles = node["raw"].get(key)
+    if not isinstance(roles, list | tuple):
+        return None
+    return tuple(str(role) for role in roles)
+
+
 def node_attribute(node: Mapping[str, Any], attribute: str) -> JsonValue | None:
     key = ATTRIBUTE_ALIASES.get(attribute, attribute)
     value = node.get(key)
@@ -264,9 +273,12 @@ def _constraint_passes(
     if constraint.kind == "selected":
         selected = node_selected(node)
         return selected is not None and selected == constraint.value
-    if constraint.kind in {"hasChildRole", "hasDescendantRole"}:
-        roles = node.get("childRoles") or node.get("descendantRoles") or ()
-        return isinstance(roles, list | tuple) and str(constraint.value) in roles
+    if constraint.kind == "hasChildRole":
+        roles = node_roles(node, "childRoles")
+        return roles is not None and str(constraint.value) in roles
+    if constraint.kind == "hasDescendantRole":
+        roles = node_roles(node, "descendantRoles")
+        return roles is not None and str(constraint.value) in roles
     if constraint.kind == "frameWithin":
         candidate = node_frame(node)
         bounds = _frame_constraint_value(constraint.value)
