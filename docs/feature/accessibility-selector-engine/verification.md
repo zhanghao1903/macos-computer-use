@@ -19,6 +19,28 @@
 | Python compile check | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m py_compile ...` | Passed |
 | Whitespace/conflict check | `git diff --check` | Passed |
 
+## Additional Verification: Multi-Step Selector Resolution
+
+Date: 2026-07-07.
+
+This verification covers a corrective selector-engine slice that makes
+`SelectorResolver` execute selector steps as a chain instead of querying every
+step from the same root.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 25 tests |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 76 tests, 1 skipped |
+
+New coverage:
+
+- a two-step selector first resolves an `AXGroup` landmark from the focused
+  window;
+- the second step is queried under that landmark's AX path;
+- the final `SelectorResult` returns the second-step `AXTable` element rather
+  than the intermediate landmark;
+- query evidence confirms no full-window second-step scan is used.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

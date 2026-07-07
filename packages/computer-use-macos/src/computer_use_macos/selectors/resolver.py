@@ -32,6 +32,7 @@ from .models import (
     SelectorEvidence,
     SelectorResult,
     SelectorRoot,
+    SelectorStep,
 )
 
 
@@ -120,31 +121,55 @@ class SelectorResolver:
         root_payload = root_result
 
         all_candidates: list[ResolvedElement] = []
+        current_roots: list[Mapping[str, JsonValue]] = [root_payload]
         truncated = False
         truncation_reason: str | None = None
-        for step in selector.steps:
-            query_payload = self._query_payload(step)
-            payload = self.query_runner(
-                root=root_payload,
-                query=query_payload,
-                include_raw=debug,
-            )
-            query_count += 1
-            normalized = _normalize_query_payload(payload)
-            nodes = normalized["nodes"]
-            node_count += len(nodes)
-            diagnostics = normalized["diagnostics"]
-            if bool(diagnostics.get("truncated", False)):
-                truncated = True
-                truncation_reason = str(
-                    diagnostics.get("truncationReason")
-                    or diagnostics.get("truncation_reason")
-                    or "query truncated"
+        for step_index, step in enumerate(selector.steps):
+            step_candidates: list[ResolvedElement] = []
+            is_final_step = step_index == len(selector.steps) - 1
+            for step_root in current_roots:
+                query_payload = self._query_payload(step)
+                payload = self.query_runner(
+                    root=step_root,
+                    query=query_payload,
+                    include_raw=debug,
                 )
-            for node in nodes:
-                candidate = self._candidate_from_node(selector, node, normalized, debug)
-                if candidate is not None:
-                    all_candidates.append(candidate)
+                query_count += 1
+                normalized = _normalize_query_payload(payload)
+                nodes = normalized["nodes"]
+                node_count += len(nodes)
+                diagnostics = normalized["diagnostics"]
+                if bool(diagnostics.get("truncated", False)):
+                    truncated = True
+                    truncation_reason = str(
+                        diagnostics.get("truncationReason")
+                        or diagnostics.get("truncation_reason")
+                        or "query truncated"
+                    )
+                for node in nodes:
+                    candidate = self._candidate_from_node(
+                        selector,
+                        step,
+                        node,
+                        normalized,
+                        debug,
+                        apply_constraints=is_final_step,
+                    )
+                    if candidate is not None:
+                        step_candidates.append(candidate)
+            if not step_candidates:
+                all_candidates = []
+                break
+            if is_final_step:
+                all_candidates = step_candidates
+            else:
+                current_roots = [
+                    {
+                        "kind": "axPath",
+                        "axPath": candidate.element_ref.ax_path,
+                    }
+                    for candidate in step_candidates
+                ]
 
         picked = self._pick(selector, all_candidates)
         if picked is None:
@@ -216,22 +241,26 @@ class SelectorResolver:
     def _candidate_from_node(
         self,
         selector: SelectorDefinition,
+        step: SelectorStep,
         node: Mapping[str, Any],
         payload: Mapping[str, Any],
         debug: bool,
+        *,
+        apply_constraints: bool,
     ) -> ResolvedElement | None:
-        step_match = effective_step_match(selector.steps[0]) if selector.steps else None
-        if step_match is None:
-            return None
+        step_match = effective_step_match(step)
         matched, evidence = match_node(node, step_match, self.profile.locale_aliases)
         if not matched:
             return None
-        constraints_ok, matched_constraints, constraint_score = constraints_match(
-            node,
-            selector.constraints,
-        )
-        if not constraints_ok:
-            return None
+        matched_constraints: tuple[str, ...] = ()
+        constraint_score = 0.0
+        if apply_constraints:
+            constraints_ok, matched_constraints, constraint_score = constraints_match(
+                node,
+                selector.constraints,
+            )
+            if not constraints_ok:
+                return None
         confidence = confidence_score(evidence, constraint_score=constraint_score)
         if confidence < selector.confidence.minimum:
             return None

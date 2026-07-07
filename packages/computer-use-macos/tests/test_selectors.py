@@ -368,6 +368,72 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.diagnostics.failure_kind, "selector_ambiguous")
         self.assertEqual(len(result.elements), 2)
 
+    def test_resolver_chains_steps_under_previous_candidate(self) -> None:
+        raw = _valid_profile()
+        raw["selectors"]["regions"] = {  # type: ignore[index]
+            "contactsTable": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 20,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXGroup"],
+                        "match": {
+                            "attributes": {
+                                "AXDescription": {"equals": "Main Content"}
+                            }
+                        },
+                    },
+                    {
+                        "scope": "children",
+                        "max_depth": 1,
+                        "limit": 10,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXTable"],
+                        "match": {
+                            "attributes": {
+                                "AXDescription": {"equals": "Contacts Table"}
+                            }
+                        },
+                    },
+                ],
+            }
+        }
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11",
+                            "role": "AXGroup",
+                            "description": "Main Content",
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/3",
+                            "role": "AXTable",
+                            "description": "Contacts Table",
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("regions.contactsTable")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/11/3")
+        self.assertEqual(result.diagnostics.query_count, 2)
+        self.assertEqual(runner.calls[0]["root"], {"kind": "focusedWindow"})
+        self.assertEqual(runner.calls[1]["root"], {"kind": "axPath", "axPath": "0/11"})
+        self.assertEqual(runner.calls[1]["query"]["scope"], "children")
+
     def test_resolver_uses_fallback_selector(self) -> None:
         raw = _valid_profile()
         raw["selectors"]["navigation"]["contacts"]["fallbacks"] = ["fallback"]  # type: ignore[index]

@@ -1013,3 +1013,48 @@ Remaining work:
 - restore or manually open a real WeChat chat window on the desktop, then rerun
   the remaining live smoke checklist for conversations, contact switching,
   visible messages, override behavior, and stale actionRef preconditions.
+
+## Selector Engine Corrective Slice: Multi-Step Resolution
+
+Status: implemented.
+
+Commit scope:
+
+- change `SelectorResolver` so selector steps execute as a chain;
+- use each matched intermediate element as the AX-path root for the next step;
+- apply selector-level structural constraints only to final-step candidates;
+- add focused unit coverage for a two-step selector that resolves a region
+  first and then queries the table under that region.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no app-control protocol command or schema change;
+- no CLI change;
+- no WeChat semantic response shape change.
+
+Implemented behavior:
+
+- multi-step selectors now model bounded graph search as
+  `root -> step[0] candidates -> step[1] under candidate paths -> final result`;
+- failed intermediate steps stop the chain and return existing
+  `selector_not_found` or truncation diagnostics;
+- cache behavior and result schemas remain unchanged;
+- this allows future and packaged profiles to express stable landmark chains
+  without falling back to full-window scans.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 25 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 76 tests passed, 1 skipped.
