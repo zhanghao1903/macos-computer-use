@@ -26,6 +26,14 @@ BANNED_TERMS = (
     "ui_tars",
     "uitars",
 )
+ALLOWED_WECHAT_SELECTOR_IMPORT = (
+    ROOT
+    / "packages"
+    / "wechat-desktop-tool"
+    / "src"
+    / "wechat_desktop_tool"
+    / "profiles.py"
+)
 
 
 class PackageBoundaryTests(unittest.TestCase):
@@ -66,7 +74,10 @@ class PackageBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(
             wechat["project"]["dependencies"],
-            ["app-control-protocol>=0.1.0"],
+            [
+                "app-control-protocol>=0.1.0",
+                "computer-use-macos>=0.1.1",
+            ],
         )
 
     def test_py_typed_is_declared_for_all_packages(self) -> None:
@@ -86,6 +97,25 @@ class PackageBoundaryTests(unittest.TestCase):
                 for term in BANNED_TERMS:
                     with self.subTest(path=path, term=term):
                         self.assertNotIn(term, text)
+
+    def test_wechat_computer_use_imports_are_limited_to_selector_profiles(
+        self,
+    ) -> None:
+        source_dir = (
+            ROOT
+            / "packages"
+            / "wechat-desktop-tool"
+            / "src"
+            / "wechat_desktop_tool"
+        )
+
+        for path in source_dir.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "computer_use_macos" not in text:
+                continue
+            with self.subTest(path=path):
+                self.assertEqual(path, ALLOWED_WECHAT_SELECTOR_IMPORT)
+                self.assertIn("computer_use_macos.selectors", text)
 
 
 if __name__ == "__main__":

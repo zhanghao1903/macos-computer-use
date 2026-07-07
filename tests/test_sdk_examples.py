@@ -76,6 +76,14 @@ class FakeFileTransferSendServiceClient:
             ),
             _wechat_query(
                 [
+                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
+                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
+                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
+                    _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            ),
+            _wechat_query(
+                [
                     _query_node("0/11/0", "AXTextArea", description="搜索"),
                     _query_node("0/11/1", "AXScrollArea"),
                 ]
@@ -160,6 +168,8 @@ class FakeContactsListServiceClient:
                     _query_node("0/11/1/0/1", "AXRow", description="Bob"),
                 ]
             ),
+            _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
+            _wechat_query([_query_node("0/11/1/0/1/0", "AXStaticText", value="Bob")]),
         ]
 
     def run_command(
@@ -221,6 +231,15 @@ class FakeContactsRecentMessagesServiceClient:
                     _query_node("0/11/1/0/0", "AXRow", description="Ada"),
                 ]
             ),
+            _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
+            _wechat_query(
+                [
+                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
+                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
+                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
+                    _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            ),
             _wechat_query(
                 [
                     _query_node("0/1", "AXRadioButton", description="聊天", value=0),
@@ -251,6 +270,11 @@ class FakeContactsRecentMessagesServiceClient:
                     _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
                     _query_node("0/3", "AXRadioButton", description="收藏", value=0),
                     _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            ),
+            _wechat_query(
+                [
+                    _query_node("0/11/4", "AXSplitGroup", description="chat-panel"),
                 ]
             ),
             _wechat_query(
@@ -409,6 +433,7 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "accessibility_action",
                 "type_text",
                 "accessibility_query",
@@ -418,11 +443,8 @@ class SdkExampleTests(unittest.TestCase):
                 "press_key",
             ],
         )
-        self.assertEqual(
-            service_client.commands[7]["input"]["text"],
-            "文件传输助手",
-        )
-        self.assertEqual(service_client.commands[11]["input"]["text"], "hello")
+        self.assertEqual(service_client.commands[8]["input"]["text"], "文件传输助手")
+        self.assertEqual(service_client.commands[12]["input"]["text"], "hello")
         self.assertEqual(persisted["submitDraft"]["operation"], "submit_draft")
 
     def test_wechat_contacts_list_test_lists_contacts(self) -> None:
@@ -466,6 +488,8 @@ class SdkExampleTests(unittest.TestCase):
                 "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
             ],
         )
         self.assertEqual(persisted["summary"]["listedContactCount"], 2)
@@ -494,7 +518,10 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["listedContactCount"], 1)
         self.assertEqual(payload["summary"]["processedContactCount"], 1)
         self.assertEqual(payload["systemOpenWeChat"]["success"], True)
-        self.assertEqual([command[:2] for command in system_open.commands], [["open", "-b"], ["osascript", "-e"]])
+        self.assertEqual(
+            [command[:2] for command in system_open.commands],
+            [["open", "-b"], ["osascript", "-e"]],
+        )
         self.assertEqual(payload["contacts"][0]["contact"], "Ada")
         self.assertEqual(payload["contacts"][0]["messageCount"], 2)
         self.assertEqual(
@@ -512,7 +539,9 @@ class SdkExampleTests(unittest.TestCase):
                 "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "open_app",
+                "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_action",
@@ -523,9 +552,10 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
             ],
         )
-        self.assertEqual(service_client.commands[12]["input"]["text"], "Ada")
+        self.assertEqual(service_client.commands[14]["input"]["text"], "Ada")
         self.assertEqual(persisted["summary"]["messageLimit"], 30)
 
     def test_wechat_contacts_recent_messages_reports_open_failure(self) -> None:

@@ -13,6 +13,7 @@
 | `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 74 tests, 1 skipped |
 | `wechat-desktop-tool` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 86 tests |
 | WeChat package-boundary tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_package_boundary.py` | Passed: 5 tests |
+| Root repository tests and release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 101 tests |
 | Python compile check | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m py_compile ...` | Passed |
 | Whitespace/conflict check | `git diff --check` | Passed |
 
@@ -40,7 +41,11 @@ Covered by automated tests:
   open-contact flows;
 - WeChat selector profile override config propagation from `AppControlConfig`;
 - package boundary rule that only `wechat_desktop_tool.profiles` imports
-  `computer_use_macos.selectors`.
+  `computer_use_macos.selectors`;
+- root release preflight allows the explicit selector-profile dependency while
+  continuing to block broad WeChat-to-backend imports;
+- SDK example fake-service fixtures cover selector-backed contact listing and
+  recent-message reads after collection extraction.
 
 ## Real WeChat Smoke Checklist
 

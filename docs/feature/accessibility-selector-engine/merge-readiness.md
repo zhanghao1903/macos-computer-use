@@ -75,6 +75,8 @@ Recorded in `verification.md`:
 - `app-control-protocol`: 54 tests passed;
 - `computer-use-macos`: 74 tests passed, 1 skipped;
 - `wechat-desktop-tool`: 86 tests passed;
+- root repository tests, including release preflight and wheel-check: 101 tests
+  passed;
 - WeChat package-boundary tests: 5 tests passed;
 - Python compile check: passed;
 - `git diff --check`: passed.
@@ -95,8 +97,7 @@ Present in `CHANGELOG.md` under `Unreleased`:
 ## Merge Blockers
 
 1. Real macOS/WeChat smoke evidence is missing.
-2. `ruff` is unavailable in the current local environment.
-3. The final PR/MR description has not been prepared.
+2. The final PR/MR description has not been prepared.
 
 ## Recommended PR Summary
 

@@ -147,7 +147,10 @@ PACKAGE_MODULE_FILES = (
 EXPECTED_RUNTIME_DEPS = {
     "app-control-protocol": (),
     "computer-use-macos": ("app-control-protocol>=0.1.0",),
-    "wechat-desktop-tool": ("app-control-protocol>=0.1.0",),
+    "wechat-desktop-tool": (
+        "app-control-protocol>=0.1.0",
+        "computer-use-macos>=0.1.1",
+    ),
 }
 
 EXPECTED_ACCESSIBILITY_EXTRA_DEPS = (
@@ -376,6 +379,14 @@ PACKAGE_BANNED_TERMS = {
     "wechat-desktop-tool": (
         "macos_computer_use",
         "computer_use_macos",
+    ),
+}
+PACKAGE_ALLOWED_TERM_PATHS = {
+    (
+        "wechat-desktop-tool",
+        "computer_use_macos",
+    ): (
+        Path("packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py"),
     ),
 }
 
@@ -1784,7 +1795,12 @@ def _check_source_boundaries(root: Path) -> list[CheckResult]:
     for package_name, relative in PACKAGE_SOURCES.items():
         source = root / relative
         terms = (*COMMON_BANNED_TERMS, *PACKAGE_BANNED_TERMS.get(package_name, ()))
-        matches = _find_terms(source, terms)
+        allowed = {
+            term: tuple(root / path for path in paths)
+            for (allowed_package, term), paths in PACKAGE_ALLOWED_TERM_PATHS.items()
+            if allowed_package == package_name
+        }
+        matches = _find_terms(source, terms, allowed_paths=allowed)
         results.append(
             CheckResult(
                 name=f"source-boundary:{package_name}",
@@ -1924,13 +1940,20 @@ def _import_package_for_project(project_name: str) -> str:
     return project_name.replace("-", "_")
 
 
-def _find_terms(source: Path, terms: tuple[str, ...]) -> list[str]:
+def _find_terms(
+    source: Path,
+    terms: tuple[str, ...],
+    *,
+    allowed_paths: Mapping[str, tuple[Path, ...]] | None = None,
+) -> list[str]:
     matches: list[str] = []
     if not source.exists():
         return [f"missing source path: {source}"]
     for path in source.rglob("*.py"):
         text = path.read_text(encoding="utf-8").lower()
         for term in terms:
+            if path in (allowed_paths or {}).get(term, ()):
+                continue
             if term in text:
                 matches.append(f"{path}:{term}")
     return matches
