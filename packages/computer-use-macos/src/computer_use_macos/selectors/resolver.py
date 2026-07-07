@@ -103,14 +103,15 @@ class SelectorResolver:
         node_count = 0
         cached = self._cached_result(selector)
         if cached is not None:
-            cache_status = "hit"
-            query_count += 1
-            validation = self._validate_cached(selector, cached, debug=debug)
-            query_count += validation.diagnostics.query_count
-            node_count += validation.diagnostics.node_count
-            if validation.status == "resolved":
-                return validation
             cache_status = "stale"
+            if not self._cache_entry_expired(cached):
+                cache_status = "hit"
+                validation = self._validate_cached(selector, cached, debug=debug)
+                query_count += validation.diagnostics.query_count
+                node_count += validation.diagnostics.node_count
+                if validation.status == "resolved":
+                    return validation
+                cache_status = "stale"
             self.cache.delete(cached)
         elif selector.cache.mode != "disabled":
             cache_status = "miss"
@@ -389,6 +390,20 @@ class SelectorResolver:
                 cache_status="hit",
             ),
         )
+
+    def _cache_entry_expired(self, entry: SelectorCacheEntry) -> bool:
+        if entry.expires_at is None:
+            return False
+        try:
+            expires_at = datetime.fromisoformat(entry.expires_at)
+        except ValueError:
+            return True
+        now = self._now()
+        if expires_at.tzinfo is None and now.tzinfo is not None:
+            expires_at = expires_at.replace(tzinfo=now.tzinfo)
+        if expires_at.tzinfo is not None and now.tzinfo is None:
+            now = now.replace(tzinfo=expires_at.tzinfo)
+        return now >= expires_at
 
     def _root_payload(
         self,

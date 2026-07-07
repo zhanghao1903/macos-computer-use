@@ -224,6 +224,52 @@ Remaining slices:
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
 
+## Slice 2B: Selector Cache TTL Enforcement
+
+Status: implemented.
+
+Commit scope:
+
+- enforce `SelectorCacheEntry.expires_at` during selector resolution;
+- delete expired in-memory cache entries before running a fresh selector query;
+- avoid validating expired AX paths because a TTL expiry is already a stale
+  cache state;
+- correct cache-validation query accounting so a single stale validation query
+  is counted once.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new app-control protocol command;
+- no new JSON Schema;
+- no CLI change;
+- no stable API docs update.
+
+Implemented behavior:
+
+- non-expired cache entries still validate by AX path and signature before use;
+- expired cache entries are marked through `cache_status = "stale"` and
+  refreshed from the selector root;
+- malformed cache expiry timestamps fail safe as expired;
+- cache hit validation and fresh fallback now report accurate query counts.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 35 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
 ## Slice 3: Collection Extraction
 
 Status: implemented.

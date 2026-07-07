@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 import unittest
 
 from computer_use_macos.selectors.collections import CollectionExtractor
@@ -630,7 +631,56 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(refreshed.status, "resolved")
         self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/3")
         self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+        self.assertEqual(refreshed.diagnostics.query_count, 2)
         self.assertEqual(second_runner.calls[0]["root"], {"kind": "axPath", "axPath": "0/1"})
+
+    def test_resolver_refreshes_expired_cache_without_validating_old_path(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        current_time = [datetime(2026, 7, 7, 0, 0, tzinfo=UTC)]
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/4",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+            ]
+        )
+        resolver = SelectorResolver(
+            profile,
+            runner,
+            app_bundle_id="com.example.Sample",
+            window_fingerprint="main",
+            now=lambda: current_time[0],
+        )
+        first = resolver.resolve("navigation.contacts")
+        self.assertEqual(first.status, "resolved")
+
+        current_time[0] = current_time[0] + timedelta(seconds=61)
+        runner.calls.clear()
+        refreshed = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(refreshed.status, "resolved")
+        self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/4")
+        self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+        self.assertEqual(refreshed.diagnostics.query_count, 1)
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(runner.calls[0]["root"], {"kind": "focusedWindow"})
 
     def test_resolver_reports_truncation_without_full_window_fallback(self) -> None:
         profile = parse_selector_profile(_valid_profile())
