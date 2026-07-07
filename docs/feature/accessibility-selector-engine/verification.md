@@ -372,6 +372,31 @@ New coverage:
   available;
 - backend failure details remain in the action evidence for caller diagnostics.
 
+## Additional Verification: Enabled Match Filter
+
+Date: 2026-07-07.
+
+This verification covers `MatchRule.enabled` as a fail-closed selector filter.
+Previously the matcher used Python truthiness on `node.get("enabled")`, which
+made missing enabled evidence indistinguishable from `False` and did not use
+`AXEnabled` values returned by Accessibility queries.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 45 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 99 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+
+New coverage:
+
+- `enabled = true` rejects candidates without enabled-state evidence;
+- explicitly disabled candidates are rejected;
+- raw `AXEnabled = true` can satisfy the enabled filter;
+- selector query payloads request `AXEnabled`;
+- descendant collection field queries request `AXEnabled` when they may need to
+  apply enabled filters.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

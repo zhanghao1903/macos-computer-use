@@ -300,6 +300,7 @@ class CollectionExtractor:
                     "AXDescription",
                     "AXPlaceholderValue",
                     "AXHidden",
+                    "AXEnabled",
                 ],
                 "actions": bool(step.match.actions_include),
                 "match": {"roleIn": list(step.role_in or step.match.role_in)},

@@ -609,6 +609,65 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.elements[0].evidence.score_breakdown["visible"], 1.0)
         self.assertIn("AXHidden", runner.calls[0]["query"]["attributes"])
 
+    def test_resolver_applies_enabled_match_filter_fail_closed(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["steps"][0]["enabled"] = True  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "enabled": False,
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/3",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "raw": {"AXEnabled": True},
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        },
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/3")
+        self.assertEqual(result.elements[0].evidence.score_breakdown["enabled"], 1.0)
+        self.assertIn("AXEnabled", runner.calls[0]["query"]["attributes"])
+
     def test_resolver_applies_required_frame_constraints(self) -> None:
         raw = _valid_profile()
         selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
@@ -1321,6 +1380,50 @@ class CollectionExtractorTests(unittest.TestCase):
 
         self.assertEqual(result.status, "resolved")
         self.assertEqual(result.items, ({"displayName": "Ada"},))
+
+    def test_descendant_field_can_filter_enabled_nodes(self) -> None:
+        raw = _valid_profile()
+        display_name = raw["collections"]["contacts"]["fields"]["displayName"]  # type: ignore[index]
+        display_name_step = display_name["selector"]["steps"][0]  # type: ignore[index]
+        display_name_step["enabled"] = True  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload([{"axPath": "0/11/0", "role": "AXRow"}]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Missing enabled evidence",
+                        },
+                        {
+                            "axPath": "0/11/0/1",
+                            "role": "AXStaticText",
+                            "value": "Ada",
+                            "raw": {"AXEnabled": True},
+                        },
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Ada"},))
+        self.assertIn("AXEnabled", runner.calls[2]["query"]["attributes"])
 
     def test_pagination_uses_limit_plus_one_for_has_more(self) -> None:
         profile = parse_selector_profile(_valid_profile())

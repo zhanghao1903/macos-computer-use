@@ -549,6 +549,7 @@ class SelectorResolver:
             "AXDescription",
             "AXPlaceholderValue",
             "AXHidden",
+            "AXEnabled",
         }
         for attribute in step_obj.match.attributes:  # type: ignore[attr-defined]
             attributes.add(attribute)
