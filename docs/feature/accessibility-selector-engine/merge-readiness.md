@@ -2,6 +2,7 @@
 
 - Review date: 2026-07-07
 - Branch: `codex/accessibility-selector-engine`
+- Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Feature directory: `docs/feature/accessibility-selector-engine/`
 - Status: not merge-ready
 
