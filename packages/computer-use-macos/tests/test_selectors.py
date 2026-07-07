@@ -239,6 +239,44 @@ class SelectorProfileTests(unittest.TestCase):
         ):
             parse_selector_profile(profile)
 
+    def test_action_is_disabled_by_default(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+
+        self.assertFalse(profile.actions["openContact"].enabled_by_default)
+
+    def test_read_or_focus_action_can_be_enabled_by_default(self) -> None:
+        profile = _valid_profile()
+        action = profile["actions"]["openContact"]  # type: ignore[index]
+        action["risk"] = "changes_focus"  # type: ignore[index]
+        action["enabled_by_default"] = True  # type: ignore[index]
+
+        parsed = parse_selector_profile(profile)
+
+        self.assertTrue(parsed.actions["openContact"].enabled_by_default)
+
+    def test_mutating_action_cannot_be_enabled_by_default(self) -> None:
+        profile = _valid_profile()
+        action = profile["actions"]["openContact"]  # type: ignore[index]
+        action["risk"] = "submits_text"  # type: ignore[index]
+        action["enabled_by_default"] = True  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "enabled_by_default is only allowed",
+        ):
+            parse_selector_profile(profile)
+
+    def test_action_enabled_by_default_must_be_boolean(self) -> None:
+        profile = _valid_profile()
+        action = profile["actions"]["openContact"]  # type: ignore[index]
+        action["enabled_by_default"] = "false"  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "enabled_by_default must be a boolean",
+        ):
+            parse_selector_profile(profile)
+
     def test_parser_does_not_mutate_input(self) -> None:
         profile = _valid_profile()
         original = deepcopy(profile)

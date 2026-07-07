@@ -64,6 +64,56 @@ Remaining slices:
 - add profile override config after packaged profile migration is proven;
 - defer public selector protocol until parity tests and real WeChat smoke proof.
 
+## Slice 1B: Action Definition Safe Defaults
+
+Status: implemented.
+
+Commit scope:
+
+- align `ActionDefinition.enabled_by_default` with the field matrix by making
+  profile actions disabled by default;
+- parse `enabled_by_default` as a strict boolean instead of relying on Python
+  truthiness;
+- reject profiles that enable mutating action risks by default;
+- add selector-profile tests for read/focus action defaults and fail-closed
+  mutating actions.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new command builder;
+- no protocol schema change;
+- no CLI change;
+- no stable API docs update.
+
+Implemented behavior:
+
+- omitted `enabled_by_default` now parses to `False`;
+- `read_only` and `changes_focus` actions may explicitly set
+  `enabled_by_default = true`;
+- `changes_current_chat` and `submits_text` actions cannot be enabled by
+  default during the internal MVP;
+- non-boolean `enabled_by_default` values are rejected before validation.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 30 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/models.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/profile.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/validation.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
 ## Slice 2: Selector Resolver Over Bounded Queries
 
 Status: implemented.

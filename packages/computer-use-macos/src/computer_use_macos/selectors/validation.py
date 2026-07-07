@@ -384,6 +384,13 @@ def _validate_action(
     _require_non_empty(action.ax_action, f"{field_name}.ax_action")
     if action.risk not in ACTION_RISKS:
         raise SelectorProfileValidationError(f"{field_name}.risk is invalid")
+    if (
+        action.enabled_by_default
+        and action.risk not in {"read_only", "changes_focus"}
+    ):
+        raise SelectorProfileValidationError(
+            f"{field_name}.enabled_by_default is only allowed for read or focus actions"
+        )
     for index, precondition in enumerate(action.preconditions):
         _validate_precondition(precondition, f"{field_name}.preconditions[{index}]")
 

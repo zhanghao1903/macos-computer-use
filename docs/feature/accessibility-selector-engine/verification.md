@@ -41,6 +41,31 @@ New coverage:
   than the intermediate landmark;
 - query evidence confirms no full-window second-step scan is used.
 
+## Additional Verification: Action Definition Safe Defaults
+
+Date: 2026-07-07.
+
+This verification covers the contract-synchronization slice for
+`ActionDefinition.enabled_by_default`. Profile actions now default to disabled,
+read/focus actions may opt in, and mutating actions fail closed if a profile
+tries to enable them by default.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 30 tests |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 84 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/models.py packages/computer-use-macos/src/computer_use_macos/selectors/profile.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/models.py packages/computer-use-macos/src/computer_use_macos/selectors/profile.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- omitted `enabled_by_default` parses to `False`;
+- `changes_focus` actions can explicitly opt into
+  `enabled_by_default = true`;
+- `submits_text` and other mutating actions cannot be enabled by default;
+- non-boolean `enabled_by_default` values are rejected during profile parsing.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

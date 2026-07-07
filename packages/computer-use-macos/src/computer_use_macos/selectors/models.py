@@ -310,7 +310,7 @@ class ActionDefinition:
     ax_action: str
     risk: ActionRisk
     preconditions: tuple[ActionPrecondition, ...] = ()
-    enabled_by_default: bool = True
+    enabled_by_default: bool = False
     description: str | None = None
 
 

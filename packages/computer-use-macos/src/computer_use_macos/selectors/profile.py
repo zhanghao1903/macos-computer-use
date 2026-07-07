@@ -328,7 +328,11 @@ def _parse_action(action_id: str, data: Mapping[str, Any]) -> ActionDefinition:
                 _sequence(data.get("preconditions", ()), "preconditions")
             )
         ),
-        enabled_by_default=bool(data.get("enabled_by_default", True)),
+        enabled_by_default=(
+            _bool(data["enabled_by_default"], "enabled_by_default")
+            if "enabled_by_default" in data
+            else False
+        ),
         description=_optional_string(data.get("description"), "description"),
     )
 
@@ -419,6 +423,10 @@ def _optional_float(value: Any, field_name: str) -> float | None:
 def _optional_bool(value: Any, field_name: str) -> bool | None:
     if value is None:
         return None
+    return _bool(value, field_name)
+
+
+def _bool(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean")
     return value
