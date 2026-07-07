@@ -38,6 +38,44 @@ The package now fails closed in this state:
 - selector `accessibility_query` is not run after the open phase proves no
   focused window is available.
 
+## Latest Retry
+
+After the listed-contact actionRef and visible-row `open_contact` updates,
+`examples/wechat_contacts_recent_messages_test.py --max-contacts 1` was rerun
+against the current feature checkout and wrote:
+
+```text
+/private/tmp/selector-live-recent-messages-actionref.json
+```
+
+Result:
+
+```text
+success=false
+failedStep=openWeChat
+system_open_wechat=true
+readiness=true
+open_wechat status=not_ready
+open_wechat summary=WeChat is frontmost but no focused window is available.
+verify_wechat_accessibility_window failureKind=accessibility_query_no_focused_window
+```
+
+A direct PyObjC probe in the same desktop session still reported:
+
+```text
+frontmost loginwindow com.apple.loginwindow 398
+wechat_apps [('微信', 'com.tencent.xinWeChat', 60088, False, False)]
+focused_window_role AXApplication
+focused_window_title 微信
+windows_count 3
+window 0 role AXApplication title 微信 children 5
+window 1 role AXApplication title 微信 children 5
+window 2 role AXApplication title 微信 children 5
+```
+
+This retry did not exercise contact listing, actionRef opening, or message
+reading. It stopped at the same desktop-window prerequisite as earlier reruns.
+
 ## Required Manual Recovery
 
 Before rerunning the remaining smoke tests, restore a real WeChat main window

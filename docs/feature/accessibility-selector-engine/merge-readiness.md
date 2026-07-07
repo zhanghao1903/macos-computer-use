@@ -81,7 +81,12 @@ Blocked smoke conditions observed on 2026-07-07:
   contact but failed at `readContactMessages` with `search_not_focused`:
   safe selector click, `AXSetFocus`, `Command+F`, `Command+K`, and several
   coordinate clicks inside the resolved search-box frame all left the search
-  box with `AXFocused=false`.
+  box with `AXFocused=false`;
+- after the listed-contact actionRef and visible-row `open_contact` updates,
+  `/private/tmp/selector-live-recent-messages-actionref.json` failed earlier at
+  `openWeChat`, with readiness passing but
+  `verify_wechat_accessibility_window` returning
+  `accessibility_query_no_focused_window`.
 
 Recovery steps and the remaining smoke command sequence are recorded in
 `live-smoke-recovery.md`.

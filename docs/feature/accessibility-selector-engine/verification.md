@@ -225,13 +225,24 @@ Incomplete evidence:
   follow-up query still reported `AXFocused=false`. `Command+F`, `Command+K`,
   safe selector click, and several coordinate clicks inside the resolved
   search-box frame also failed to focus that live WeChat search input.
+- `/private/tmp/selector-live-recent-messages-actionref.json` was rerun after
+  the listed-contact actionRef and visible-row `open_contact` updates. The
+  smoke did not reach `list_contacts`: `system_open_wechat` and readiness
+  passed, but `open_wechat` returned `status=not_ready` with summary
+  `WeChat is frontmost but no focused window is available.` The nested
+  `verify_wechat_accessibility_window` failed with
+  `accessibility_query_no_focused_window`.
+- A direct PyObjC probe during that rerun showed frontmost `loginwindow`,
+  WeChat running but inactive, `AXFocusedWindow` role `AXApplication`, and
+  three WeChat `AXWindows` entries whose roles were all `AXApplication`, not
+  `AXWindow`.
 
 This is not enough for merge readiness. It proves that the selector-backed
 window model and contacts collection work on a live client, and it also proves
 that the backend and WeChat semantic layer now fail closed when no focused AX
 window is available.
 
-After the listed-contact actionRef example update, rerun
+After manually restoring a real WeChat `AXWindow`, rerun
 `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` on the live
 desktop. That rerun should prove whether the already-listed contact row can be
 opened through `execute_action(actionRef)` and read through
