@@ -6,8 +6,8 @@ Run from the repository root after starting the local app-control service:
 
 The current WeChat API returns the visible contact page from `list_contacts`.
 This example reads up to `--max-contacts` contacts from that page, opens each
-contact, reads up to `--message-limit` visible/recent messages, and writes a
-JSON report.
+listed contact through the contact row `actionRef` when available, reads up to
+`--message-limit` visible/recent messages, and writes a JSON report.
 """
 
 from __future__ import annotations
@@ -145,17 +145,40 @@ def run_contacts_recent_messages_test(
         display_name = _contact_display_name(item)
         if display_name is None:
             continue
-        result = wechat.read_contact_messages(display_name, limit=message_limit)
-        read_results.append(
-            {
+        action_ref = _contact_action_ref(item)
+        if action_ref is not None:
+            opened_contact = wechat.execute_action(action_ref)
+            messages = (
+                wechat.read_visible_messages(limit=message_limit)
+                if opened_contact.success
+                else _skipped_observation(
+                    "read_visible_messages",
+                    "openListedContact",
+                    opened_contact,
+                )
+            )
+            success = opened_contact.success and messages.success
+            result_payload = {
                 "contact": display_name,
                 "contactItem": item,
+                "openMethod": "actionRef",
+                "openListedContact": opened_contact.to_dict(),
+                "readVisibleMessages": messages.to_dict(),
+                "messageCount": _message_count(messages),
+                "success": success,
+            }
+        else:
+            result = wechat.read_contact_messages(display_name, limit=message_limit)
+            result_payload = {
+                "contact": display_name,
+                "contactItem": item,
+                "openMethod": "search",
                 "readContactMessages": result.to_dict(),
                 "messageCount": _message_count(result),
                 "success": result.success,
             }
-        )
-        if not result.success and not continue_on_error:
+        read_results.append(result_payload)
+        if not result_payload["success"] and not continue_on_error:
             break
 
     failed_contacts = [
@@ -308,8 +331,15 @@ def _contact_display_name(item: Mapping[str, Any]) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _contact_action_ref(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    value = item.get("actionRef")
+    return dict(value) if isinstance(value, Mapping) else None
+
+
 def _message_count(observation: ToolObservation) -> int:
     messages_payload = observation.observation.get("messages")
+    if isinstance(messages_payload, list):
+        return len(messages_payload)
     if not isinstance(messages_payload, Mapping):
         return 0
     messages = messages_payload.get("messages")

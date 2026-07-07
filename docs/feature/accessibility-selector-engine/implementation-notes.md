@@ -1198,3 +1198,65 @@ Live smoke evidence:
   the resolved frame;
 - the failure is recorded as `search_not_focused`, and no contact text is typed
   into the current chat when focus verification fails.
+
+## Example Corrective Slice: Listed Contact ActionRef Recent Messages
+
+Status: implemented; automated SDK example verification passed; live WeChat
+rerun still required.
+
+Commit scope:
+
+- update `examples/wechat_contacts_recent_messages_test.py` so contacts
+  returned by `list_contacts` are opened through their row `actionRef` when
+  available;
+- keep the previous `read_contact_messages(contact)` search path as a fallback
+  for contact items that do not include an actionRef;
+- update SDK example fixtures so contact rows use realistic row heights and
+  are not filtered as section/header rows;
+- update SDK expectations for the current safe selector-click search focus
+  path and open-phase Accessibility recovery query.
+
+Public surface:
+
+- no package command builder, protocol schema, or WeChat semantic API shape is
+  changed;
+- the example output now records `openMethod`, `openListedContact`, and
+  `readVisibleMessages` when it follows a contact row actionRef;
+- the example still records `readContactMessages` when it falls back to
+  name-based search.
+
+Implemented behavior:
+
+- the recent-messages SDK example now uses the actionable data returned by
+  `list_contacts` instead of immediately re-entering the search-box workflow;
+- for listed contacts with actionRefs, the example runs
+  `execute_action(actionRef)` and then `read_visible_messages(limit=N)`;
+- the fake-service SDK test asserts that this path does not issue `type_text`
+  for the contact name, which keeps the example independent of the current
+  WeChat search focus blocker;
+- this does not remove the merge requirement for arbitrary
+  `open_contact("文件传输助手")` live proof.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_sdk_examples
+```
+
+Result: 6 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m py_compile examples/wechat_contacts_recent_messages_test.py tests/test_sdk_examples.py
+```
+
+Result: passed.
+
+Live smoke impact:
+
+- rerun `examples/wechat_contacts_recent_messages_test.py --max-contacts 1`
+  after restoring a focused WeChat chat window; the listed-contact path should
+  now exercise `execute_action` plus `read_visible_messages` before falling
+  back to search;
+- `open_contact` and send-message smoke still need separate real desktop proof.

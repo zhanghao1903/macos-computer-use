@@ -96,6 +96,32 @@ New coverage:
   hotkey, and config-gated coordinate fallback before returning
   `search_not_focused`.
 
+## Additional Verification: Listed Contact ActionRef Recent Messages
+
+Date: 2026-07-07.
+
+This verification covers the SDK example path for reading recent messages from
+contacts that were already returned by `list_contacts`. The example now uses
+the contact row `actionRef` when present, then reads visible messages from the
+opened chat. It falls back to `read_contact_messages(contact)` only when the
+contact item does not include an actionRef.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 6 tests |
+| Python compile check | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m py_compile examples/wechat_contacts_recent_messages_test.py tests/test_sdk_examples.py` | Passed |
+
+New coverage:
+
+- `examples/wechat_contacts_recent_messages_test.py` opens listed contacts with
+  `execute_action(actionRef)` before reading messages;
+- the recent-messages fake-service fixture uses realistic contact row heights,
+  so rows are not filtered as section/header rows;
+- the SDK test asserts the listed-contact path does not issue `type_text` for
+  the contact name;
+- existing `read_contact_messages(contact)` search behavior remains the
+  fallback when a contact item lacks an actionRef.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
@@ -124,7 +150,9 @@ Covered by automated tests:
 - root release preflight allows the explicit selector-profile dependency while
   continuing to block broad WeChat-to-backend imports;
 - SDK example fake-service fixtures cover selector-backed contact listing and
-  recent-message reads after collection extraction.
+  recent-message reads after collection extraction;
+- SDK example fake-service fixtures cover listed-contact actionRef execution
+  before reading visible messages.
 
 ## Real WeChat Smoke Evidence
 
@@ -174,6 +202,12 @@ window model and contacts collection work on a live client, and it also proves
 that the backend and WeChat semantic layer now fail closed when no focused AX
 window is available.
 
+After the listed-contact actionRef example update, rerun
+`examples/wechat_contacts_recent_messages_test.py --max-contacts 1` on the live
+desktop. That rerun should prove whether the already-listed contact row can be
+opened through `execute_action(actionRef)` and read through
+`read_visible_messages` without relying on the WeChat search box.
+
 ## Remaining Real WeChat Smoke Checklist
 
 These checks require a real macOS desktop, Accessibility permission, running
@@ -182,11 +216,14 @@ merge or release readiness:
 
 1. `list_conversations(limit=30)` returns visible conversations and action refs.
 2. `open_contact("文件传输助手")` switches the active chat.
-3. `read_visible_messages(limit=30)` returns visible message rows.
-4. `[wechat] selector_profile_path` loads a valid local override without
+3. `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` opens a
+   listed contact through actionRef and reads visible message rows.
+4. `read_visible_messages(limit=30)` returns visible message rows after a
+   manually or actionRef-opened chat.
+5. `[wechat] selector_profile_path` loads a valid local override without
    rebuilding the package.
-5. Invalid `selector_profile_path` falls back to the packaged profile.
-6. Stale or invalid action refs fail preconditions instead of raw-coordinate
+6. Invalid `selector_profile_path` falls back to the packaged profile.
+7. Stale or invalid action refs fail preconditions instead of raw-coordinate
    clicking.
 
 Recommended smoke setup:

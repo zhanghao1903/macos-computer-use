@@ -170,8 +170,18 @@ class FakeContactsListServiceClient:
             ),
             _wechat_query(
                 [
-                    _query_node("0/11/1/0/0", "AXRow", description="Ada"),
-                    _query_node("0/11/1/0/1", "AXRow", description="Bob"),
+                    _query_node(
+                        "0/11/1/0/0",
+                        "AXRow",
+                        description="Ada",
+                        height=68,
+                    ),
+                    _query_node(
+                        "0/11/1/0/1",
+                        "AXRow",
+                        description="Bob",
+                        height=68,
+                    ),
                 ]
             ),
             _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
@@ -234,42 +244,15 @@ class FakeContactsRecentMessagesServiceClient:
             ),
             _wechat_query(
                 [
-                    _query_node("0/11/1/0/0", "AXRow", description="Ada"),
+                    _query_node(
+                        "0/11/1/0/0",
+                        "AXRow",
+                        description="Ada",
+                        height=68,
+                    ),
                 ]
             ),
             _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
-            _wechat_query(
-                [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/0", "AXTextArea", description="搜索"),
-                    _query_node("0/11/1", "AXScrollArea"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/search/0", "AXRow", description="Ada"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/4/2", "AXStaticText", value="Ada"),
-                ]
-            ),
             _wechat_query(
                 [
                     _query_node("0/1", "AXRadioButton", description="聊天", value=1),
@@ -446,7 +429,7 @@ class SdkExampleTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "hotkey",
+                "click",
                 "observe",
                 "type_text",
                 "accessibility_query",
@@ -537,10 +520,15 @@ class SdkExampleTests(unittest.TestCase):
             [["open", "-b"], ["osascript", "-e"]],
         )
         self.assertEqual(payload["contacts"][0]["contact"], "Ada")
+        self.assertEqual(payload["contacts"][0]["openMethod"], "actionRef")
         self.assertEqual(payload["contacts"][0]["messageCount"], 2)
         self.assertEqual(
-            payload["contacts"][0]["readContactMessages"]["operation"],
-            "read_contact_messages",
+            payload["contacts"][0]["openListedContact"]["operation"],
+            "execute_action",
+        )
+        self.assertEqual(
+            payload["contacts"][0]["readVisibleMessages"]["operation"],
+            "read_visible_messages",
         )
         self.assertEqual(
             [command["operation"] for command in service_client.commands],
@@ -555,17 +543,7 @@ class SdkExampleTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "open_app",
-                "observe",
-                "accessibility_query",
-                "accessibility_query",
-                "accessibility_query",
-                "hotkey",
-                "observe",
-                "type_text",
-                "accessibility_query",
                 "accessibility_action",
-                "accessibility_query",
                 "open_app",
                 "observe",
                 "accessibility_query",
@@ -573,7 +551,10 @@ class SdkExampleTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(service_client.commands[17]["input"]["text"], "Ada")
+        self.assertNotIn(
+            "type_text",
+            [command["operation"] for command in service_client.commands],
+        )
         self.assertEqual(persisted["summary"]["messageLimit"], 30)
 
     def test_wechat_contacts_recent_messages_reports_open_failure(self) -> None:
@@ -598,7 +579,14 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(payload["listContacts"]["failureKind"], "open_wechat_failed")
         self.assertEqual(
             [command["operation"] for command in service_client.commands],
-            ["readiness", "open_app", "observe", "focus_app", "observe"],
+            [
+                "readiness",
+                "open_app",
+                "observe",
+                "focus_app",
+                "observe",
+                "accessibility_query",
+            ],
         )
 
     def test_wechat_window_sdk_test_rejects_missing_token_file(self) -> None:
@@ -682,11 +670,12 @@ def _query_node(
     *,
     description: str | None = None,
     value: object | None = None,
+    height: int = 30,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "axPath": ax_path,
         "role": role,
-        "frame": {"x": 100, "y": 100, "width": 120, "height": 30},
+        "frame": {"x": 100, "y": 100, "width": 120, "height": height},
         "childrenCount": 0,
     }
     if description is not None:
