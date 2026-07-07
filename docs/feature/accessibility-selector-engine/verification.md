@@ -2,7 +2,7 @@
 
 - Verification date: 2026-07-07
 - Branch: `codex/accessibility-selector-engine`
-- Scope: automated F5 verification snapshot after Slice 5B
+- Scope: automated F5 verification snapshot after Slice 5C
 - Status: automated checks passed; real WeChat smoke partially passed and
   remains incomplete
 
@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | `app-control-protocol` tests | `PYTHONPATH=packages/app-control-protocol/src python -m unittest discover -s packages/app-control-protocol/tests` | Passed: 54 tests |
 | `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 75 tests, 1 skipped |
-| `wechat-desktop-tool` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 86 tests |
+| `wechat-desktop-tool` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 88 tests |
 | SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 6 tests |
 | WeChat package-boundary tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_package_boundary.py` | Passed: 5 tests |
 | Root repository tests and release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 101 tests |
@@ -74,10 +74,15 @@ Incomplete evidence:
   with `accessibility_query_no_focused_window` even after `focus_app`.
 - `/private/tmp/accessibility-selector-contacts-list-rerun.json` failed for the
   same no-focused-window desktop state after the successful contacts run.
+- `/private/tmp/selector-live-inspect-open-phase-fail.json` confirms the
+  no-focused-window state now fails in the WeChat open phase with
+  `status=not_ready` and `failureKind=wechat_not_ready`, before any selector
+  `accessibility_query` runs.
 
 This is not enough for merge readiness. It proves that the selector-backed
 window model and contacts collection work on a live client, and it also proves
-that the backend now fails closed when no focused AX window is available.
+that the backend and WeChat semantic layer now fail closed when no focused AX
+window is available.
 
 ## Remaining Real WeChat Smoke Checklist
 

@@ -355,33 +355,14 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        opened = self._app_control_command(
+        evidence: dict[str, JsonValue] = {}
+        observed = self._open_wechat_phase(
             command,
-            phase="open_wechat",
-            operation="open_app",
-            input=self._open_app_input(),
+            evidence,
             phase_events=phase_events,
         )
-        if not opened.success:
-            return _from_app_control_failure(command, "wechat_open_failed", opened)
-        observed = self._app_control_command(
-            command,
-            phase="verify_wechat_window",
-            operation="observe",
-            input=self._target_app_input(),
-            phase_events=phase_events,
-        )
-        evidence: dict[str, JsonValue] = {
-            "open": _safe_app_control_observation(opened),
-            "observe": _safe_app_control_observation(observed),
-        }
         if not observed.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_not_ready",
-                observed,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, observed, evidence)
         identity_failure = _wechat_identity_failure(
             command,
             self._config,
@@ -427,7 +408,7 @@ class WeChatDesktopTool:
                 ),
                 "wechatEnvironment": _wechat_environment(self._config, observed),
                 "windowReady": True,
-                "appControlObservation": _safe_app_control_observation(opened),
+                "appControlObservation": evidence.get("open_wechat"),
                 "observeObservation": _safe_app_control_observation(observed),
             },
             evidence=evidence,
@@ -1581,6 +1562,12 @@ class WeChatDesktopTool:
             )
         if not ready.success:
             return ready
+        if not _wechat_observation_has_window_title(ready):
+            return _wechat_not_ready_failure(
+                command,
+                "WeChat is frontmost but no focused window is available.",
+                evidence=evidence,
+            )
         identity_failure = _wechat_identity_failure(
             command,
             self._config,

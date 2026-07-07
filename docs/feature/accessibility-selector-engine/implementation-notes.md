@@ -951,3 +951,65 @@ Remaining work:
 - record live proof for conversations, opening `文件传输助手`, visible messages,
   valid override loading, invalid override fallback, and stale actionRef
   precondition failure before requesting merge.
+
+## Slice 5C: No-Focused-Window Open Phase Failure
+
+Status: implemented; live blocker reproduced.
+
+Commit scope:
+
+- route `open_wechat` through the shared WeChat open phase so the explicit
+  operation follows the same window verification behavior as `inspect_window`,
+  `list_contacts`, `open_contact`, and message reads;
+- after `open_app`, `observe`, `focus_app`, and a second `observe`, return
+  `wechat_not_ready` if WeChat is frontmost but still has no focused window
+  title;
+- stop selector-backed operations before sending `accessibility_query` when the
+  open phase proves that no focused WeChat AX window is available;
+- update SDK fake-service fixtures so normal `observe` stubs include a window
+  title and failure stubs expect the focus retry.
+
+Public surface:
+
+- no new command, config field, or protocol schema;
+- existing WeChat semantic operations now return a clearer
+  `wechat_not_ready` failure for the no-focused-window desktop state instead
+  of surfacing the lower-level `accessibility_query_no_focused_window`.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: 77 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 88 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest tests.test_sdk_examples
+```
+
+Result: 6 tests passed.
+
+Live smoke evidence:
+
+- `/private/tmp/selector-live-inspect-open-phase-fail.json` returns
+  `status=not_ready`, `failureKind=wechat_not_ready`, and summary
+  `WeChat is frontmost but no focused window is available.`;
+- the evidence stops at `open_wechat`, `verify_wechat_window`, `focus_wechat`,
+  and `verify_wechat_window_after_focus`; no selector `accessibility_query` is
+  sent in this state.
+
+Remaining work:
+
+- restore or manually open a real WeChat chat window on the desktop, then rerun
+  the remaining live smoke checklist for conversations, contact switching,
+  visible messages, override behavior, and stale actionRef preconditions.

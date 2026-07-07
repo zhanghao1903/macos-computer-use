@@ -844,6 +844,39 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.observation["windowTitle"], "WeChat")
         _assert_observation_timing(result)
 
+    def test_open_wechat_fails_when_focus_retry_has_no_window_title(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_wechat()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_not_ready")
+        self.assertIn("no focused window", result.message)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "focus_app", "observe"],
+        )
+
     def test_inspect_window_observes_accessibility_without_raw_by_default(self) -> None:
         app_control = FakeAppControl(
             [
@@ -932,6 +965,38 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "available"
             ],
             True,
+        )
+
+    def test_inspect_window_stops_when_wechat_has_no_focused_window(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.inspect_window()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_not_ready")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "focus_app", "observe"],
         )
 
     def test_inspect_window_can_include_raw_observation(self) -> None:
@@ -1606,7 +1671,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.status, ToolStatus.NOT_READY)
         self.assertEqual(result.failure_kind, "wechat_not_ready")
         self.assertIn("com.apple.TextEdit", result.summary)
-        self.assertIn("observe", result.evidence)
+        self.assertIn("verify_wechat_window", result.evidence)
 
     def test_open_wechat_reports_not_logged_in(self) -> None:
         app_control = FakeAppControl(

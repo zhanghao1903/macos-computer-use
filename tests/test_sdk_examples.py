@@ -26,7 +26,13 @@ class FakeUnixSocketServiceClient:
         self.commands.append(command)
         operation = command["operation"]
         observation_payload: dict[str, Any] = {}
-        if operation == "accessibility_query":
+        if operation == "observe":
+            observation_payload = {
+                "frontmostApp": "WeChat",
+                "frontmostBundleId": "com.tencent.xinWeChat",
+                "windowTitle": "微信 (聊天)",
+            }
+        elif operation == "accessibility_query":
             observation_payload = {
                 "accessibilityQuery": {
                     "schema": "macos.accessibility.query.v1",
@@ -388,8 +394,6 @@ class SdkExampleTests(unittest.TestCase):
                 "readiness",
                 "open_app",
                 "observe",
-                "focus_app",
-                "observe",
                 "accessibility_query",
             ],
         )
@@ -594,7 +598,7 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(payload["listContacts"]["failureKind"], "open_wechat_failed")
         self.assertEqual(
             [command["operation"] for command in service_client.commands],
-            ["readiness", "open_app", "observe"],
+            ["readiness", "open_app", "observe", "focus_app", "observe"],
         )
 
     def test_wechat_window_sdk_test_rejects_missing_token_file(self) -> None:

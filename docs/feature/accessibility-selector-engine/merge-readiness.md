@@ -33,7 +33,8 @@ Implemented and covered by automated tests:
   `wechat.selector_profile_path`, with packaged-profile fallback;
 - harden live WeChat operation startup by verifying the focused window after
   `open_app`, retrying `focus_app` when the window title is missing, and
-  failing closed when no focused AX window is available.
+  failing closed with `wechat_not_ready` when no focused AX window is
+  available.
 
 Passed on a live WeChat desktop:
 
@@ -54,8 +55,11 @@ Blocked smoke condition observed on 2026-07-07:
 - after one successful `inspect_window` and one successful `list_contacts`
   smoke run, subsequent smoke attempts saw WeChat frontmost but with an empty
   window title and no focused AX window, even after `focus_app`;
-- the backend now returns `accessibility_query_no_focused_window` instead of a
-  false-positive application-root result in that state.
+- lower-level diagnostics showed WeChat's `AXWindows` contained application and
+  menu-bar elements, not a chat-window UI tree;
+- selector-backed WeChat operations now return `wechat_not_ready` from the open
+  phase instead of continuing into `accessibility_query` or returning a
+  false-positive application-root result.
 
 ## Public Surface Impact
 
@@ -93,7 +97,7 @@ Recorded in `verification.md`:
 
 - `app-control-protocol`: 54 tests passed;
 - `computer-use-macos`: 75 tests passed, 1 skipped after Slice 5B hardening;
-- `wechat-desktop-tool`: 86 tests passed;
+- `wechat-desktop-tool`: 88 tests passed;
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed;
 - SDK example tests: 6 tests passed;

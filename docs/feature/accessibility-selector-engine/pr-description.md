@@ -60,7 +60,7 @@ Automated checks recorded in `verification.md`:
 
 - `app-control-protocol`: 54 tests passed
 - `computer-use-macos`: 75 tests passed, 1 skipped
-- `wechat-desktop-tool`: 86 tests passed
+- `wechat-desktop-tool`: 88 tests passed
 - SDK example tests: 6 tests passed
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed
