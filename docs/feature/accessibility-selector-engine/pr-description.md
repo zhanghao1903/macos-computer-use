@@ -86,6 +86,9 @@ or linked from `verification.md`:
 - stale or invalid action refs fail preconditions instead of raw-coordinate
   clicking
 
+The current desktop blocker and rerun commands are documented in
+`live-smoke-recovery.md`.
+
 ## Release Note
 
 Add internal selector profile support and selector-backed WeChat semantic

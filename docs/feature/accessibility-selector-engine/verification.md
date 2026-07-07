@@ -54,6 +54,9 @@ Covered by automated tests:
 Partial smoke was run on 2026-07-07 against a local app-control service using
 the current checkout as `PYTHONPATH`.
 
+The current no-focused-window desktop blocker and recovery steps are recorded
+in `live-smoke-recovery.md`.
+
 Passed evidence:
 
 - `inspect_window` wrote `/private/tmp/accessibility-selector-inspect-fixed.json`
@@ -78,6 +81,9 @@ Incomplete evidence:
   no-focused-window state now fails in the WeChat open phase with
   `status=not_ready` and `failureKind=wechat_not_ready`, before any selector
   `accessibility_query` runs.
+- A direct PyObjC probe on 2026-07-07 still showed frontmost `loginwindow`,
+  WeChat running but inactive, and WeChat `AXWindows` whose roles were
+  `AXApplication` rather than `AXWindow`.
 
 This is not enough for merge readiness. It proves that the selector-backed
 window model and contacts collection work on a live client, and it also proves

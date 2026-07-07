@@ -55,11 +55,17 @@ Blocked smoke condition observed on 2026-07-07:
 - after one successful `inspect_window` and one successful `list_contacts`
   smoke run, subsequent smoke attempts saw WeChat frontmost but with an empty
   window title and no focused AX window, even after `focus_app`;
+- a later direct PyObjC probe still showed frontmost `loginwindow`, WeChat
+  running but inactive, and WeChat `AXWindows` whose roles were `AXApplication`
+  rather than `AXWindow`;
 - lower-level diagnostics showed WeChat's `AXWindows` contained application and
   menu-bar elements, not a chat-window UI tree;
 - selector-backed WeChat operations now return `wechat_not_ready` from the open
   phase instead of continuing into `accessibility_query` or returning a
   false-positive application-root result.
+
+Recovery steps and the remaining smoke command sequence are recorded in
+`live-smoke-recovery.md`.
 
 ## Public Surface Impact
 
