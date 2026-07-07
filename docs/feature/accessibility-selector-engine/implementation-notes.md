@@ -1527,3 +1527,71 @@ python -m py_compile \
 ```
 
 Result: passed.
+
+## Selector Corrective Slice: Relation Anchor Matching
+
+Status: implemented; automated verification passed; live WeChat relation-based
+profile proof still required.
+
+Commit scope:
+
+- resolve `SelectorStep.relation.anchor_selector_id` before running the related
+  selector step;
+- apply frame-based relation filtering for `rightOf`, `leftOf`, `above`,
+  `below`, `inside`, and `near`;
+- enforce `max_distance` during matching, not only during profile validation;
+- record matched relation evidence as `relation:<kind>`;
+- include `AXFrame` in cache validation queries so cached selector hits can
+  still expose normalized frames to downstream relation consumers;
+- skip selector cache hits for selectors that contain relation rules so stale
+  cached final elements cannot bypass geometry checks.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- relation matching remains internal to the selector MVP.
+
+Implemented behavior:
+
+- relation anchors are resolved through the same bounded selector resolver and
+  contribute to selector diagnostics query/node counts;
+- unresolved or ambiguous anchors fail the dependent selector before candidate
+  selection;
+- directional relations require the expected axis position and overlapping
+  range on the opposite axis;
+- `near` uses center-point distance and the already-required positive
+  `max_distance`;
+- relation matching rejects candidates or anchors without normalized frames.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 36 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 90 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.

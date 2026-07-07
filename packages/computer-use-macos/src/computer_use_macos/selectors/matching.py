@@ -12,6 +12,7 @@ from .models import (
     Frame,
     JsonValue,
     MatchRule,
+    RelationRule,
     SelectorConstraint,
     SelectorEvidence,
     SelectorStep,
@@ -166,6 +167,19 @@ def constraints_match(
     return True, tuple(matched), score
 
 
+def relation_match(
+    candidate_frame: Frame | None,
+    anchor_frames: tuple[Frame, ...],
+    relation: RelationRule,
+) -> bool:
+    if candidate_frame is None or not anchor_frames:
+        return False
+    return any(
+        _frame_relation_match(candidate_frame, anchor_frame, relation)
+        for anchor_frame in anchor_frames
+    )
+
+
 def confidence_score(
     evidence: SelectorEvidence,
     *,
@@ -196,6 +210,84 @@ def _constraint_passes(
         roles = node.get("childRoles") or node.get("descendantRoles") or ()
         return isinstance(roles, list | tuple) and str(constraint.value) in roles
     return True
+
+
+def _frame_relation_match(
+    candidate: Frame,
+    anchor: Frame,
+    relation: RelationRule,
+) -> bool:
+    candidate_right = candidate.x + candidate.width
+    candidate_bottom = candidate.y + candidate.height
+    anchor_right = anchor.x + anchor.width
+    anchor_bottom = anchor.y + anchor.height
+
+    distance: float
+    if relation.relation == "rightOf":
+        if candidate.x < anchor_right or not _ranges_overlap(
+            candidate.y,
+            candidate_bottom,
+            anchor.y,
+            anchor_bottom,
+        ):
+            return False
+        distance = candidate.x - anchor_right
+    elif relation.relation == "leftOf":
+        if candidate_right > anchor.x or not _ranges_overlap(
+            candidate.y,
+            candidate_bottom,
+            anchor.y,
+            anchor_bottom,
+        ):
+            return False
+        distance = anchor.x - candidate_right
+    elif relation.relation == "below":
+        if candidate.y < anchor_bottom or not _ranges_overlap(
+            candidate.x,
+            candidate_right,
+            anchor.x,
+            anchor_right,
+        ):
+            return False
+        distance = candidate.y - anchor_bottom
+    elif relation.relation == "above":
+        if candidate_bottom > anchor.y or not _ranges_overlap(
+            candidate.x,
+            candidate_right,
+            anchor.x,
+            anchor_right,
+        ):
+            return False
+        distance = anchor.y - candidate_bottom
+    elif relation.relation == "inside":
+        if (
+            candidate.x < anchor.x
+            or candidate.y < anchor.y
+            or candidate_right > anchor_right
+            or candidate_bottom > anchor_bottom
+        ):
+            return False
+        distance = 0.0
+    else:
+        candidate_center_x = candidate.x + candidate.width / 2
+        candidate_center_y = candidate.y + candidate.height / 2
+        anchor_center_x = anchor.x + anchor.width / 2
+        anchor_center_y = anchor.y + anchor.height / 2
+        distance = (
+            (candidate_center_x - anchor_center_x) ** 2
+            + (candidate_center_y - anchor_center_y) ** 2
+        ) ** 0.5
+
+    return relation.max_distance is None or distance <= relation.max_distance
+
+
+def _ranges_overlap(
+    first_start: float,
+    first_end: float,
+    second_start: float,
+    second_end: float,
+) -> bool:
+    return first_start < second_end and second_start < first_end
 
 
 def _json_value(value: Any) -> JsonValue | None:

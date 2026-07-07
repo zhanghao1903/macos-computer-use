@@ -116,6 +116,32 @@ New coverage:
   falling back to a fresh query;
 - cache validation query counts are no longer double-counted.
 
+## Additional Verification: Relation Anchor Matching
+
+Date: 2026-07-07.
+
+This verification covers the selector resolver behavior for
+`SelectorStep.relation`. The field was already represented and validated in the
+profile model, but the resolver now applies relation anchors during candidate
+selection.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 36 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 90 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- a selector can resolve a search-box anchor and filter button candidates using
+  `relation = "rightOf"`;
+- candidates on the wrong side, beyond `max_distance`, or outside the
+  overlapping row are rejected;
+- the selected element records `relation:rightOf` evidence;
+- relation-anchor queries contribute to selector diagnostics query counts.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

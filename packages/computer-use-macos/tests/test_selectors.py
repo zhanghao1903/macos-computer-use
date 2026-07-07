@@ -547,6 +547,129 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(runner.calls[1]["root"], {"kind": "axPath", "axPath": "0/11"})
         self.assertEqual(runner.calls[1]["query"]["scope"], "children")
 
+    def test_resolver_filters_candidates_by_relation_anchor(self) -> None:
+        raw = _valid_profile()
+        raw["selectors"]["anchors"] = {  # type: ignore[index]
+            "searchBox": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 20,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXTextField"],
+                        "match": {
+                            "attributes": {
+                                "AXPlaceholderValue": {"equals": "Search"}
+                            }
+                        },
+                    }
+                ],
+            }
+        }
+        raw["selectors"]["buttons"] = {  # type: ignore[index]
+            "openResult": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 20,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXButton"],
+                        "relation": {
+                            "anchor_selector_id": "anchors.searchBox",
+                            "relation": "rightOf",
+                            "max_distance": 50,
+                        },
+                    }
+                ],
+            }
+        }
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/0",
+                            "role": "AXTextField",
+                            "placeholderValue": "Search",
+                            "frame": {
+                                "x": 10,
+                                "y": 10,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 0,
+                                "y": 10,
+                                "width": 8,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 120,
+                                "y": 10,
+                                "width": 80,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/3",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 300,
+                                "y": 10,
+                                "width": 80,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/4",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 120,
+                                "y": 90,
+                                "width": 80,
+                                "height": 20,
+                            },
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("buttons.openResult")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(
+            result.elements[0].evidence.matched_constraints,
+            ("relation:rightOf",),
+        )
+        self.assertEqual(result.diagnostics.query_count, 2)
+        self.assertEqual(
+            runner.calls[0]["query"]["match"]["roleIn"],
+            ["AXTextField"],
+        )
+        self.assertEqual(
+            runner.calls[1]["query"]["match"]["roleIn"],
+            ["AXButton"],
+        )
+
     def test_resolver_uses_fallback_selector(self) -> None:
         raw = _valid_profile()
         raw["selectors"]["navigation"]["contacts"]["fallbacks"] = ["fallback"]  # type: ignore[index]

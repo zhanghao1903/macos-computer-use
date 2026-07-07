@@ -19,6 +19,7 @@ from .matching import (
     node_frame,
     node_label,
     node_role,
+    relation_match,
 )
 from .models import (
     AccessibilitySelectorProfile,
@@ -101,7 +102,24 @@ class SelectorResolver:
         cache_status = "disabled"
         query_count = 0
         node_count = 0
-        cached = self._cached_result(selector)
+        relation_anchors = self._resolve_relation_anchors(
+            selector,
+            debug=debug,
+            stack=stack + (selector_id,),
+        )
+        if isinstance(relation_anchors, SelectorResult):
+            return relation_anchors
+        relation_anchor_elements, relation_query_count, relation_node_count = (
+            relation_anchors
+        )
+        query_count += relation_query_count
+        node_count += relation_node_count
+
+        cached = (
+            None
+            if _selector_uses_relation(selector)
+            else self._cached_result(selector)
+        )
         if cached is not None:
             cache_status = "stale"
             if not self._cache_entry_expired(cached):
@@ -155,6 +173,10 @@ class SelectorResolver:
                         normalized,
                         debug,
                         apply_constraints=is_final_step,
+                        relation_anchor_elements=relation_anchor_elements.get(
+                            step_index,
+                            (),
+                        ),
                     )
                     if candidate is not None:
                         step_candidates.append(candidate)
@@ -248,20 +270,41 @@ class SelectorResolver:
         debug: bool,
         *,
         apply_constraints: bool,
+        relation_anchor_elements: tuple[ResolvedElement, ...] = (),
     ) -> ResolvedElement | None:
         step_match = effective_step_match(step)
         matched, evidence = match_node(node, step_match, self.profile.locale_aliases)
         if not matched:
             return None
-        matched_constraints: tuple[str, ...] = ()
+        matched_constraints: list[str] = []
+        score_breakdown = dict(evidence.score_breakdown)
         constraint_score = 0.0
         if apply_constraints:
-            constraints_ok, matched_constraints, constraint_score = constraints_match(
+            constraints_ok, constraint_names, constraint_score = constraints_match(
                 node,
                 selector.constraints,
             )
             if not constraints_ok:
                 return None
+            matched_constraints.extend(constraint_names)
+        if step.relation is not None:
+            candidate_frame = node_frame(node)
+            anchor_frames = tuple(
+                anchor.frame
+                for anchor in relation_anchor_elements
+                if anchor.frame is not None
+            )
+            if not relation_match(candidate_frame, anchor_frames, step.relation):
+                return None
+            matched_constraints.append(f"relation:{step.relation.relation}")
+            score_breakdown["geometry"] = 1.0
+            evidence = SelectorEvidence(
+                matched_attributes=evidence.matched_attributes,
+                matched_actions=evidence.matched_actions,
+                matched_constraints=evidence.matched_constraints,
+                score_breakdown=score_breakdown,
+                debug_attributes=evidence.debug_attributes,
+            )
         confidence = confidence_score(evidence, constraint_score=constraint_score)
         if confidence < selector.confidence.minimum:
             return None
@@ -282,7 +325,7 @@ class SelectorResolver:
             evidence = SelectorEvidence(
                 matched_attributes=evidence.matched_attributes,
                 matched_actions=evidence.matched_actions,
-                matched_constraints=matched_constraints,
+                matched_constraints=tuple(matched_constraints),
                 score_breakdown=evidence.score_breakdown,
                 debug_attributes=dict(node) if debug else None,
             )
@@ -331,7 +374,7 @@ class SelectorResolver:
                 "maxDepth": 0,
                 "limit": 1,
                 "timeBudgetMs": 500,
-                "attributes": ["AXRole", *selector.cache.key_attributes],
+                "attributes": ["AXFrame", "AXRole", *selector.cache.key_attributes],
                 "actions": True,
             },
             include_raw=debug,
@@ -369,10 +412,10 @@ class SelectorResolver:
         element = ResolvedElement(
             element_ref=entry.element_ref,
             selector_id=selector.selector_id,
-            label=None,
-            frame=None,
-            role=entry.element_ref.role,
-            actions=entry.element_ref.signature.actions,
+            label=node_label(node),
+            frame=node_frame(node),
+            role=node_role(node),
+            actions=node_actions(node),
             confidence=1.0,
             evidence=SelectorEvidence(),
         )
@@ -431,6 +474,61 @@ class SelectorResolver:
             "selector_not_found",
             "selector root could not be resolved",
         )
+
+    def _resolve_relation_anchors(
+        self,
+        selector: SelectorDefinition,
+        *,
+        debug: bool,
+        stack: tuple[str, ...],
+    ) -> tuple[
+        dict[int, tuple[ResolvedElement, ...]],
+        int,
+        int,
+    ] | SelectorResult:
+        anchors: dict[int, tuple[ResolvedElement, ...]] = {}
+        query_count = 0
+        node_count = 0
+        for step_index, step in enumerate(selector.steps):
+            if step.relation is None:
+                continue
+            anchor_selector_id = step.relation.anchor_selector_id
+            anchor_result = self._resolve(
+                anchor_selector_id,
+                debug=debug,
+                stack=stack,
+            )
+            query_count += anchor_result.diagnostics.query_count
+            node_count += anchor_result.diagnostics.node_count
+            if anchor_result.status != "resolved" or not anchor_result.elements:
+                return SelectorResult(
+                    selector_id=selector.selector_id,
+                    profile_id=self.profile.profile_id,
+                    profile_version=self.profile.profile_version,
+                    status=(
+                        "failed"
+                        if anchor_result.status in {"failed", "ambiguous"}
+                        else "not_found"
+                    ),
+                    diagnostics=selector_diagnostics(
+                        tried_selectors=stack + (anchor_selector_id,),
+                        query_count=query_count,
+                        node_count=node_count,
+                        truncated=anchor_result.diagnostics.truncated,
+                        truncation_reason=anchor_result.diagnostics.truncation_reason,
+                        cache_status=anchor_result.diagnostics.cache_status,
+                        failure_kind=(
+                            anchor_result.diagnostics.failure_kind
+                            or "selector_not_found"
+                        ),
+                        message=(
+                            "relation anchor could not be resolved: "
+                            f"{anchor_selector_id}"
+                        ),
+                    ),
+                )
+            anchors[step_index] = anchor_result.elements
+        return anchors, query_count, node_count
 
     def _query_payload(self, step: object) -> dict[str, JsonValue]:
         step_obj = step
@@ -564,3 +662,7 @@ def _first_snapshot_id(elements: list[ResolvedElement]) -> str | None:
     if not elements:
         return None
     return elements[0].element_ref.snapshot_id
+
+
+def _selector_uses_relation(selector: SelectorDefinition) -> bool:
+    return any(step.relation is not None for step in selector.steps)
