@@ -25,6 +25,7 @@ from .models import (
     AccessibilitySelectorProfile,
     ElementRef,
     ElementSignature,
+    Frame,
     JsonValue,
     ResolvedElement,
     SelectorCacheEntry,
@@ -194,7 +195,15 @@ class SelectorResolver:
                     for candidate in step_candidates
                 ]
 
-        picked = self._pick(selector, all_candidates)
+        final_relation_anchors = relation_anchor_elements.get(
+            len(selector.steps) - 1,
+            (),
+        )
+        picked = self._pick(
+            selector,
+            all_candidates,
+            anchor_elements=final_relation_anchors,
+        )
         if picked is None:
             for fallback in selector.fallbacks:
                 fallback_result = self._resolve(
@@ -594,6 +603,8 @@ class SelectorResolver:
         self,
         selector: SelectorDefinition,
         candidates: list[ResolvedElement],
+        *,
+        anchor_elements: tuple[ResolvedElement, ...] = (),
     ) -> tuple[ResolvedElement, ...] | str | None:
         if not candidates:
             return None
@@ -603,6 +614,8 @@ class SelectorResolver:
             return (candidates[0],)
         if selector.pick == "largestArea":
             return (max(candidates, key=_area),)
+        if selector.pick == "nearestToAnchor":
+            return _nearest_to_anchor(candidates, anchor_elements)
         candidates = sorted(candidates, key=lambda item: item.confidence, reverse=True)
         if len(candidates) > 1 and candidates[0].confidence == candidates[1].confidence:
             return "ambiguous"
@@ -649,6 +662,47 @@ def _area(element: ResolvedElement) -> float:
     if element.frame is None:
         return 0.0
     return element.frame.width * element.frame.height
+
+
+def _nearest_to_anchor(
+    candidates: list[ResolvedElement],
+    anchor_elements: tuple[ResolvedElement, ...],
+) -> tuple[ResolvedElement, ...] | str | None:
+    anchor_frames = tuple(
+        element.frame for element in anchor_elements if element.frame is not None
+    )
+    if not anchor_frames:
+        return None
+    scored: list[tuple[float, ResolvedElement]] = []
+    for candidate in candidates:
+        if candidate.frame is None:
+            continue
+        scored.append(
+            (
+                min(
+                    _center_distance(candidate.frame, anchor_frame)
+                    for anchor_frame in anchor_frames
+                ),
+                candidate,
+            )
+        )
+    if not scored:
+        return None
+    scored = sorted(scored, key=lambda item: item[0])
+    if len(scored) > 1 and scored[0][0] == scored[1][0]:
+        return "ambiguous"
+    return (scored[0][1],)
+
+
+def _center_distance(first: Frame, second: Frame) -> float:
+    first_center_x = first.x + first.width / 2
+    first_center_y = first.y + first.height / 2
+    second_center_x = second.x + second.width / 2
+    second_center_y = second.y + second.height / 2
+    return (
+        (first_center_x - second_center_x) ** 2
+        + (first_center_y - second_center_y) ** 2
+    ) ** 0.5
 
 
 def _frame_hash(node: Mapping[str, Any]) -> str | None:

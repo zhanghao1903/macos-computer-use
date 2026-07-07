@@ -143,6 +143,10 @@ def _validate_selector(
         _validate_constraint(constraint, f"{field_name}.constraints[{index}]")
     if selector.pick not in PICK_STRATEGIES:
         raise SelectorProfileValidationError(f"{field_name}.pick is invalid")
+    if selector.pick == "nearestToAnchor" and selector.steps[-1].relation is None:
+        raise SelectorProfileValidationError(
+            f"{field_name}.pick nearestToAnchor requires a final-step relation"
+        )
     _validate_confidence(
         selector.confidence,
         f"{field_name}.confidence",

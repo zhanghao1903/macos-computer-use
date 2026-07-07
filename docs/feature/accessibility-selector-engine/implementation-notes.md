@@ -1595,3 +1595,66 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Selector Corrective Slice: Nearest-To-Anchor Pick Strategy
+
+Status: implemented; automated verification passed; live profile proof still
+required only if a packaged profile starts using this pick strategy.
+
+Commit scope:
+
+- make `pick = "nearestToAnchor"` fail profile validation unless the final
+  selector step has a relation anchor;
+- pass final-step relation anchors into resolver candidate selection;
+- implement nearest-candidate selection by center-point distance to the nearest
+  anchor frame;
+- return `ambiguous` when two candidates are equally near;
+- return `not_found` through the existing resolver path when anchor or
+  candidate frames are unavailable.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- `nearestToAnchor` remains an internal selector-profile strategy.
+
+Implemented behavior:
+
+- profile authors can no longer activate `nearestToAnchor` without supplying
+  an executable final-step relation;
+- candidate order no longer decides nearest-anchor selectors when confidence
+  ties;
+- the strategy uses the same bounded relation-anchor resolution path and
+  diagnostics query accounting as relation filtering.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 38 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/validation.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 92 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.

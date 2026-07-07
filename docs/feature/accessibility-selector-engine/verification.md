@@ -142,6 +142,32 @@ New coverage:
 - the selected element records `relation:rightOf` evidence;
 - relation-anchor queries contribute to selector diagnostics query counts.
 
+## Additional Verification: Nearest-To-Anchor Pick Strategy
+
+Date: 2026-07-07.
+
+This verification covers the `PickStrategy = "nearestToAnchor"` contract. The
+strategy is now rejected unless a final-step relation anchor exists, and
+resolver selection uses anchor geometry instead of candidate order or confidence
+ties.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 38 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 92 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- `nearestToAnchor` without a final-step relation is rejected during profile
+  validation;
+- `nearestToAnchor` with a valid final-step relation parses successfully;
+- resolver selection picks the candidate nearest to the anchor even when a
+  farther candidate appears first;
+- relation-anchor queries remain included in selector diagnostics.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

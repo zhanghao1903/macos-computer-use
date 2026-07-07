@@ -275,6 +275,29 @@ class SelectorProfileTests(unittest.TestCase):
 
         self.assertEqual(parsed.selectors["navigation.contacts"].pick, "first")
 
+    def test_nearest_to_anchor_pick_requires_final_relation(self) -> None:
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["pick"] = "nearestToAnchor"  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "nearestToAnchor requires a final-step relation",
+        ):
+            parse_selector_profile(profile)
+
+        selector["steps"][0]["relation"] = {  # type: ignore[index]
+            "anchor_selector_id": "fallback",
+            "relation": "rightOf",
+        }
+
+        parsed = parse_selector_profile(profile)
+
+        self.assertEqual(
+            parsed.selectors["navigation.contacts"].pick,
+            "nearestToAnchor",
+        )
+
     def test_unknown_computed_field_is_rejected(self) -> None:
         profile = _valid_profile()
         fields = profile["collections"]["contacts"]["fields"]  # type: ignore[index]
@@ -669,6 +692,98 @@ class SelectorResolverTests(unittest.TestCase):
             runner.calls[1]["query"]["match"]["roleIn"],
             ["AXButton"],
         )
+
+    def test_resolver_picks_nearest_relation_candidate(self) -> None:
+        raw = _valid_profile()
+        raw["selectors"]["anchors"] = {  # type: ignore[index]
+            "searchBox": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 20,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXTextField"],
+                        "match": {
+                            "attributes": {
+                                "AXPlaceholderValue": {"equals": "Search"}
+                            }
+                        },
+                    }
+                ],
+            }
+        }
+        raw["selectors"]["buttons"] = {  # type: ignore[index]
+            "openResult": {
+                "root": {"kind": "focusedWindow"},
+                "pick": "nearestToAnchor",
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 20,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXButton"],
+                        "relation": {
+                            "anchor_selector_id": "anchors.searchBox",
+                            "relation": "rightOf",
+                            "max_distance": 300,
+                        },
+                    }
+                ],
+            }
+        }
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/0",
+                            "role": "AXTextField",
+                            "placeholderValue": "Search",
+                            "frame": {
+                                "x": 10,
+                                "y": 10,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/3",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 260,
+                                "y": 10,
+                                "width": 80,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXButton",
+                            "frame": {
+                                "x": 120,
+                                "y": 10,
+                                "width": 80,
+                                "height": 20,
+                            },
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("buttons.openResult")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(result.diagnostics.query_count, 2)
 
     def test_resolver_uses_fallback_selector(self) -> None:
         raw = _valid_profile()
