@@ -13,13 +13,14 @@ Do not merge or release this feature yet.
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
 multi-step selector resolution, noisy contact-row filtering, and the
-smoke-driven focus hardening. Real macOS/WeChat smoke has partially passed:
-`inspect_window` and `list_contacts(limit=30)` worked on a live client, and a
-later smoke run listed one semantic contact before failing to focus WeChat's
-search input for message reading. The remaining release gate is live proof for
-conversations, contact switching, message reading, override behavior, and stale
-actionRef handling. The feature changes desktop automation behavior and cannot
-be considered complete from unit tests alone.
+smoke-driven focus hardening. The SDK examples and `open_contact` now also use
+visible row actionRefs before falling back to search. Real macOS/WeChat smoke
+has partially passed: `inspect_window` and `list_contacts(limit=30)` worked on a
+live client, and a later smoke run listed one semantic contact before failing to
+focus WeChat's search input for message reading. The remaining release gate is
+live proof for conversations, contact switching, message reading, override
+behavior, and stale actionRef handling. The feature changes desktop automation
+behavior and cannot be considered complete from unit tests alone.
 
 ## Scenario Coverage
 
@@ -44,7 +45,9 @@ Implemented and covered by automated tests:
 - expose resolved `AXFrame` values to selector results so verified fallback
   behavior can use the element frame;
 - support verified `AXSetFocus` execution through `accessibility_action` for
-  resolved Accessibility elements.
+  resolved Accessibility elements;
+- open visible WeChat conversation/contact rows through their selector-derived
+  actionRefs before using the search-box workflow.
 
 Passed on a live WeChat desktop:
 
@@ -55,7 +58,8 @@ Still requiring real desktop proof:
 
 - visible WeChat conversation list extraction on a live client;
 - active chat message extraction on a live client;
-- switching to `文件传输助手` through `open_contact`;
+- switching to `文件传输助手` through `open_contact`, preferably through
+  `openMethod=visible_action_ref` when the row is visible;
 - valid local selector profile override;
 - invalid selector profile fallback;
 - stale action reference precondition failure.
@@ -124,7 +128,8 @@ Latest targeted verification recorded in `verification.md`:
 
 - selector tests: 26 tests passed;
 - `computer-use-macos`: 80 tests passed, 1 skipped;
-- WeChat tool/profile tests: 86 tests passed;
+- WeChat tool/profile tests: 87 tests passed;
+- SDK example tests: 6 tests passed;
 - Python compile check: passed;
 - `git diff --check`: passed.
 
@@ -133,7 +138,6 @@ Broader earlier F5 verification also remains recorded in `verification.md`:
 - `app-control-protocol`: 54 tests passed;
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed;
-- SDK example tests: 6 tests passed;
 - WeChat package-boundary tests: 5 tests passed.
 
 Before merge, rerun the broader root/package suite once more after the
@@ -162,9 +166,9 @@ updated with links to real smoke reports before requesting merge.
 1. Remaining real macOS/WeChat smoke evidence is missing for conversations,
    opening `文件传输助手`, visible messages, override loading/fallback, and stale
    actionRef preconditions.
-2. Current desktop smoke environment must expose a focused WeChat AX window and
-   a WeChat search input that can actually become focused before contact
-   switching and message-reading scenarios can be completed.
+2. Current desktop smoke environment must expose a focused WeChat AX window.
+   Visible-row opening can avoid the search box when the target row is visible,
+   but non-visible contact switching still needs search-focus proof.
 
 ## Recommended PR Summary
 

@@ -17,8 +17,9 @@ The implementation keeps selector resolution internal for this PR. It does not
 add public `resolve_selector` or `extract_collection` protocol commands.
 It also hardens WeChat live operation paths by validating focused windows,
 resolving chained selectors under prior step results, filtering noisy contact
-rows before filling caller limits, and verifying focus after safe selector
-click, `AXSetFocus`, hotkey, or configured coordinate fallback attempts.
+rows before filling caller limits, opening visible rows through selector-derived
+actionRefs, and verifying focus after safe selector click, `AXSetFocus`,
+hotkey, or configured coordinate fallback attempts.
 
 ## Consumer Impact
 
@@ -48,6 +49,8 @@ validation, the tool falls back to the packaged profile.
   - `wechat.open_contact.v1`
 - No public selector command or generic selector protocol is exposed in this
   feature.
+- `open_contact` may return additive `openMethod` detail such as
+  `visible_action_ref` or `search`.
 - `accessibility_action` now permits `AXSetFocus` on a resolved Accessibility
   element path by setting `AXFocused=true`. Callers still need a follow-up focus
   verification before typing.
@@ -67,14 +70,14 @@ Latest targeted automated checks recorded in `verification.md`:
 
 - selector tests: 26 tests passed
 - `computer-use-macos`: 80 tests passed, 1 skipped
-- WeChat tool/profile tests: 86 tests passed
+- WeChat tool/profile tests: 87 tests passed
+- SDK example tests: 6 tests passed
 - Python compile check: passed
 - `git diff --check`: passed
 
 Broader earlier F5 checks are also recorded there:
 
 - `app-control-protocol`: 54 tests passed
-- SDK example tests: 6 tests passed
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed
 - WeChat package-boundary tests: 5 tests passed
@@ -95,7 +98,8 @@ This PR must remain blocked until the remaining real smoke evidence is attached
 or linked from `verification.md`:
 
 - `list_conversations(limit=30)` returns visible conversations and action refs
-- `open_contact("文件传输助手")` switches the active chat
+- `open_contact("文件传输助手")` switches the active chat, preferably through
+  `openMethod=visible_action_ref` when File Transfer is visible
 - `read_visible_messages(limit=30)` returns visible message rows
 - valid `selector_profile_path` override loads without rebuilding the package
 - invalid `selector_profile_path` falls back to the packaged profile
@@ -104,8 +108,8 @@ or linked from `verification.md`:
 
 The current desktop blockers and rerun commands are documented in
 `live-smoke-recovery.md`: the desktop must expose a focused WeChat `AXWindow`,
-and the WeChat search input must actually accept focus before the contact
-switching and message-reading scenarios can pass.
+and the WeChat search input must actually accept focus for non-visible contact
+switching scenarios.
 
 ## Release Note
 

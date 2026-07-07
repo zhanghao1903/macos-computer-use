@@ -82,25 +82,7 @@ class FakeFileTransferSendServiceClient:
             ),
             _wechat_query(
                 [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/0", "AXTextArea", description="搜索"),
-                    _query_node("0/11/1", "AXScrollArea"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node(
-                        "0/11/search/0",
-                        "AXRow",
-                        description="文件传输助手",
-                    )
+                    _query_node("0/11/1/0/0", "AXRow", description="文件传输助手")
                 ]
             ),
             _wechat_query(
@@ -428,19 +410,21 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "accessibility_query",
                 "accessibility_query",
-                "accessibility_query",
-                "click",
-                "observe",
-                "type_text",
-                "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
                 "type_text",
                 "press_key",
             ],
         )
-        self.assertEqual(service_client.commands[10]["input"]["text"], "文件传输助手")
-        self.assertEqual(service_client.commands[14]["input"]["text"], "hello")
+        self.assertNotIn(
+            "click",
+            [command["operation"] for command in service_client.commands],
+        )
+        self.assertNotIn(
+            "hotkey",
+            [command["operation"] for command in service_client.commands],
+        )
+        self.assertEqual(service_client.commands[9]["input"]["text"], "hello")
         self.assertEqual(persisted["submitDraft"]["operation"], "submit_draft")
 
     def test_wechat_contacts_list_test_lists_contacts(self) -> None:

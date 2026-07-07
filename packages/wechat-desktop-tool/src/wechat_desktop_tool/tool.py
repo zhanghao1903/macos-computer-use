@@ -722,6 +722,15 @@ class WeChatDesktopTool:
                 message="Could not locate WeChat main content region.",
                 evidence=evidence,
             )
+        visible_opened = self._open_visible_contact_phase(
+            command,
+            contact=contact,
+            main_content=_node_from_selector_element(main_content.elements[0]),
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if visible_opened is not None:
+            return visible_opened
         search_box = resolver.resolve("regions.searchBox")
         if search_box.status != "resolved" or not search_box.elements:
             return _failure_from_selector_result(
@@ -831,6 +840,108 @@ class WeChatDesktopTool:
                 "schema": "wechat.open_contact.v1",
                 "target": contact,
                 "status": "opened",
+                "openMethod": "search",
+                "currentChat": {"title": chat_title or contact},
+                "availableActions": [
+                    {"id": "wechat.read_visible_messages", "status": "available"},
+                    {"id": "wechat.draft_message", "status": "needs_input"},
+                ],
+            },
+            evidence=evidence,
+        )
+
+    def _open_visible_contact_phase(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        main_content: Mapping[str, Any],
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        visible_rows = self._query_descendants(
+            command,
+            root_node=main_content,
+            phase="visible_contact_rows",
+            role_in=["AXRow", "AXCell", "AXStaticText"],
+            limit=120,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not visible_rows.success:
+            return None
+        candidates = _visible_contact_candidates_from_nodes(
+            _query_nodes(visible_rows),
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
+        )
+        if len(candidates) > 1:
+            return ToolObservation.ok(
+                command_id=command.command_id,
+                tool=WECHAT_TOOL,
+                operation=command.operation,
+                summary="Multiple visible WeChat rows matched the requested contact.",
+                observation={
+                    "schema": "wechat.open_contact.v1",
+                    "target": contact,
+                    "status": "needs_disambiguation",
+                    "candidates": candidates,
+                },
+                evidence=evidence,
+            )
+        if not candidates:
+            return None
+        action_ref = candidates[0].get("actionRef")
+        if not isinstance(action_ref, Mapping):
+            return None
+        opened = self._execute_action_ref(
+            command,
+            action_ref,
+            phase="open_visible_contact",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not opened.success:
+            return None
+        return self._opened_contact_observation(
+            command,
+            contact=contact,
+            main_content=main_content,
+            open_method="visible_action_ref",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _opened_contact_observation(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        main_content: Mapping[str, Any],
+        open_method: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        verification = self._query_descendants(
+            command,
+            root_node=main_content,
+            phase="verify_contact",
+            role_in=["AXStaticText"],
+            limit=40,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Opened WeChat contact.",
+            observation={
+                "schema": "wechat.open_contact.v1",
+                "target": contact,
+                "status": "opened",
+                "openMethod": open_method,
                 "currentChat": {"title": chat_title or contact},
                 "availableActions": [
                     {"id": "wechat.read_visible_messages", "status": "available"},
@@ -2908,6 +3019,38 @@ def _search_candidates_from_nodes(
                 action_ref["targetSummary"] = f"Open search result {display_name}"
             candidates.append(item)
     return candidates
+
+
+def _visible_contact_candidates_from_nodes(
+    nodes: list[dict[str, Any]],
+    contact: str,
+    *,
+    snapshot_id: str | None = None,
+) -> list[dict[str, JsonValue]]:
+    normalized = _normalized_contact_name(contact)
+    candidates: list[dict[str, JsonValue]] = []
+    for item in _row_items_from_nodes(
+        nodes,
+        section="chats",
+        limit=40,
+        snapshot_id=snapshot_id,
+    ):
+        display_name = str(item.get("displayName") or "")
+        if _normalized_contact_name(display_name) != normalized:
+            continue
+        action_id = f"visible.contact.{len(candidates)}.open"
+        item["actionId"] = action_id
+        action_ref = item.get("actionRef")
+        if isinstance(action_ref, dict):
+            action_ref["id"] = action_id
+            action_ref["kind"] = "visible_contact.open"
+            action_ref["targetSummary"] = f"Open visible contact {display_name}"
+        candidates.append(item)
+    return candidates
+
+
+def _normalized_contact_name(value: str) -> str:
+    return " ".join(value.strip().casefold().split())
 
 
 def _messages_from_query_nodes(

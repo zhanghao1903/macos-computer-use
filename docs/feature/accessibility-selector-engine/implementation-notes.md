@@ -1260,3 +1260,79 @@ Live smoke impact:
   now exercise `execute_action` plus `read_visible_messages` before falling
   back to search;
 - `open_contact` and send-message smoke still need separate real desktop proof.
+
+## WeChat Corrective Slice: Visible Row OpenContact Fallback
+
+Status: implemented; automated verification passed; live WeChat rerun still
+required.
+
+Commit scope:
+
+- update `open_contact(contact)` to try visible row actionRefs before entering
+  the search-box workflow;
+- query only under the selector-resolved `regions.mainContent` region with a
+  bounded row/static-text query;
+- exact-match visible row display names before executing a row actionRef;
+- keep the existing search-box path as the fallback when no visible exact match
+  exists;
+- update SDK send fixtures so sending to `文件传输助手` can exercise the
+  actionRef path instead of typing the contact into search.
+
+Public surface:
+
+- no new command builder, protocol command, or schema name;
+- `wechat.open_contact.v1` adds an optional `openMethod` field with values
+  such as `visible_action_ref` or `search`;
+- existing callers that only read `status`, `target`, `currentChat`, or
+  `availableActions` remain compatible.
+
+Implemented behavior:
+
+- `open_contact("文件传输助手")` can open a currently visible conversation row
+  by executing the row's `AXPress` actionRef;
+- the visible-row path does not issue `type_text`, click raw coordinates, or
+  require the WeChat search box to become focused;
+- ambiguous visible exact matches return `needs_disambiguation` instead of
+  clicking;
+- if no exact visible row exists, the original selector-backed search path still
+  runs, including focus verification before any contact text is typed.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k open_contact
+```
+
+Result: 5 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 87 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_sdk_examples
+```
+
+Result: 6 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py
+```
+
+Result: passed.
+
+Live smoke impact:
+
+- rerun `examples/wechat_file_transfer_send_test.py` after restoring a focused
+  WeChat chat window; if `文件传输助手` is visible in the conversation list, the
+  smoke should use `openMethod=visible_action_ref` before drafting/submitting;
+- rerun `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` to
+  verify listed/visible row opening followed by `read_visible_messages`;
+- arbitrary contacts that are not visible still require the search-box path and
+  its real desktop proof.

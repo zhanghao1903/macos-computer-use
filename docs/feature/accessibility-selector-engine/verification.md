@@ -122,6 +122,33 @@ New coverage:
 - existing `read_contact_messages(contact)` search behavior remains the
   fallback when a contact item lacks an actionRef.
 
+## Additional Verification: Visible Row OpenContact ActionRef
+
+Date: 2026-07-07.
+
+This verification covers the WeChat semantic `open_contact(contact)` path. The
+tool now tries visible row actionRefs under the selector-resolved main content
+region before entering the search-box workflow. The search path remains the
+fallback for contacts that are not currently visible.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Open-contact focused tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k open_contact` | Passed: 5 tests |
+| WeChat tool/profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 87 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 6 tests |
+| Python compile check | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py` | Passed |
+
+New coverage:
+
+- `open_contact("文件传输助手")` opens a visible conversation row by executing
+  that row's actionRef before search;
+- the visible actionRef path returns `openMethod=visible_action_ref`;
+- the visible actionRef path does not issue `type_text`, search hotkeys, or raw
+  coordinate clicks;
+- no-match visible rows still fall back to the existing search-box flow;
+- SDK send-message fixtures now cover opening File Transfer through the visible
+  row actionRef before drafting and submitting.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
@@ -152,7 +179,9 @@ Covered by automated tests:
 - SDK example fake-service fixtures cover selector-backed contact listing and
   recent-message reads after collection extraction;
 - SDK example fake-service fixtures cover listed-contact actionRef execution
-  before reading visible messages.
+  before reading visible messages;
+- WeChat tool and SDK example fixtures cover `open_contact` and File Transfer
+  send flows that consume visible row actionRefs before using search.
 
 ## Real WeChat Smoke Evidence
 
@@ -208,6 +237,11 @@ desktop. That rerun should prove whether the already-listed contact row can be
 opened through `execute_action(actionRef)` and read through
 `read_visible_messages` without relying on the WeChat search box.
 
+After the visible-row `open_contact` update, rerun
+`examples/wechat_file_transfer_send_test.py` on the live desktop. If
+`文件传输助手` is visible in the conversation list, the smoke should open it
+through `openMethod=visible_action_ref` before drafting and submitting.
+
 ## Remaining Real WeChat Smoke Checklist
 
 These checks require a real macOS desktop, Accessibility permission, running
@@ -215,7 +249,8 @@ WeChat, and the local app-control service. Remaining checks are required before
 merge or release readiness:
 
 1. `list_conversations(limit=30)` returns visible conversations and action refs.
-2. `open_contact("文件传输助手")` switches the active chat.
+2. `open_contact("文件传输助手")` switches the active chat, preferably through
+   visible row `openMethod=visible_action_ref` when File Transfer is visible.
 3. `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` opens a
    listed contact through actionRef and reads visible message rows.
 4. `read_visible_messages(limit=30)` returns visible message rows after a
