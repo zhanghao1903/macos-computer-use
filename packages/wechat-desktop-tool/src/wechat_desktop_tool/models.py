@@ -67,7 +67,7 @@ class WeChatDesktopConfig:
     bundle_id: str | None = "com.tencent.xinWeChat"
     app_control_tool: str = "macos.computer_use"
     selector_profile_path: str | None = None
-    search_hotkey: tuple[str, ...] = ("Command", "K")
+    search_hotkey: tuple[str, ...] = ("Command", "F")
     search_clear_hotkey: tuple[str, ...] = ("Command", "A")
     clear_key: str = "Delete"
     submit_key: str = "Return"

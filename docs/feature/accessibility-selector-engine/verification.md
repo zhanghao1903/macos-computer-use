@@ -41,6 +41,31 @@ New coverage:
   than the intermediate landmark;
 - query evidence confirms no full-window second-step scan is used.
 
+## Additional Verification: WeChat Search Hotkey Recovery
+
+Date: 2026-07-07.
+
+This verification covers the live-smoke hardening slice that makes
+`Command+F` the default WeChat search hotkey and recovers open-phase window
+readiness from a bounded Accessibility query when `observe` omits the window
+title.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| `app-control-protocol` config tests | `PYTHONPATH=packages/app-control-protocol/src python -m unittest packages/app-control-protocol/tests/test_config.py` | Passed: 7 tests |
+| WeChat tool/profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 84 tests |
+
+New coverage:
+
+- default `[wechat].search_hotkey` is `["Command", "F"]`;
+- explicit config and environment overrides can still set another hotkey such
+  as `["Command", "K"]`;
+- live `--allow-focus-select` no longer rejects `Command+F` before running;
+- the open phase succeeds when `observe` has no title but
+  `accessibility_query` returns an `AXWindow` title;
+- the open phase still fails closed with `wechat_not_ready` when neither
+  observation nor Accessibility can prove a focused WeChat window.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

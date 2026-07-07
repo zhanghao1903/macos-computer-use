@@ -353,7 +353,7 @@ app_control_tool = "macos.computer_use"
 # Optional custom selector profile. Invalid files fall back to the packaged
 # WeChat selector profile.
 # selector_profile_path = "./profiles/wechat-local.toml"
-search_hotkey = ["Command", "K"]
+search_hotkey = ["Command", "F"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
 submit_key = "Return"

@@ -119,14 +119,6 @@ def _run_send_message_example(
     app_control = _app_control_for_args(args, parser)
     tool = WeChatDesktopTool.from_config(app_control, args.config)
     is_dry_run = isinstance(app_control, DryRunAppControl)
-    if (
-        args.allow_focus_select
-        and not is_dry_run
-        and _is_known_unsafe_search_hotkey(tool.config.search_hotkey)
-    ):
-        output = _unsafe_focus_select_output(args, tool.config.search_hotkey)
-        print(json.dumps(output, ensure_ascii=False, indent=2))
-        return 1
     allow_focus_select = args.allow_focus_select or is_dry_run
     if args.submit:
         if allow_focus_select:
@@ -328,59 +320,6 @@ def _focus_current_chat_for_example(
     )
 
 
-def _unsafe_focus_select_output(
-    args: argparse.Namespace,
-    search_hotkey: tuple[str, ...],
-) -> dict[str, Any]:
-    focus = ToolObservation.failure(
-        command_id="wechat-example-focus-select-disabled",
-        tool=WECHAT_TOOL,
-        operation="focus_contact",
-        status=ToolStatus.FAILED,
-        error=ToolError(
-            failure_kind="unsafe_search_hotkey",
-            message=(
-                "Configured WeChat contact search hotkey is unsafe for live "
-                f"contact selection: {'+'.join(search_hotkey)}."
-            ),
-            recovery_hint=(
-                "Set wechat.search_hotkey to Command+K, or open the target chat "
-                "manually and use --assume-current-chat."
-            ),
-            retryable=False,
-            phase="focus_contact",
-            operation="focus_contact",
-        ),
-        summary="Configured WeChat contact search hotkey is unsafe.",
-        observation={
-            "focusedContact": None,
-            "requestedContact": args.contact,
-            "autoSelectContact": False,
-            "searchHotkey": list(search_hotkey),
-        },
-    )
-    if args.submit:
-        result = _nested_example_failure("focus_contact", focus)
-        return {"result": result.to_dict()}
-    draft = ToolObservation.failure(
-        command_id="wechat-example-draft-skipped",
-        tool=WECHAT_TOOL,
-        operation="draft_message",
-        status=ToolStatus.FAILED,
-        error=ToolError(failure_kind="focus_failed", message=focus.summary),
-        summary="Draft skipped because focus_contact failed.",
-    )
-    return {
-        "submitted": False,
-        "focus": focus.to_dict(),
-        "draft": draft.to_dict(),
-    }
-
-
-def _is_known_unsafe_search_hotkey(keys: tuple[str, ...]) -> bool:
-    return tuple(_key_lookup_name(key) for key in keys) == ("command", "f")
-
-
 def _nested_example_failure(phase: str, observation: ToolObservation) -> ToolObservation:
     return ToolObservation.failure(
         command_id=f"wechat-example-{phase}-failed",
@@ -448,10 +387,6 @@ def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
     if normalized_contact in normalized_title or normalized_title in normalized_contact:
         return 0.95
     return 0.0
-
-
-def _key_lookup_name(key: str) -> str:
-    return key.strip().replace("-", "_").replace(" ", "_").lower()
 
 
 class DryRunAppControl:

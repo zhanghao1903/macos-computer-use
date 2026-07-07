@@ -1563,6 +1563,33 @@ class WeChatDesktopTool:
         if not ready.success:
             return ready
         if not _wechat_observation_has_window_title(ready):
+            verified_window = self._app_control_command(
+                command,
+                phase="verify_wechat_accessibility_window",
+                operation="accessibility_query",
+                input=self._accessibility_query_input(
+                    root={"kind": "focusedWindow"},
+                    query={
+                        "scope": "self",
+                        "maxDepth": 0,
+                        "limit": 1,
+                        "timeBudgetMs": 2_000,
+                        "attributes": ["AXRole", "AXTitle"],
+                        "actions": False,
+                        "includeChildrenCount": False,
+                    },
+                ),
+                phase_events=phase_events,
+            )
+            evidence["verify_wechat_accessibility_window"] = (
+                _safe_app_control_observation(verified_window)
+            )
+            ready = _ready_observation_with_accessibility_window_title(
+                ready,
+                verified_window,
+                self._config.app_name,
+            )
+        if not _wechat_observation_has_window_title(ready):
             return _wechat_not_ready_failure(
                 command,
                 "WeChat is frontmost but no focused window is available.",
@@ -3262,6 +3289,53 @@ def _wechat_observation_has_window_title(observation: ToolObservation) -> bool:
         "title",
     )
     return title is not None and bool(title.strip())
+
+
+def _ready_observation_with_accessibility_window_title(
+    ready: ToolObservation,
+    accessibility_query: ToolObservation,
+    app_name: str,
+) -> ToolObservation:
+    title = _accessibility_query_window_title(accessibility_query)
+    if title is None:
+        return ready
+    observation = dict(ready.observation)
+    observation["windowTitle"] = title
+    observation["snapshotId"] = (
+        _query_snapshot_id(_query_payload(accessibility_query))
+        or observation.get("snapshotId")
+        or f"frontmost:{app_name}:{title}"
+    )
+    metadata = observation.get("metadata")
+    if isinstance(metadata, Mapping):
+        updated_metadata = dict(metadata)
+        updated_metadata["window_title"] = title
+        observation["metadata"] = updated_metadata
+    summary = f"Frontmost app: {observation.get('frontmostApp') or app_name}. Window: {title}."
+    return ToolObservation.ok(
+        command_id=ready.command_id,
+        tool=ready.tool,
+        operation=ready.operation,
+        summary=summary,
+        observation=observation,
+        evidence=ready.evidence,
+        timing=ready.timing,
+        metadata=ready.metadata,
+    )
+
+
+def _accessibility_query_window_title(observation: ToolObservation) -> str | None:
+    if not observation.success:
+        return None
+    payload = _query_payload(observation)
+    window = payload.get("window")
+    if not isinstance(window, Mapping):
+        return None
+    role = window.get("role")
+    title = window.get("title")
+    if role != "AXWindow" or not isinstance(title, str) or not title.strip():
+        return None
+    return title.strip()
 
 
 def _observation_indicates_login_required(observation: ToolObservation) -> bool:

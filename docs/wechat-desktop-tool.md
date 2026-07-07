@@ -522,10 +522,10 @@ the shared protocol schemas before the CLI returns them.
 For live runs, the example verifies that the current chat already matches the
 contact and then drafts the message. Use `--assume-current-chat` only when the
 user has manually verified the current chat but the WeChat window title is too
-generic to prove it. Live `--allow-focus-select` requires the configured
-contact search hotkey to be `Command+K`; the known-unsafe `Command+F` setting is
-rejected before any keyboard action is sent. Add `--submit` only when the caller
-has already completed its own authorization and confirmation policy.
+generic to prove it. Live `--allow-focus-select` uses the configured contact
+search hotkey, defaulting to `Command+F`, and verifies that WeChat search is
+focused before typing the contact. Add `--submit` only when the caller has
+already completed its own authorization and confirmation policy.
 
 ## Current Limitations
 

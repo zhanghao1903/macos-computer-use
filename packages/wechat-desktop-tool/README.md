@@ -142,8 +142,9 @@ does not identify the current chat, set `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1`
 after manually verifying the target chat. It submits only when
 `WECHAT_TOOL_ALLOW_SEND=1` is set. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted as a
 compatibility alias. Automated contact switching requires
-`WECHAT_TOOL_ALLOW_FOCUS_SELECT=1` and `wechat.search_hotkey = ["Command", "K"]`;
-the known-unsafe `Command+F` setting is rejected for live runs.
+`WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`; the default
+`wechat.search_hotkey = ["Command", "F"]` is verified before contact text is
+typed.
 
 To run the read-only window inspection example:
 
@@ -166,7 +167,7 @@ app_control_tool = "macos.computer_use"
 # Optional custom selector profile. Invalid files fall back to the packaged
 # WeChat selector profile.
 # selector_profile_path = "./profiles/wechat-local.toml"
-search_hotkey = ["Command", "K"]
+search_hotkey = ["Command", "F"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
 submit_key = "Return"

@@ -41,7 +41,7 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.wechat.app_name, "WeChat")
         self.assertEqual(config.wechat.app_control_tool, "macos.computer_use")
         self.assertIsNone(config.wechat.selector_profile_path)
-        self.assertEqual(config.wechat.search_hotkey, ("Command", "K"))
+        self.assertEqual(config.wechat.search_hotkey, ("Command", "F"))
         self.assertEqual(config.wechat.search_clear_hotkey, ("Command", "A"))
         self.assertEqual(config.wechat.clear_key, "Delete")
         self.assertEqual(config.wechat.submit_key, "Return")

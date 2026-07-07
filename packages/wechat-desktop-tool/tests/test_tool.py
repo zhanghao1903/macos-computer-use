@@ -863,6 +863,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         "windowTitle": "",
                     }
                 },
+                {},
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -874,7 +875,42 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertIn("no focused window", result.message)
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "observe", "focus_app", "observe"],
+            ["open_app", "observe", "focus_app", "observe", "accessibility_query"],
+        )
+
+    def test_open_wechat_uses_accessibility_window_when_observe_title_is_empty(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "",
+                    }
+                },
+                _accessibility_query_response([], window_title="微信 (通讯录)"),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_wechat()
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["windowTitle"], "微信 (通讯录)")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "focus_app", "observe", "accessibility_query"],
         )
 
     def test_inspect_window_observes_accessibility_without_raw_by_default(self) -> None:
@@ -986,6 +1022,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         "windowTitle": "",
                     }
                 },
+                {},
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -996,7 +1033,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.failure_kind, "wechat_not_ready")
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "observe", "focus_app", "observe"],
+            ["open_app", "observe", "focus_app", "observe", "accessibility_query"],
         )
 
     def test_inspect_window_can_include_raw_observation(self) -> None:
@@ -1738,7 +1775,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "observe",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "K"])
+        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
         self.assertEqual(
             app_control.commands[2].input["bundleId"],
             "com.tencent.xinWeChat",
@@ -2739,9 +2776,9 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 "press_key",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "K"])
+        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
 
-    def test_examples_send_message_live_rejects_unsafe_focus_select_hotkey(
+    def test_examples_send_message_live_allows_command_f_focus_select_hotkey(
         self,
     ) -> None:
         stdout = StringIO()
@@ -2777,15 +2814,26 @@ class WeChatDesktopCliTests(unittest.TestCase):
                 cli_module._app_control_for_args = original
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(exit_code, 1)
-        self.assertEqual(payload["result"]["failureKind"], "unsafe_search_hotkey")
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["result"]["success"])
+        self.assertEqual(payload["result"]["observation"]["submitted"], True)
         self.assertEqual(
-            payload["result"]["error"]["evidence"]["focus_contact"]["observation"][
-                "searchHotkey"
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "hotkey",
+                "observe",
+                "hotkey",
+                "press_key",
+                "type_text",
+                "press_key",
+                "observe",
+                "type_text",
+                "press_key",
             ],
-            ["Command", "F"],
         )
-        self.assertEqual(app_control.commands, [])
+        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
 
     def test_examples_send_message_live_default_drafts_current_chat(self) -> None:
         stdout = StringIO()

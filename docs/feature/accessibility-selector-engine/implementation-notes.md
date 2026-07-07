@@ -1014,6 +1014,58 @@ Remaining work:
   the remaining live smoke checklist for conversations, contact switching,
   visible messages, override behavior, and stale actionRef preconditions.
 
+## Slice 5D: Search Hotkey And Open-Phase Window Recovery
+
+Status: implemented.
+
+Commit scope:
+
+- change the default WeChat contact search hotkey from `Command+K` to the
+  verified WeChat search shortcut `Command+F`;
+- remove the live CLI guard that rejected `Command+F` when
+  `--allow-focus-select` was explicitly enabled;
+- keep the existing search-focus verification before any contact text is typed;
+- when `observe` reports an empty window title during the WeChat open phase,
+  verify the focused AX window through a bounded `accessibility_query` before
+  failing with `wechat_not_ready`;
+- update default config/docs/tests while preserving support for explicit
+  custom search hotkeys.
+
+Public surface:
+
+- changes the default value of `[wechat].search_hotkey` to `["Command", "F"]`;
+- no command builder, protocol schema, or WeChat semantic response shape change;
+- live automated contact selection remains opt-in through
+  `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1` or `--allow-focus-select`;
+- the tool still refuses to type a contact unless the focused AX element is the
+  WeChat search field.
+
+Implemented behavior:
+
+- default config now matches the live WeChat shortcut that focuses search;
+- application config and environment variables can still override the search
+  hotkey;
+- open-phase readiness can recover when `observe` omits `windowTitle` but
+  Accessibility can prove that the focused element is an `AXWindow`;
+- failed no-window states still stop before selector queries, typing, or
+  message submission.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src \
+  python -m unittest packages/app-control-protocol/tests/test_config.py
+```
+
+Result: 7 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 84 tests passed.
+
 ## Selector Engine Corrective Slice: Multi-Step Resolution
 
 Status: implemented.
