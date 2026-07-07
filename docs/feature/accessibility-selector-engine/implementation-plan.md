@@ -9,6 +9,7 @@ Review sources:
 
 - `technical-review-2026-07-06.md`
 - `technical-review-2026-07-07.md`
+- `requirements.md`
 
 ## Scope
 
@@ -60,6 +61,26 @@ implementation work must keep the design matrix and code synchronized:
   migration notes, and release record all describe the same field contracts.
 - Verification notes must record which matrix rows were covered by automated
   tests for each slice.
+
+## Review Remediation Gates By Slice
+
+Each implementation slice must close a specific part of the failed 2026-07-06
+review. A slice is not complete until its implementation notes and verification
+evidence show the matching gate is satisfied or explicitly deferred with an
+owner and follow-up phase.
+
+| Slice | 2026-07-06 review gap covered | Required implementation evidence | Required documentation evidence |
+| --- | --- | --- | --- |
+| Slice 1 | Field-level contracts, missing helper types, profile lifecycle validation. | Dataclass/profile tests for supported schema, defaults, invalid references, cycles, regexes, bounds, aliases, cache policy, relation policy, pagination policy, diagnostics policy, and action risk defaults. | `implementation-notes.md` lists implemented field-matrix rows and any deferred fields. `verification.md` records targeted selector tests. |
+| Slice 2 | Selector result lifecycle, cache lifecycle, failure recovery, direct/helper/local-service ownership. | Resolver tests for `resolved`, `not_found`, `ambiguous`, `stale`, `failed`, cache hit, cache stale fallback, TTL expiry, truncation diagnostics, redacted evidence, and process-local cache behavior. | `implementation-notes.md` records resolver and cache lifecycle behavior. `verification.md` records package tests and any skipped real macOS proof. |
+| Slice 3 | Collection result lifecycle, pagination policy, field extraction diagnostics. | Collection tests for root resolution, item scanning, required field skip/failure, partial status, accepted-item limits, candidate overscan, transform allowlist, and diagnostics policy. | `implementation-notes.md` records collection lifecycle behavior and pagination limitations. |
+| Slice 4 | WeChat migration boundary, semantic failure mapping, actionRef preconditions. | WeChat fixture tests for contacts, conversations, messages, stale selectors, ambiguous selectors, required-field failures, and action precondition rejection. | `verification.md` records fixture coverage and real WeChat smoke status. PR/MR notes state semantic response compatibility. |
+| Slice 5 | Config override activation, profile fallback, override safety. | Override tests for valid activation, invalid rejection, optional fallback, locale alias order, no raw profile content in logs, and no risky action policy expansion. | Stable docs or feature docs describe config shape only when it becomes public. |
+| Slice 6 | Public API migration path and runtime parity. | Protocol/schema tests, direct/helper/local-service parity tests, release preflight, migration tests, and public API example tests. | `docs/api.md`, package READMEs, `docs/migration-notes.md`, changelog, and release readiness are updated before any public command ships. |
+
+The default behavior for an unimplemented gate is to keep the related API
+internal and mark the missing proof in `verification.md`. It is not acceptable
+to silently treat a review gap as closed because a field exists in a dataclass.
 
 ## Phase Rules
 
@@ -262,6 +283,11 @@ For each code slice:
 
 ## Release And Changelog Plan
 
-No changelog entry is required for this F3 planning commit. Add an `Unreleased`
-entry when implementation changes behavior, APIs, docs, tests, examples, or
-packaging, and finalize it during F6 merge readiness.
+This planning update is documentation-only and does not change package
+behavior. The release record for the full feature must still be present before
+the feature PR/MR is marked merge-ready.
+
+Add or update an `Unreleased` changelog entry when implementation changes
+behavior, APIs, docs, tests, examples, packaging, or repository workflow. During
+F6 merge readiness, confirm the changelog summarizes the package-consumer
+scenario solved by each slice rather than only listing files changed.

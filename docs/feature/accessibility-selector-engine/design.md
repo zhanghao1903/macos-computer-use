@@ -6,6 +6,7 @@ Lifecycle phase: F2 consumer contract and technical design revision.
 Feature branch: `codex/accessibility-selector-engine`.
 Branch base: `fed6523` on `main` after PR #2 was merged.
 Feature directory: `docs/feature/accessibility-selector-engine/`.
+Requirement artifact: `requirements.md`.
 Design document: `design.md`.
 Review artifact: `technical-review-2026-07-06.md`.
 
