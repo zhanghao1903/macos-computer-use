@@ -76,7 +76,6 @@ class CollectionExtractor:
             debug=debug,
         )
         has_more = len(item_nodes) > effective_limit
-        item_nodes = item_nodes[:effective_limit]
 
         items: list[dict[str, JsonValue]] = []
         skipped = 0
@@ -86,6 +85,8 @@ class CollectionExtractor:
         field_truncated = False
         field_truncation_reason: str | None = None
         for item_node in item_nodes:
+            if len(items) >= effective_limit:
+                break
             item, field_diagnostics = self._extract_item(
                 collection,
                 item_node,

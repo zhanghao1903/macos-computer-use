@@ -834,6 +834,14 @@ returns `selector_field_missing`. Truncation under the root selector returns a
 partial collection only when pagination diagnostics can tell the caller that
 more visible rows may exist.
 
+The collection engine must apply the caller `limit` to accepted semantic items,
+not to raw candidate nodes. Candidate rows can include section headers, system
+rows, placeholders, or partially rendered rows that fail required fields. The
+extractor should continue scanning bounded candidates until it has either
+accepted `limit` items or exhausted the visible candidate window. When an
+adapter expects noisy leading rows, it may request a bounded overscan limit and
+then trim the semantic result back to the caller limit.
+
 ## WeChat Contacts Example
 
 The contacts list should not be resolved by a fixed path. It should be resolved
@@ -873,6 +881,25 @@ AXTable -> AXRow -> AXCell -> AXStaticText.AXValue
 The selector should identify the table by role and structure, then map
 descendant static text back to the nearest row. The absolute path remains only
 debug evidence.
+
+WeChat-specific row classification remains in `wechat-desktop-tool`, not in
+the generic selector engine. The generic collection can extract row candidates,
+required fields, frames, and action references, but the semantic adapter decides
+whether a row is a contact, a section header, or a special entry such as
+"新的朋友". The current contact-list policy treats small separator/header rows
+as non-contact rows and continues filling the requested page from later visible
+rows.
+
+Opening a contact should focus the packaged `regions.searchBox` selector before
+typing. The preferred path is a safe Accessibility selector click using the
+resolved search-box role and label, followed by an Accessibility-backed focus
+verification. If System Events cannot resolve that element, the adapter may
+attempt a verified `AXSetFocus` accessibility action against the resolved AX
+path. If that still does not focus a text input, the WeChat adapter falls back
+to the configured search hotkey. A raw coordinate click is allowed only as a
+last-resort, config-gated fallback using the selector element's frame center;
+it must still be followed by the same focus verification before any text is
+typed.
 
 ## Search Algorithm
 

@@ -313,6 +313,9 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.status, "resolved")
         self.assertEqual(result.elements[0].element_ref.ax_path, "0/1")
         self.assertEqual(result.elements[0].label, "Contacts")
+        self.assertIsNotNone(result.elements[0].frame)
+        self.assertEqual(result.elements[0].frame.x, 1)
+        self.assertIn("AXFrame", runner.calls[0]["query"]["attributes"])
         self.assertEqual(result.diagnostics.query_count, 1)
         self.assertEqual(runner.calls[0]["root"], {"kind": "focusedWindow"})
         self.assertEqual(runner.calls[0]["query"]["scope"], "descendants")
@@ -743,6 +746,50 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.pagination.has_more, True)
         self.assertEqual(result.diagnostics.query_count, 3)
         self.assertEqual(runner.calls[1]["query"]["limit"], 2)
+
+    def test_collection_skips_invalid_candidates_before_filling_limit(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload([]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.items, ({"displayName": "Bob"},))
+        self.assertEqual(result.pagination.limit, 1)
+        self.assertEqual(result.pagination.returned, 1)
+        self.assertEqual(result.pagination.has_more, True)
+        self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
+        self.assertEqual(result.diagnostics.query_count, 4)
 
     def test_computed_element_ref_returns_normalized_item_element(self) -> None:
         raw = _valid_profile()

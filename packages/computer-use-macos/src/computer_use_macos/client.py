@@ -167,9 +167,20 @@ _ACCESSIBILITY_ROLES = {
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
     "axtextfield": "text field",
-    "axtextarea": "text field",
+    "axtextarea": "text area",
+    "text_area": "text area",
+    "textarea": "text area",
     "text_field": "text field",
     "textfield": "text field",
+}
+
+_ACCESSIBILITY_ROLE_COLLECTIONS = {
+    "button": "buttons",
+    "checkbox": "checkboxes",
+    "menu item": "menu items",
+    "radio button": "radio buttons",
+    "text field": "text fields",
+    "text area": "text areas",
 }
 
 
@@ -2231,7 +2242,7 @@ def _normalize_accessibility_query_request(
     }
 
 
-_ACCESSIBILITY_ACTION_ALLOWLIST = {"AXPress"}
+_ACCESSIBILITY_ACTION_ALLOWLIST = {"AXPress", "AXSetFocus"}
 
 
 def _accessibility_action_target_from_payload(
@@ -2445,15 +2456,73 @@ def _selector_target_text(selector: Mapping[str, Any]) -> str:
 def _accessibility_click_script(target_app: str, selector: Mapping[str, Any]) -> str:
     role = str(selector["role"])
     name = selector.get("name")
+    collection = _ACCESSIBILITY_ROLE_COLLECTIONS.get(role)
     if isinstance(name, str):
-        element = f"{role} {_applescript_string(name)}"
+        target_name = name
+        target_index = 0
     else:
-        element = f"{role} {selector['index']}"
+        target_name = ""
+        target_index = int(selector["index"])
+    if collection is None:
+        if isinstance(name, str):
+            element = f"{role} {_applescript_string(name)}"
+        else:
+            element = f"{role} {selector['index']}"
+        return (
+            'tell application "System Events"\n'
+            f"  tell process {_applescript_string(target_app)}\n"
+            "    set frontmost to true\n"
+            f"    click {element} of front window\n"
+            "  end tell\n"
+            "end tell\n"
+        )
     return (
+        "on cleanText(rawValue)\n"
+        "  try\n"
+        "    return rawValue as text\n"
+        "  on error\n"
+        '    return ""\n'
+        "  end try\n"
+        "end cleanText\n"
+        "\n"
+        "on elementMatches(uiElement, targetName)\n"
+        "  try\n"
+        "    if my cleanText((name of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((description of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((title of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((value of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  return false\n"
+        "end elementMatches\n"
+        "\n"
         'tell application "System Events"\n'
         f"  tell process {_applescript_string(target_app)}\n"
         "    set frontmost to true\n"
-        f"    click {element} of front window\n"
+        "    set frontWindow to front window\n"
+        f"    set roleName to {_applescript_string(role)}\n"
+        f"    set targetName to {_applescript_string(target_name)}\n"
+        f"    set targetIndex to {target_index}\n"
+        f"    set candidates to {collection} of frontWindow\n"
+        "    set currentIndex to 0\n"
+        "    repeat with uiElement in candidates\n"
+        "      set currentIndex to currentIndex + 1\n"
+        "      if targetIndex > 0 then\n"
+        "        if currentIndex is targetIndex then\n"
+        "          click uiElement\n"
+        "          return\n"
+        "        end if\n"
+        "      else if my elementMatches(uiElement, targetName) then\n"
+        "        click uiElement\n"
+        "        return\n"
+        "      end if\n"
+        "    end repeat\n"
+        '    error "No matching accessibility selector target: " & roleName\n'
         "  end tell\n"
         "end tell\n"
     )
@@ -3028,6 +3097,7 @@ try:
         AXUIElementCopyAttributeValue,
         AXUIElementCreateApplication,
         AXUIElementPerformAction,
+        AXUIElementSetAttributeValue,
         kAXFocusedWindowAttribute,
     )
 except Exception as exc:
@@ -3057,6 +3127,13 @@ def ax_actions(element: Any) -> list[str]:
 def ax_perform_action(element: Any, action: str) -> int:
     try:
         return int(AXUIElementPerformAction(element, action))
+    except Exception:
+        return -1
+
+
+def ax_set_focused(element: Any) -> int:
+    try:
+        return int(AXUIElementSetAttributeValue(element, "AXFocused", True))
     except Exception:
         return -1
 
@@ -3216,7 +3293,7 @@ def validate_preconditions(facts: dict[str, Any], action: str) -> str | None:
     if action_set and action.casefold() not in action_set:
         return "action did not match preconditions.actionIn"
     action_names = {str(item).casefold() for item in facts.get("actions") or []}
-    if action.casefold() not in action_names:
+    if action != "AXSetFocus" and action.casefold() not in action_names:
         return f"target does not expose action: {action}"
     return None
 
@@ -3228,7 +3305,7 @@ if not AXIsProcessTrusted():
     )
 
 action = str(REQUEST.get("action") or "").strip()
-if action != "AXPress":
+if action not in {"AXPress", "AXSetFocus"}:
     fail("unsupported_accessibility_action", f"Unsupported Accessibility action: {action}")
 
 target = REQUEST.get("target")
@@ -3276,11 +3353,16 @@ precondition_failure = validate_preconditions(facts, action)
 if precondition_failure is not None:
     fail("precondition_failed", precondition_failure, target=facts)
 
-err = ax_perform_action(element, action)
+method = "AXUIElementPerformAction"
+if action == "AXSetFocus":
+    method = "AXUIElementSetAttributeValue"
+    err = ax_set_focused(element)
+else:
+    err = ax_perform_action(element, action)
 if err != 0:
     fail(
         "accessibility_action_failed",
-        f"AXUIElementPerformAction returned error: {err}",
+        f"{method} returned error: {err}",
         target=facts,
     )
 
@@ -3290,7 +3372,7 @@ finish(
         "available": True,
         "status": "ok",
         "operation": "accessibility_action",
-        "method": "AXUIElementPerformAction",
+        "method": method,
         "snapshotId": snapshot_id,
         "action": action,
         "actionAttempted": True,

@@ -54,8 +54,10 @@ from computer_use_macos.commands import CommandResult
 from computer_use_macos.client import ComputerUseClient as ShortClientFromModule
 from computer_use_macos.client import MacOSComputerUseClient as ClientFromModule
 from computer_use_macos.client import _accessibility_action_script
+from computer_use_macos.client import _accessibility_click_script
 from computer_use_macos.client import _accessibility_query_script
 from computer_use_macos.client import _accessibility_tree_snapshot_script
+from computer_use_macos.client import _normalize_accessibility_selector
 from computer_use_macos.helper import (
     HelperManifest,
     HelperManifestIdentityError,
@@ -349,6 +351,24 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(commands[9].input["bundleId"], "com.apple.TextEdit")
         self.assertEqual(commands[13].timeout_ms, 1234)
 
+    def test_accessibility_selector_preserves_text_area_role(self) -> None:
+        selector = _normalize_accessibility_selector(
+            {"role": "AXTextArea", "description": "搜索"}
+        )
+
+        self.assertEqual(selector, {"role": "text area", "name": "搜索"})
+
+    def test_accessibility_click_script_matches_text_area_by_description(self) -> None:
+        script = _accessibility_click_script(
+            "WeChat",
+            {"role": "text area", "name": "搜索"},
+        )
+
+        self.assertIn("set candidates to text areas of frontWindow", script)
+        self.assertIn("description of uiElement", script)
+        self.assertIn('set targetName to "搜索"', script)
+        self.assertNotIn('click text field "搜索"', script)
+
     def test_command_builder_output_runs_through_client(self) -> None:
         runner = FakeRunner()
         client = ComputerUseClient(
@@ -499,7 +519,10 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
             observation.observation["metadata"]["selector"],
             {"role": "button", "name": "OK"},
         )
-        self.assertIn('click button "OK" of front window', runner.calls[1][2])
+        self.assertIn('set roleName to "button"', runner.calls[1][2])
+        self.assertIn('set targetName to "OK"', runner.calls[1][2])
+        self.assertIn("set candidates to buttons of frontWindow", runner.calls[1][2])
+        self.assertIn("click uiElement", runner.calls[1][2])
 
     def test_package_local_client_uses_app_control_config_for_press_key(
         self,
@@ -935,6 +958,70 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(action["target"]["role"], "AXButton")
         self.assertEqual(action["method"], "AXUIElementPerformAction")
 
+    def test_package_local_client_supports_accessibility_set_focus_action(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": True,
+                    "status": "ok",
+                    "operation": "accessibility_action",
+                    "method": "AXUIElementSetAttributeValue",
+                    "snapshotId": "frontmost:WeChat:Current",
+                    "action": "AXSetFocus",
+                    "actionAttempted": True,
+                    "target": {
+                        "axPath": "0/12/0",
+                        "role": "AXTextArea",
+                        "label": "搜索",
+                        "actions": [],
+                    },
+                    "diagnostics": {
+                        "durationMs": 12,
+                        "verifiedPreconditions": True,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["WeChat"],
+                    "allowed_app_bundle_ids": {"WeChat": "com.tencent.xinWeChat"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="WeChat",
+                bundle_id="com.tencent.xinWeChat",
+                snapshot_id="frontmost:WeChat:Current",
+                ax_path="0/12/0",
+                action="AXSetFocus",
+                preconditions={
+                    "roleIn": ["AXTextArea"],
+                    "labelIn": ["搜索"],
+                    "actionIn": ["AXSetFocus"],
+                },
+                command_id="cmd_focus_action",
+            )
+        )
+
+        request = json.loads(runner.calls[0][-1])
+        action = observation.observation["accessibilityAction"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(request["action"], "AXSetFocus")
+        self.assertEqual(request["target"]["axPath"], "0/12/0")
+        self.assertEqual(request["preconditions"]["actionIn"], ["AXSetFocus"])
+        self.assertEqual(action["method"], "AXUIElementSetAttributeValue")
+
     def test_package_accessibility_query_script_is_scoped_and_filtered(
         self,
     ) -> None:
@@ -958,9 +1045,12 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         source = _accessibility_action_script()
 
         self.assertIn("AXUIElementPerformAction", source)
+        self.assertIn("AXUIElementSetAttributeValue", source)
+        self.assertIn("def ax_set_focused(", source)
         self.assertIn("def validate_preconditions(", source)
         self.assertIn('"precondition_failed"', source)
         self.assertIn('"AXPress"', source)
+        self.assertIn('"AXSetFocus"', source)
         self.assertIn("resolve_ax_path", source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
         self.assertIn("bool(candidate.isActive())", source)

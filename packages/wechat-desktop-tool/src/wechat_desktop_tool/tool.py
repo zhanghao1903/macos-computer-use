@@ -639,9 +639,10 @@ class WeChatDesktopTool:
                     evidence=evidence,
                 )
 
+        collection_limit = _collection_extraction_limit(section, limit)
         collection = build_packaged_collection_extractor(resolver).extract(
             collection_id,
-            limit=limit,
+            limit=collection_limit,
         )
         if collection.status == "failed":
             return _failure_from_collection_result(
@@ -651,12 +652,18 @@ class WeChatDesktopTool:
                 message=f"Could not list WeChat {section} items.",
                 evidence=evidence,
             )
-        rows = _row_items_from_collection_items(
+        page_rows = _row_items_from_collection_items(
             collection.items,
             section=section,
-            limit=limit,
+            limit=limit + 1,
             snapshot_id=collection.snapshot_id,
         )
+        rows = page_rows[:limit]
+        semantic_has_more = len(page_rows) > limit
+        next_page_token = _next_collection_page_token(section, collection)
+        if semantic_has_more and next_page_token is None:
+            cursor = collection.snapshot_id or "snapshot"
+            next_page_token = f"{section}:next:{cursor}"
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
@@ -667,10 +674,10 @@ class WeChatDesktopTool:
                 "section": section,
                 "items": rows,
                 "pagination": {
-                    "limit": collection.pagination.limit,
+                    "limit": limit,
                     "pageToken": page_token,
-                    "hasMore": _collection_has_more(collection),
-                    "nextPageToken": _next_collection_page_token(section, collection),
+                    "hasMore": semantic_has_more or _collection_has_more(collection),
+                    "nextPageToken": next_page_token,
                 },
                 "availableActions": [
                     {
@@ -724,51 +731,15 @@ class WeChatDesktopTool:
                 message="Could not locate WeChat search box.",
                 evidence=evidence,
             )
-        focused = self._app_control_command(
+        verified_search = self._focus_search_box_phase(
             command,
-            phase="focus_search",
-            operation="hotkey",
-            input=self._target_app_input(
-                keys=list(self._config.search_hotkey),
-            ),
+            contact=contact,
+            search_box=search_box,
+            evidence=evidence,
             phase_events=phase_events,
-        )
-        evidence["focus_search"] = _safe_app_control_observation(focused)
-        if not focused.success:
-            return _from_app_control_failure(
-                command,
-                "search_focus_failed",
-                focused,
-                evidence=evidence,
-            )
-        verified_search = self._app_control_command(
-            command,
-            phase="verify_search_focus",
-            operation="observe",
-            input=self._target_app_input(
-                includeAccessibility=True,
-                includeVisibleText=True,
-            ),
-            phase_events=phase_events,
-        )
-        evidence["verify_search_focus"] = _safe_app_control_observation(
-            verified_search
         )
         if not verified_search.success:
-            return _from_app_control_failure(
-                command,
-                "search_focus_failed",
-                verified_search,
-                evidence=evidence,
-            )
-        search_focus_failure = _search_focus_failure(
-            command,
-            contact,
-            verified_search,
-            evidence=evidence,
-        )
-        if search_focus_failure is not None:
-            return search_focus_failure
+            return verified_search
         typed = self._app_control_command(
             command,
             phase="type_contact",
@@ -867,6 +838,239 @@ class WeChatDesktopTool:
                 ],
             },
             evidence=evidence,
+        )
+
+    def _focus_search_box_phase(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_box: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        search_element = search_box.elements[0]
+        clicked = self._app_control_command(
+            command,
+            phase="click_search_box",
+            operation="click",
+            input=self._target_app_input(
+                selector={
+                    "role": search_element.role,
+                    "name": search_element.label or "搜索",
+                },
+            ),
+            phase_events=phase_events,
+        )
+        evidence["click_search_box"] = _safe_app_control_observation(clicked)
+        if clicked.success:
+            verified_after_click = self._verify_search_focus_phase(
+                command,
+                phase="verify_search_focus_after_click",
+                phase_events=phase_events,
+            )
+            evidence["verify_search_focus_after_click"] = (
+                _safe_app_control_observation(verified_after_click)
+            )
+            if not verified_after_click.success:
+                return _from_app_control_failure(
+                    command,
+                    "search_focus_failed",
+                    verified_after_click,
+                    evidence=evidence,
+                )
+            click_focus_failure = _search_focus_failure(
+                command,
+                contact,
+                verified_after_click,
+                evidence=evidence,
+            )
+            if click_focus_failure is None:
+                return verified_after_click
+
+        action_verified = self._focus_search_box_accessibility_action(
+            command,
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if action_verified is not None:
+            return action_verified
+
+        focused = self._app_control_command(
+            command,
+            phase="focus_search",
+            operation="hotkey",
+            input=self._target_app_input(
+                keys=list(self._config.search_hotkey),
+            ),
+            phase_events=phase_events,
+        )
+        evidence["focus_search"] = _safe_app_control_observation(focused)
+        if not focused.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                focused,
+                evidence=evidence,
+            )
+        verified_search = self._verify_search_focus_phase(
+            command,
+            phase="verify_search_focus",
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus"] = _safe_app_control_observation(
+            verified_search
+        )
+        if not verified_search.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified_search,
+                evidence=evidence,
+            )
+        search_focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified_search,
+            evidence=evidence,
+        )
+        if search_focus_failure is not None:
+            coordinate_verified = self._focus_search_box_coordinate_fallback(
+                command,
+                contact=contact,
+                search_element=search_element,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if coordinate_verified is not None:
+                return coordinate_verified
+            return search_focus_failure
+        return verified_search
+
+    def _focus_search_box_accessibility_action(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_element: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        element_ref = getattr(search_element, "element_ref", None)
+        ax_path = getattr(element_ref, "ax_path", None)
+        if not isinstance(ax_path, str) or not ax_path:
+            return None
+        preconditions: dict[str, JsonValue] = {
+            "roleIn": [str(search_element.role)],
+            "actionIn": ["AXSetFocus"],
+        }
+        if search_element.label:
+            preconditions["labelIn"] = [str(search_element.label)]
+        input_payload = self._target_app_input(
+            target={"kind": "axPath", "axPath": ax_path},
+            action="AXSetFocus",
+            preconditions=preconditions,
+        )
+        snapshot_id = getattr(element_ref, "snapshot_id", None)
+        if isinstance(snapshot_id, str) and snapshot_id:
+            input_payload["snapshotId"] = snapshot_id
+        focused = self._app_control_command(
+            command,
+            phase="focus_search_box_accessibility_action",
+            operation="accessibility_action",
+            input=input_payload,
+            phase_events=phase_events,
+        )
+        evidence["focus_search_box_accessibility_action"] = (
+            _safe_app_control_observation(focused)
+        )
+        if not focused.success:
+            return None
+        verified = self._verify_search_focus_phase(
+            command,
+            phase="verify_search_focus_after_accessibility_action",
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus_after_accessibility_action"] = (
+            _safe_app_control_observation(verified)
+        )
+        if not verified.success:
+            return None
+        focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified,
+            evidence=evidence,
+        )
+        if focus_failure is not None:
+            return None
+        return verified
+
+    def _focus_search_box_coordinate_fallback(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_element: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        coordinates = _selector_element_center_coordinates(search_element)
+        if coordinates is None:
+            return None
+        clicked = self._app_control_command(
+            command,
+            phase="click_search_box_coordinate",
+            operation="click",
+            input=self._target_app_input(coordinates=coordinates),
+            phase_events=phase_events,
+        )
+        evidence["click_search_box_coordinate"] = _safe_app_control_observation(clicked)
+        if not clicked.success:
+            return None
+        verified = self._verify_search_focus_phase(
+            command,
+            phase="verify_search_focus_after_coordinate",
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus_after_coordinate"] = (
+            _safe_app_control_observation(verified)
+        )
+        if not verified.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified,
+                evidence=evidence,
+            )
+        coordinate_focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified,
+            evidence=evidence,
+        )
+        if coordinate_focus_failure is not None:
+            return coordinate_focus_failure
+        return verified
+
+    def _verify_search_focus_phase(
+        self,
+        command: ToolCommand,
+        *,
+        phase: str,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        return self._app_control_command(
+            command,
+            phase=phase,
+            operation="observe",
+            input=self._target_app_input(
+                includeAccessibility=True,
+                includeVisibleText=True,
+            ),
+            phase_events=phase_events,
         )
 
     def _execute_action(
@@ -2485,6 +2689,8 @@ def _row_items_from_collection_items(
             display_name = _string_value(item.get("displayName"))
             if display_name is None:
                 continue
+            if not _is_contact_collection_item(item):
+                continue
             parsed: dict[str, Any] = {
                 "displayName": display_name,
                 "badges": [],
@@ -2529,6 +2735,41 @@ def _row_items_from_collection_items(
             payload["muted"] = "免打扰" in badges or "muted" in badges
         items.append(payload)
     return items
+
+
+def _collection_extraction_limit(section: str, limit: int) -> int:
+    if section != "contacts":
+        return limit
+    return max(limit, min(limit + 10, 40))
+
+
+def _is_contact_collection_item(item: Mapping[str, JsonValue]) -> bool:
+    element = item.get("element")
+    if not isinstance(element, Mapping):
+        return True
+    frame = element.get("frame")
+    if not isinstance(frame, Mapping):
+        return True
+    height = _number_value(frame.get("height"))
+    if height is None:
+        return True
+    return height >= 50
+
+
+def _selector_element_center_coordinates(element: Any) -> dict[str, JsonValue] | None:
+    frame = getattr(element, "frame", None)
+    if frame is None:
+        return None
+    x = getattr(frame, "x", None)
+    y = getattr(frame, "y", None)
+    width = getattr(frame, "width", None)
+    height = getattr(frame, "height", None)
+    if not all(isinstance(value, int | float) for value in (x, y, width, height)):
+        return None
+    return {
+        "x": int(round(float(x) + float(width) / 2)),
+        "y": int(round(float(y) + float(height) / 2)),
+    }
 
 
 def _node_from_collection_element(value: object) -> dict[str, Any] | None:

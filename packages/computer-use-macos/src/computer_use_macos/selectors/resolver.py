@@ -420,6 +420,7 @@ class SelectorResolver:
     def _query_payload(self, step: object) -> dict[str, JsonValue]:
         step_obj = step
         attributes = {
+            "AXFrame",
             "AXRole",
             "AXTitle",
             "AXValue",

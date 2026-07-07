@@ -1182,6 +1182,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         )
                     ]
                 ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/2/0",
+                            "AXStaticText",
+                            value="Charlie",
+                        )
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1218,28 +1227,98 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
             ],
         )
         self.assertEqual(app_control.commands[3].input["target"]["axPath"], "0/2")
         self.assertEqual(app_control.commands[3].input["action"], "AXPress")
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_000)
-        self.assertEqual(
-            app_control.commands[2].input["query"]["match"]["roleIn"],
-            ["AXRadioButton"],
+
+    def test_list_contacts_skips_special_and_section_rows_before_limit(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _accessibility_action_response(),
+                _top_level_query_response(
+                    chats_selected=False,
+                    contacts_selected=True,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/0",
+                            "AXRow",
+                            description="新的朋友",
+                            x=330,
+                            y=120,
+                            width=270,
+                            height=39,
+                        ),
+                        _normalized_node(
+                            "0/11/1/0/1",
+                            "AXRow",
+                            description="A",
+                            x=330,
+                            y=159,
+                            width=270,
+                            height=36,
+                        ),
+                        _normalized_row("0/11/1/0/2", "Ada", y=195),
+                        _normalized_row("0/11/1/0/3", "Bob", y=259),
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/0/0",
+                            "AXStaticText",
+                            value="新的朋友",
+                        )
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/1/0",
+                            "AXStaticText",
+                            value="A",
+                        )
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/2/0",
+                            "AXStaticText",
+                            value="Ada",
+                        )
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/3/0",
+                            "AXStaticText",
+                            value="Bob",
+                        )
+                    ]
+                ),
+            ]
         )
-        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_500)
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.list_contacts(limit=2)
+
+        self.assertTrue(result.success)
         self.assertEqual(
-            app_control.commands[4].input["query"]["match"]["roleIn"],
-            ["AXSplitGroup"],
+            [item["displayName"] for item in result.observation["items"]],
+            ["Ada", "Bob"],
         )
-        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 5_000)
-        self.assertEqual(app_control.commands[5].input["query"]["limit"], 3)
-        self.assertEqual(
-            app_control.commands[5].input["query"]["match"]["roleIn"],
-            ["AXRow"],
-        )
-        self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 1_000)
-        self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
+        self.assertEqual(result.observation["pagination"]["limit"], 2)
+        self.assertEqual(app_control.commands[5].input["query"]["limit"], 13)
 
     def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
         app_control = FakeAppControl(
@@ -1512,7 +1591,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "hotkey",
+                "click",
                 "observe",
                 "type_text",
                 "accessibility_query",
@@ -1524,6 +1603,102 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(app_control.commands[7].input["text"], "Ada")
+
+    def test_open_contact_falls_back_to_hotkey_when_search_click_misses(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
+                {},
+                {
+                    "observation": {
+                        "accessibility": {
+                            "available": True,
+                            "focusedElement": {
+                                "role": "AXTextArea",
+                                "roleDescription": "text area",
+                                "frame": {
+                                    "x": 520,
+                                    "y": 700,
+                                    "width": 460,
+                                    "height": 120,
+                                },
+                            },
+                            "textFields": [
+                                {
+                                    "role": "AXTextField",
+                                    "roleDescription": "search field",
+                                    "frame": {
+                                        "x": 80,
+                                        "y": 120,
+                                        "width": 240,
+                                        "height": 28,
+                                    },
+                                },
+                                {
+                                    "role": "AXTextArea",
+                                    "roleDescription": "text area",
+                                    "frame": {
+                                        "x": 520,
+                                        "y": 700,
+                                        "width": 460,
+                                        "height": 120,
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                },
+                _unsupported_accessibility_action_response(),
+                {},
+                {},
+                {},
+                _accessibility_query_response(
+                    [_normalized_row("0/11/search/0", "Ada Lovelace")]
+                ),
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="Ada Lovelace",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("Ada")
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
+                "click",
+                "observe",
+                "accessibility_action",
+                "hotkey",
+                "observe",
+                "type_text",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(app_control.commands[7].input["action"], "AXSetFocus")
+        self.assertEqual(app_control.commands[8].input["keys"], ["Command", "F"])
+        self.assertEqual(app_control.commands[10].input["text"], "Ada")
 
     def test_open_contact_reports_disambiguation_from_query_stub(self) -> None:
         app_control = FakeAppControl(
@@ -1561,7 +1736,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "hotkey",
+                "click",
                 "observe",
                 "type_text",
                 "accessibility_query",

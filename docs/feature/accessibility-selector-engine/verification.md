@@ -66,6 +66,36 @@ New coverage:
 - the open phase still fails closed with `wechat_not_ready` when neither
   observation nor Accessibility can prove a focused WeChat window.
 
+## Additional Verification: Contact Collection Fill And Search Focus Fallbacks
+
+Date: 2026-07-07.
+
+This verification covers the corrective slice for noisy WeChat contact rows,
+frame-backed selector results, role-specific Accessibility selector click, and
+verified `AXSetFocus` support.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 26 tests |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 80 tests, 1 skipped |
+| WeChat tool/profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 86 tests |
+
+New coverage:
+
+- collection extraction continues past invalid candidates until it accepts the
+  caller's requested number of valid semantic items or exhausts bounded visible
+  candidates;
+- WeChat contact listing skips special/header rows before filling the caller
+  limit;
+- selector resolver queries include `AXFrame`, allowing resolved element frames
+  to drive verified fallback behavior;
+- Accessibility selector click preserves `AXTextArea` and matches by
+  `description` inside role-specific System Events collections;
+- `accessibility_action` accepts verified `AXSetFocus` for resolved AX paths;
+- `open_contact` attempts safe selector click, `AXSetFocus`, configured
+  hotkey, and config-gated coordinate fallback before returning
+  `search_not_focused`.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
@@ -131,6 +161,13 @@ Incomplete evidence:
 - A direct PyObjC probe on 2026-07-07 still showed frontmost `loginwindow`,
   WeChat running but inactive, and WeChat `AXWindows` whose roles were
   `AXApplication` rather than `AXWindow`.
+- `/private/tmp/selector-live-recent-messages-after-axsetfocus.json` listed one
+  semantic contact but failed at `readContactMessages` with
+  `search_not_focused`. Evidence shows `AXSetFocus` returned
+  `AXUIElementSetAttributeValue` success for search box `0/12/0`, but a
+  follow-up query still reported `AXFocused=false`. `Command+F`, `Command+K`,
+  safe selector click, and several coordinate clicks inside the resolved
+  search-box frame also failed to focus that live WeChat search input.
 
 This is not enough for merge readiness. It proves that the selector-backed
 window model and contacts collection work on a live client, and it also proves

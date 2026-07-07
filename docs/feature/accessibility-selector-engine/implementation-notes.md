@@ -1110,3 +1110,91 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
 ```
 
 Result: 76 tests passed, 1 skipped.
+
+## Selector Engine Corrective Slice: Contact Collection Fill And Search Focus Fallbacks
+
+Status: implemented; automated verification passed; live WeChat smoke remains
+blocked by search focus behavior in the current WeChat client.
+
+Commit scope:
+
+- make generic collection extraction apply `limit` after valid items are
+  accepted, so invalid candidates can be skipped without shortening the page;
+- add WeChat contact-list overscan before semantic trimming so headers and
+  special rows do not consume the caller's requested contact count;
+- keep WeChat row semantics in `wechat-desktop-tool` by filtering likely
+  non-contact rows after collection extraction rather than adding WeChat policy
+  to the generic selector engine;
+- include `AXFrame` in ordinary selector resolver queries so resolved elements
+  can support verified frame-derived fallback behavior;
+- make Accessibility selector click preserve `AXTextArea` as a text-area role
+  and match element names through `name`, `description`, `title`, or `value`
+  inside a role-specific System Events collection;
+- add `AXSetFocus` as a verified Accessibility action for already-resolved AX
+  paths;
+- focus the WeChat search box by first trying a safe Accessibility selector
+  click, then trying `AXSetFocus`, then falling back to the configured search
+  hotkey, then optionally a config-gated coordinate click derived from the
+  resolved selector frame;
+- preserve the existing focus verification before contact text is typed.
+
+Public surface:
+
+- no new app-control protocol command or schema field;
+- `accessibility_action` now accepts `AXSetFocus` in addition to `AXPress`;
+- no WeChat semantic response field removal or rename;
+- no raw AX `attributeNames` exposure to WeChat API callers;
+- raw coordinate clicking remains governed by the backend
+  `allow_coordinate_click` setting and is not required for normal operation.
+
+Implemented behavior:
+
+- a collection with noisy leading candidates can still return `limit` valid
+  semantic items when later visible candidates contain the required fields;
+- `list_contacts(limit=N)` requests a bounded contact overscan internally, then
+  returns at most `N` semantic contact rows and computes `hasMore` after
+  semantic filtering;
+- special WeChat rows and section headers can be skipped without exposing the
+  underlying AX tree to applications;
+- `open_contact` no longer depends solely on a keyboard shortcut when a
+  packaged `regions.searchBox` selector is available;
+- the safe selector click path fails quickly instead of scanning the entire
+  WeChat window when System Events does not expose the target as a text area;
+- the `AXSetFocus` path can run through the same target, snapshot, role, label,
+  and action precondition checks as existing `accessibility_action` calls;
+- the adapter still fails closed with `search_focus_failed` when focus
+  verification does not prove that the WeChat search input is active.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 26 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 80 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 86 tests passed.
+
+Live smoke evidence:
+
+- `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` returned
+  one semantic contact after contact-row filtering and overscan;
+- the same smoke still failed at `readContactMessages` because the live WeChat
+  search box at `0/12/0` remained `AXFocused=false` after safe selector click,
+  `AXSetFocus`, `Command+F`, `Command+K`, and multiple coordinate clicks inside
+  the resolved frame;
+- the failure is recorded as `search_not_focused`, and no contact text is typed
+  into the current chat when focus verification fails.
