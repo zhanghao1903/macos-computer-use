@@ -275,6 +275,32 @@ class SelectorProfileTests(unittest.TestCase):
 
         self.assertEqual(parsed.selectors["navigation.contacts"].pick, "first")
 
+    def test_frame_constraint_value_is_validated(self) -> None:
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "frameWithin",
+                "value": {"x": 0, "y": 0, "width": 100},
+                "required": True,
+            }
+        ]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "constraints\\[0\\]\\.value\\.height must be a number",
+        ):
+            parse_selector_profile(profile)
+
+        selector["constraints"][0]["value"]["height"] = 100  # type: ignore[index]
+
+        parsed = parse_selector_profile(profile)
+
+        self.assertEqual(
+            parsed.selectors["navigation.contacts"].constraints[0].kind,
+            "frameWithin",
+        )
+
     def test_nearest_to_anchor_pick_requires_final_relation(self) -> None:
         profile = _valid_profile()
         selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
@@ -524,6 +550,69 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.status, "ambiguous")
         self.assertEqual(result.diagnostics.failure_kind, "selector_ambiguous")
         self.assertEqual(len(result.elements), 2)
+
+    def test_resolver_applies_required_frame_constraints(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "frameWithin",
+                "value": {"x": 0, "y": 0, "width": 240, "height": 180},
+                "required": True,
+            },
+            {
+                "kind": "rightOf",
+                "value": {"x": 0, "y": 80, "width": 100, "height": 40},
+                "required": True,
+            },
+            {
+                "kind": "below",
+                "value": {"x": 130, "y": 0, "width": 80, "height": 70},
+                "required": True,
+            },
+        ]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "frame": {
+                                "x": 260,
+                                "y": 90,
+                                "width": 40,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "frame": {
+                                "x": 130,
+                                "y": 90,
+                                "width": 80,
+                                "height": 30,
+                            },
+                        },
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(
+            result.elements[0].evidence.matched_constraints,
+            ("frameWithin", "rightOf", "below"),
+        )
 
     def test_resolver_chains_steps_under_previous_candidate(self) -> None:
         raw = _valid_profile()

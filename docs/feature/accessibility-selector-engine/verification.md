@@ -193,6 +193,29 @@ New coverage:
 - disabling skipped and field-failure count diagnostics preserves status and
   failure kind while returning a generic message.
 
+## Additional Verification: Structural Constraint Enforcement
+
+Date: 2026-07-07.
+
+This verification covers frame-based `SelectorConstraint` values. These
+constraint kinds were already represented in the model and validation enum; the
+resolver now enforces them during final candidate matching.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 42 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 96 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- `frameWithin` values must be complete numeric frame objects;
+- `frameWithin`, `rightOf`, and `below` are applied to final candidates;
+- required frame constraints reject candidates outside the configured geometry;
+- matched structural constraints are recorded in selector evidence.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from .models import (
     AccessibilitySelectorProfile,
@@ -265,6 +266,27 @@ def _validate_constraint(
         raise SelectorProfileValidationError(f"{field_name}.kind is invalid")
     if constraint.weight < 0:
         raise SelectorProfileValidationError(f"{field_name}.weight must be >= 0")
+    if constraint.kind == "minChildren":
+        if (
+            not isinstance(constraint.value, int)
+            or isinstance(constraint.value, bool)
+            or constraint.value < 0
+        ):
+            raise SelectorProfileValidationError(
+                f"{field_name}.value must be a non-negative integer"
+            )
+    elif constraint.kind == "selected":
+        if not isinstance(constraint.value, bool):
+            raise SelectorProfileValidationError(
+                f"{field_name}.value must be a boolean"
+            )
+    elif constraint.kind in {"hasChildRole", "hasDescendantRole"}:
+        if not isinstance(constraint.value, str) or not constraint.value:
+            raise SelectorProfileValidationError(
+                f"{field_name}.value must be a non-empty role string"
+            )
+    elif constraint.kind in {"frameWithin", "rightOf", "below"}:
+        _validate_frame_value(constraint.value, f"{field_name}.value")
 
 
 def _validate_confidence(
@@ -287,6 +309,21 @@ def _validate_confidence(
     if pick == "best" and all(weight == 0 for weight in weights):
         raise SelectorProfileValidationError(
             f"{field_name} must have at least one non-zero weight for best pick"
+        )
+
+
+def _validate_frame_value(value: object, field_name: str) -> None:
+    if not isinstance(value, Mapping):
+        raise SelectorProfileValidationError(f"{field_name} must be a frame object")
+    for key in ("x", "y", "width", "height"):
+        field_value = value.get(key)
+        if not isinstance(field_value, (int, float)) or isinstance(field_value, bool):
+            raise SelectorProfileValidationError(
+                f"{field_name}.{key} must be a number"
+            )
+    if value["width"] < 0 or value["height"] < 0:
+        raise SelectorProfileValidationError(
+            f"{field_name}.width and height must be >= 0"
         )
 
 

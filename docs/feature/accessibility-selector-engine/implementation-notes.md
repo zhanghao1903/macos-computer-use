@@ -1723,3 +1723,66 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Selector Corrective Slice: Structural Constraint Enforcement
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- implement runtime matching for `SelectorConstraint.kind = "frameWithin"`;
+- implement runtime matching for frame-based `rightOf` and `below` constraints;
+- make unknown or malformed runtime constraints fail closed instead of passing;
+- validate constraint value shapes during profile parsing/validation;
+- add resolver fixtures proving required frame constraints reject non-matching
+  candidates.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- frame constraint value shape remains internal to the selector-profile MVP:
+  `{x, y, width, height}` with numeric values.
+
+Implemented behavior:
+
+- `frameWithin` requires the candidate frame to sit fully inside the configured
+  frame;
+- `rightOf` requires the candidate to be to the right of the configured frame
+  and vertically overlap it;
+- `below` requires the candidate to be below the configured frame and
+  horizontally overlap it;
+- required frame constraints now reject candidates without frames;
+- invalid frame constraint values are rejected before profile activation.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 42 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/validation.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 96 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.

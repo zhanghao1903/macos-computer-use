@@ -209,7 +209,25 @@ def _constraint_passes(
     if constraint.kind in {"hasChildRole", "hasDescendantRole"}:
         roles = node.get("childRoles") or node.get("descendantRoles") or ()
         return isinstance(roles, list | tuple) and str(constraint.value) in roles
-    return True
+    if constraint.kind == "frameWithin":
+        candidate = node_frame(node)
+        bounds = _frame_constraint_value(constraint.value)
+        if candidate is None or bounds is None:
+            return False
+        return _frame_inside(candidate, bounds)
+    if constraint.kind == "rightOf":
+        candidate = node_frame(node)
+        anchor = _frame_constraint_value(constraint.value)
+        if candidate is None or anchor is None:
+            return False
+        return _frame_right_of(candidate, anchor)
+    if constraint.kind == "below":
+        candidate = node_frame(node)
+        anchor = _frame_constraint_value(constraint.value)
+        if candidate is None or anchor is None:
+            return False
+        return _frame_below(candidate, anchor)
+    return False
 
 
 def _frame_relation_match(
@@ -279,6 +297,47 @@ def _frame_relation_match(
         ) ** 0.5
 
     return relation.max_distance is None or distance <= relation.max_distance
+
+
+def _frame_constraint_value(value: JsonValue) -> Frame | None:
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        return Frame(
+            x=float(value["x"]),
+            y=float(value["y"]),
+            width=float(value["width"]),
+            height=float(value["height"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _frame_inside(candidate: Frame, bounds: Frame) -> bool:
+    return (
+        candidate.x >= bounds.x
+        and candidate.y >= bounds.y
+        and candidate.x + candidate.width <= bounds.x + bounds.width
+        and candidate.y + candidate.height <= bounds.y + bounds.height
+    )
+
+
+def _frame_right_of(candidate: Frame, anchor: Frame) -> bool:
+    return candidate.x >= anchor.x + anchor.width and _ranges_overlap(
+        candidate.y,
+        candidate.y + candidate.height,
+        anchor.y,
+        anchor.y + anchor.height,
+    )
+
+
+def _frame_below(candidate: Frame, anchor: Frame) -> bool:
+    return candidate.y >= anchor.y + anchor.height and _ranges_overlap(
+        candidate.x,
+        candidate.x + candidate.width,
+        anchor.x,
+        anchor.x + anchor.width,
+    )
 
 
 def _ranges_overlap(
