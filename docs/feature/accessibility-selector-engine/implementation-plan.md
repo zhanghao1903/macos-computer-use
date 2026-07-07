@@ -44,6 +44,23 @@ completed, deferred, or revised.
 | Failure recovery is consistent. | Slices 2-4 | `selectors/diagnostics.py`, WeChat failure mapping | Tests map generic selector failures to WeChat diagnostics while preserving generic `failure_kind`; retry behavior remains bounded. |
 | Direct/helper/local-service ownership remains consistent. | Slices 2, 4, and 6 | Resolver integration and future protocol modules | MVP resolver state is process-local; public service-owned selector commands are blocked until Slice 6 parity tests and API docs exist. |
 
+## Contract Synchronization Rules
+
+The 2026-07-06 review failed the original design partly because fields and
+helper types were easy to infer differently during implementation. The F4
+implementation work must keep the design matrix and code synchronized:
+
+- Slice 1 must implement or explicitly defer every row in the `Field Contract
+  Matrix` and `Helper Type Field Matrix` sections of `design.md`.
+- If a field is deferred, the implementation notes must name the field, reason,
+  owning slice, and test that will prove it later.
+- If implementation changes a default, validation rule, enum value, lifecycle
+  state, or risk boundary, update `design.md` before committing the code slice.
+- Public API exposure remains blocked until the implementation plan, API docs,
+  migration notes, and release record all describe the same field contracts.
+- Verification notes must record which matrix rows were covered by automated
+  tests for each slice.
+
 ## Phase Rules
 
 - Each implementation slice must update this feature directory with notes or

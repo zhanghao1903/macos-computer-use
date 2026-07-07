@@ -640,6 +640,45 @@ class PaginationState:
 | TOML override | `selector_profiles.<id>.path` | New config proposal | Optional | Local profile override path; must validate before activation. |
 | TOML override | `selector_profiles.<id>.locale` | New config proposal | Optional | Selects alias order; does not infer labels from system locale alone. |
 
+### Helper Type Field Matrix
+
+The 2026-07-06 review specifically called out missing helper and policy type
+contracts. These rows make the helper objects implementation-ready instead of
+leaving developers to infer defaults from prose.
+
+| Object / config | Field | New / changed | Required / default | Validation, owner, compatibility |
+| --- | --- | --- | --- | --- |
+| `ConfidencePolicy` | `minimum` | New internal, future public | Required; recommended default `0.85` for single-target selectors | Float in `[0, 1]`; owned by `computer-use-macos`; controls `not_found` versus resolved/ambiguous behavior. |
+| `ConfidencePolicy` | `attribute_weight`, `action_weight`, `structure_weight`, `geometry_weight`, `cache_weight` | New | Required or profile default | Floats `>= 0`; at least one non-zero scoring signal is required when `pick = "best"`. |
+| `Frame` | `x`, `y`, `width`, `height` | New | Required | Numeric macOS screen coordinates; width/height must be `>= 0`; optional in public results when AX frame is unavailable. |
+| `SelectorEvidence` | `matched_attributes` | New | Default `{}` | Redacted by default; include only attributes used for matching unless debug mode is explicit. |
+| `SelectorEvidence` | `matched_actions`, `matched_constraints` | New | Default `[]` | Names of matched AX actions and constraint ids/kinds; must not include raw message text. |
+| `SelectorEvidence` | `score_breakdown` | New | Default `{}` | Values must be finite floats; used for diagnostics and tests, not caller authorization. |
+| `SelectorEvidence` | `debug_attributes` | New | Default `None` | Populated only in explicit debug mode; never logged by default. |
+| `ActionDefinition` | `action_id` | New | Required | Unique within profile actions; stable enough for tests but not a public capability id during MVP. |
+| `ActionDefinition` | `selector_id` | New | Required | Must reference an existing selector whose result can produce a target `ElementRef`. |
+| `ActionDefinition` | `ax_action` | New | Required | Must be present in the target element actions before execution. |
+| `ActionDefinition` | `risk` | New | Required | One of documented action risk literals; unknown risks reject the profile. |
+| `ActionDefinition` | `preconditions` | New | Default `[]` | All preconditions must pass immediately before execution. |
+| `ActionDefinition` | `enabled_by_default` | New | Default `false` for mutating risks; `true` allowed for read/focus actions | Profiles cannot enable text submission by default during MVP. |
+| `ActionDefinition` | `description` | New | Default `None` | Human diagnostics only; not used for matching or authorization. |
+| `CachePolicy` | `mode` | New | Default `readWrite` for stable landmarks; `disabled` for volatile rows | Must be one of `disabled`, `read`, `readWrite`. |
+| `CachePolicy` | `ttl_seconds` | New | Default `None` | Optional positive integer; `None` means profile/window/signature invalidation only. |
+| `CachePolicy` | `validate_signature` | New | Default `true` | Must remain `true` unless cache mode is `disabled`; prevents path hints from becoming identity. |
+| `CachePolicy` | `key_attributes` | New | Default non-sensitive selector-specific attributes | Attribute names must be readable through bounded query results; raw message text should not be a key. |
+| `RelationRule` | `anchor_selector_id` | New | Required | Must reference a selector that resolves before this step; cycles are invalid. |
+| `RelationRule` | `relation` | New | Required | One of `rightOf`, `leftOf`, `above`, `below`, `inside`, `near`. |
+| `RelationRule` | `max_distance` | New | Default `None` | Optional positive float; required for `near` unless profile supplies a geometry default. |
+| `PaginationPolicy` | `mode` | New | Default `visibleWindow` for collections | `cursor` is future-only until stable continuation semantics are designed. |
+| `PaginationPolicy` | `default_limit` | New | Default `30` | Positive integer and `<= max_limit`; used when caller omits a limit. |
+| `PaginationPolicy` | `max_limit` | New | Default `100` | Positive integer; protects large AX scans and smoke output size. |
+| `CollectionDiagnosticsPolicy` | `include_skipped_count` | New | Default `true` | Safe diagnostic count; no raw skipped item values. |
+| `CollectionDiagnosticsPolicy` | `include_field_failures` | New | Default `true` | Field names and counts only unless debug mode is explicit. |
+| `CollectionDiagnosticsPolicy` | `include_candidate_counts` | New | Default `true` | Helps tune selectors and pagination without exposing raw AX payloads. |
+| `PaginationState` | `limit`, `returned` | New | Required | Non-negative integers; `returned <= limit`. |
+| `PaginationState` | `has_more` | New | Required | Best-effort for visible-window mode; true means more candidates may exist, not stable cursor availability. |
+| `PaginationState` | `next_cursor` | New | Default `None` | Must remain `None` for MVP visible-window pagination. |
+
 ## Core Object Lifecycle
 
 ### Selector Profile Lifecycle
