@@ -384,7 +384,14 @@ class SdkExampleTests(unittest.TestCase):
 
         self.assertEqual(
             [command["operation"] for command in service_client.commands],
-            ["readiness", "open_app", "accessibility_query"],
+            [
+                "readiness",
+                "open_app",
+                "observe",
+                "focus_app",
+                "observe",
+                "accessibility_query",
+            ],
         )
         self.assertEqual(payload["summary"]["success"], True)
         self.assertEqual(
@@ -431,10 +438,12 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "accessibility_action",
+                "hotkey",
+                "observe",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
@@ -443,8 +452,8 @@ class SdkExampleTests(unittest.TestCase):
                 "press_key",
             ],
         )
-        self.assertEqual(service_client.commands[8]["input"]["text"], "文件传输助手")
-        self.assertEqual(service_client.commands[12]["input"]["text"], "hello")
+        self.assertEqual(service_client.commands[10]["input"]["text"], "文件传输助手")
+        self.assertEqual(service_client.commands[14]["input"]["text"], "hello")
         self.assertEqual(persisted["submitDraft"]["operation"], "submit_draft")
 
     def test_wechat_contacts_list_test_lists_contacts(self) -> None:
@@ -484,6 +493,7 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
@@ -535,27 +545,31 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "accessibility_action",
+                "hotkey",
+                "observe",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(service_client.commands[14]["input"]["text"], "Ada")
+        self.assertEqual(service_client.commands[17]["input"]["text"], "Ada")
         self.assertEqual(persisted["summary"]["messageLimit"], 30)
 
     def test_wechat_contacts_recent_messages_reports_open_failure(self) -> None:

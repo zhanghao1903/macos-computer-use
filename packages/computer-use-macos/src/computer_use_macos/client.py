@@ -2639,23 +2639,47 @@ def ax_actions(element: Any) -> list[str]:
         return []
 
 
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated())
+    except Exception:
+        return True
+
+
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    frontmost = workspace.frontmostApplication()
     if bundle_id:
+        if (
+            frontmost is not None
+            and app_matches_bundle(frontmost, bundle_id)
+            and app_is_usable(frontmost)
+        ):
+            return frontmost
         running_application = objc.lookUpClass("NSRunningApplication")
         apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
         for candidate in apps or []:
             try:
-                if not bool(candidate.isTerminated()):
+                if bool(candidate.isActive()) and app_is_usable(candidate):
                     return candidate
             except Exception:
+                pass
+        for candidate in apps or []:
+            if app_is_usable(candidate):
                 return candidate
         fail(
             "accessibility_query_target_app_not_running",
             f"No running app found for bundle id: {bundle_id}",
         )
-    return workspace.frontmostApplication()
+    return frontmost
 
 
 def safe_scalar(value: Any) -> Any:
@@ -2727,7 +2751,7 @@ def focused_window_for_app(app_element: Any) -> Any | None:
     for candidate in windows_of(app_element):
         if ax_role(candidate) == "AXWindow":
             return candidate
-    return focused
+    return None
 
 
 def time_budget_exceeded() -> bool:
@@ -3078,26 +3102,50 @@ def focused_window_for_app(app_element: Any) -> Any | None:
     for candidate in windows_of(app_element):
         if ax_role(candidate) == "AXWindow":
             return candidate
-    return focused
+    return None
+
+
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated())
+    except Exception:
+        return True
 
 
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    frontmost = workspace.frontmostApplication()
     if bundle_id:
+        if (
+            frontmost is not None
+            and app_matches_bundle(frontmost, bundle_id)
+            and app_is_usable(frontmost)
+        ):
+            return frontmost
         running_application = objc.lookUpClass("NSRunningApplication")
         apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
         for candidate in apps or []:
             try:
-                if not bool(candidate.isTerminated()):
+                if bool(candidate.isActive()) and app_is_usable(candidate):
                     return candidate
             except Exception:
+                pass
+        for candidate in apps or []:
+            if app_is_usable(candidate):
                 return candidate
         fail(
             "target_app_not_running",
             f"No running app found for bundle id: {bundle_id}",
         )
-    return workspace.frontmostApplication()
+    return frontmost
 
 
 def resolve_ax_path(window: Any, raw_path: str) -> tuple[Any | None, str]:
@@ -3381,22 +3429,46 @@ def mark_truncated(reason: str) -> None:
 
 def selected_running_app() -> Any:
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    frontmost = workspace.frontmostApplication()
     if TARGET_BUNDLE_ID:
+        if (
+            frontmost is not None
+            and app_matches_bundle(frontmost, TARGET_BUNDLE_ID)
+            and app_is_usable(frontmost)
+        ):
+            return frontmost
         running_application = objc.lookUpClass("NSRunningApplication")
         apps = running_application.runningApplicationsWithBundleIdentifier_(
             TARGET_BUNDLE_ID
         )
         for candidate in apps or []:
             try:
-                if not bool(candidate.isTerminated()):
+                if bool(candidate.isActive()) and app_is_usable(candidate):
                     return candidate
             except Exception:
+                pass
+        for candidate in apps or []:
+            if app_is_usable(candidate):
                 return candidate
         fail(
             "accessibility_tree_target_app_not_running",
             f"No running app found for bundle id: {TARGET_BUNDLE_ID}",
         )
-    return workspace.frontmostApplication()
+    return frontmost
+
+
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated())
+    except Exception:
+        return True
 
 
 def safe_scalar(value: Any) -> Any:

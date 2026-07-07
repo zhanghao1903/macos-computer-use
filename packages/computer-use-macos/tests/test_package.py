@@ -743,6 +743,9 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("TIME_BUDGET_SECONDS", source)
         self.assertIn("TARGET_BUNDLE_ID", source)
         self.assertIn("runningApplicationsWithBundleIdentifier_", source)
+        self.assertIn("frontmost = workspace.frontmostApplication()", source)
+        self.assertIn("app_matches_bundle(frontmost, TARGET_BUNDLE_ID)", source)
+        self.assertIn("bool(candidate.isActive())", source)
         self.assertIn("truncationReason", source)
         self.assertNotIn("for attr in attribute_names:", source)
 
@@ -944,7 +947,10 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("timeBudgetMs", source)
         self.assertIn("childrenCount", source)
         self.assertIn("def focused_window_for_app(", source)
+        self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
+        self.assertIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)
+        self.assertIn("return None", source)
 
     def test_package_accessibility_action_script_executes_verified_axpress(
         self,
@@ -956,6 +962,9 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn('"precondition_failed"', source)
         self.assertIn('"AXPress"', source)
         self.assertIn("resolve_ax_path", source)
+        self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
+        self.assertIn("bool(candidate.isActive())", source)
+        self.assertIn("return None", source)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()

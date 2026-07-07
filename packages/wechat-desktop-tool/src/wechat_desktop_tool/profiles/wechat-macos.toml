@@ -173,10 +173,16 @@ time_budget_ms = 5000
 role_in = ["AXRow"]
 
 [collections.conversations.fields.rawLabel]
-source = "attribute"
-attribute = "AXDescription"
+source = "descendant"
 required = true
 transform = "strip"
+
+[[collections.conversations.fields.rawLabel.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 10
+time_budget_ms = 1000
+role_in = ["AXStaticText", "AXCell"]
 
 [collections.conversations.fields.element]
 source = "computed"

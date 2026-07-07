@@ -600,6 +600,42 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.items, ())
         self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
 
+    def test_descendant_field_can_use_node_summary_without_attribute(self) -> None:
+        raw = _valid_profile()
+        display_name = raw["collections"]["contacts"]["fields"]["displayName"]  # type: ignore[index]
+        del display_name["attribute"]  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload([{"axPath": "0/11/0", "role": "AXRow"}]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Ada",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Ada"},))
+
     def test_pagination_uses_limit_plus_one_for_has_more(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         runner = FakeQueryRunner(

@@ -320,7 +320,7 @@ def _validate_field(
         raise SelectorProfileValidationError(
             f"{field_name}.selector is required for descendant fields"
         )
-    if field.source in {"attribute", "descendant"} and field.attribute is None:
+    if field.source == "attribute" and field.attribute is None:
         raise SelectorProfileValidationError(
             f"{field_name}.attribute is required for {field.source} fields"
         )

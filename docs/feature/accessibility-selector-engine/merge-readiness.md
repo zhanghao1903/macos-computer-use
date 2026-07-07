@@ -11,8 +11,11 @@
 Do not merge or release this feature yet.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
-profile migration, collection extraction, and selector profile override config.
-The remaining release gate is real macOS/WeChat smoke evidence. The feature
+profile migration, collection extraction, selector profile override config, and
+the smoke-driven focus hardening. Real macOS/WeChat smoke has partially passed:
+`inspect_window` and `list_contacts(limit=30)` worked on a live client. The
+remaining release gate is live proof for conversations, contact switching,
+message reading, override behavior, and stale actionRef handling. The feature
 changes desktop automation behavior and cannot be considered complete from unit
 tests alone.
 
@@ -27,17 +30,32 @@ Implemented and covered by automated tests:
 - migrate WeChat contacts, conversations, visible messages, and open-contact
   internals to packaged selector profiles;
 - allow application-injected selector profile overrides through
-  `wechat.selector_profile_path`, with packaged-profile fallback.
+  `wechat.selector_profile_path`, with packaged-profile fallback;
+- harden live WeChat operation startup by verifying the focused window after
+  `open_app`, retrying `focus_app` when the window title is missing, and
+  failing closed when no focused AX window is available.
+
+Passed on a live WeChat desktop:
+
+- normalized WeChat window inspection on a live client;
+- visible WeChat contact list extraction on a live client;
 
 Still requiring real desktop proof:
 
-- visible WeChat contact list extraction on a live client;
 - visible WeChat conversation list extraction on a live client;
 - active chat message extraction on a live client;
 - switching to `文件传输助手` through `open_contact`;
 - valid local selector profile override;
 - invalid selector profile fallback;
 - stale action reference precondition failure.
+
+Blocked smoke condition observed on 2026-07-07:
+
+- after one successful `inspect_window` and one successful `list_contacts`
+  smoke run, subsequent smoke attempts saw WeChat frontmost but with an empty
+  window title and no focused AX window, even after `focus_app`;
+- the backend now returns `accessibility_query_no_focused_window` instead of a
+  false-positive application-root result in that state.
 
 ## Public Surface Impact
 
@@ -74,10 +92,11 @@ Automated package-boundary tests passed during F5 verification.
 Recorded in `verification.md`:
 
 - `app-control-protocol`: 54 tests passed;
-- `computer-use-macos`: 74 tests passed, 1 skipped;
+- `computer-use-macos`: 75 tests passed, 1 skipped after Slice 5B hardening;
 - `wechat-desktop-tool`: 86 tests passed;
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed;
+- SDK example tests: 6 tests passed;
 - WeChat package-boundary tests: 5 tests passed;
 - Python compile check: passed;
 - `git diff --check`: passed.
@@ -102,7 +121,11 @@ updated with links to real smoke reports before requesting merge.
 
 ## Merge Blockers
 
-1. Real macOS/WeChat smoke evidence is missing.
+1. Remaining real macOS/WeChat smoke evidence is missing for conversations,
+   opening `文件传输助手`, visible messages, override loading/fallback, and stale
+   actionRef preconditions.
+2. Current desktop smoke environment must expose a focused WeChat AX window
+   before those scenarios can be completed.
 
 ## Recommended PR Summary
 

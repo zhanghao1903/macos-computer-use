@@ -447,24 +447,9 @@ class WeChatDesktopTool:
             default=True,
         )
         evidence: dict[str, JsonValue] = {}
-        opened = self._app_control_command(
-            command,
-            phase="open_wechat",
-            operation="open_app",
-            input=self._open_app_input(),
-            phase_events=phase_events,
-        )
-        evidence["open_wechat"] = _inspect_window_observe_evidence(
-            opened,
-            include_raw=False,
-        )
+        opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, opened, evidence)
         top_level = self._app_control_command(
             command,
             phase="inspect_window",
@@ -633,12 +618,7 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, opened, evidence)
 
         selector_runner = _WeChatSelectorQueryRunner(
             self,
@@ -732,12 +712,7 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, opened, evidence)
         selector_runner = _WeChatSelectorQueryRunner(
             self,
             command,
@@ -768,14 +743,16 @@ class WeChatDesktopTool:
                 message="Could not locate WeChat search box.",
                 evidence=evidence,
             )
-        focused = self._click_node_phase(
+        focused = self._app_control_command(
             command,
-            _node_from_selector_element(search_box.elements[0]),
             phase="focus_search",
-            evidence=evidence,
-            snapshot_id=search_box.snapshot_id,
+            operation="hotkey",
+            input=self._target_app_input(
+                keys=list(self._config.search_hotkey),
+            ),
             phase_events=phase_events,
         )
+        evidence["focus_search"] = _safe_app_control_observation(focused)
         if not focused.success:
             return _from_app_control_failure(
                 command,
@@ -783,6 +760,34 @@ class WeChatDesktopTool:
                 focused,
                 evidence=evidence,
             )
+        verified_search = self._app_control_command(
+            command,
+            phase="verify_search_focus",
+            operation="observe",
+            input=self._target_app_input(
+                includeAccessibility=True,
+                includeVisibleText=True,
+            ),
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus"] = _safe_app_control_observation(
+            verified_search
+        )
+        if not verified_search.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified_search,
+                evidence=evidence,
+            )
+        search_focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified_search,
+            evidence=evidence,
+        )
+        if search_focus_failure is not None:
+            return search_focus_failure
         typed = self._app_control_command(
             command,
             phase="type_contact",
@@ -1252,12 +1257,7 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, opened, evidence)
         selector_runner = _WeChatSelectorQueryRunner(
             self,
             command,
@@ -1548,7 +1548,56 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         evidence["open_wechat"] = _safe_app_control_observation(opened)
-        return opened
+        if not opened.success:
+            return opened
+        ready = self._app_control_command(
+            command,
+            phase="verify_wechat_window",
+            operation="observe",
+            input=self._target_app_input(),
+            phase_events=phase_events,
+        )
+        evidence["verify_wechat_window"] = _safe_app_control_observation(ready)
+        if not ready.success or not _wechat_observation_has_window_title(ready):
+            focused = self._app_control_command(
+                command,
+                phase="focus_wechat",
+                operation="focus_app",
+                input=self._open_app_input(),
+                phase_events=phase_events,
+            )
+            evidence["focus_wechat"] = _safe_app_control_observation(focused)
+            if not focused.success:
+                return focused
+            ready = self._app_control_command(
+                command,
+                phase="verify_wechat_window_after_focus",
+                operation="observe",
+                input=self._target_app_input(),
+                phase_events=phase_events,
+            )
+            evidence["verify_wechat_window_after_focus"] = (
+                _safe_app_control_observation(ready)
+            )
+        if not ready.success:
+            return ready
+        identity_failure = _wechat_identity_failure(
+            command,
+            self._config,
+            ready,
+            evidence=evidence,
+        )
+        if identity_failure is not None:
+            return identity_failure
+        login_failure = _wechat_login_failure(
+            command,
+            self._config,
+            ready,
+            evidence=evidence,
+        )
+        if login_failure is not None:
+            return login_failure
+        return ready
 
     def _accessibility_query_input(
         self,
@@ -3218,6 +3267,16 @@ def _wechat_login_failure(
     )
 
 
+def _wechat_observation_has_window_title(observation: ToolObservation) -> bool:
+    title = _string_from_observation(
+        observation,
+        "windowTitle",
+        "window_title",
+        "title",
+    )
+    return title is not None and bool(title.strip())
+
+
 def _observation_indicates_login_required(observation: ToolObservation) -> bool:
     truthy_fields = (
         "loginRequired",
@@ -3607,6 +3666,26 @@ def _wechat_not_ready_failure(
         failure_kind="wechat_not_ready",
         message=message,
         retryable=True,
+        evidence=evidence,
+    )
+
+
+def _open_wechat_phase_failure(
+    command: ToolCommand,
+    result: ToolObservation,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    if result.tool == WECHAT_TOOL:
+        return result
+    failure_kind = (
+        "wechat_not_ready"
+        if result.operation in {"observe", "focus_app"}
+        else "wechat_open_failed"
+    )
+    return _from_app_control_failure(
+        command,
+        failure_kind,
+        result,
         evidence=evidence,
     )
 

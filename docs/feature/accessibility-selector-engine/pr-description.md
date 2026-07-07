@@ -59,21 +59,25 @@ and is not hidden behind selector resolution.
 Automated checks recorded in `verification.md`:
 
 - `app-control-protocol`: 54 tests passed
-- `computer-use-macos`: 74 tests passed, 1 skipped
+- `computer-use-macos`: 75 tests passed, 1 skipped
 - `wechat-desktop-tool`: 86 tests passed
+- SDK example tests: 6 tests passed
 - root repository tests, including release preflight and wheel-check: 101 tests
   passed
 - WeChat package-boundary tests: 5 tests passed
 - Python compile check: passed
 - `git diff --check`: passed
 
-## Manual Proof Required Before Merge
+## Manual Proof Status
 
-This PR must remain blocked until real macOS/WeChat smoke evidence is attached
+Partial real macOS/WeChat smoke evidence is recorded in `verification.md`:
+
+- `inspect_window` returned a normalized WeChat window model
+- `list_contacts(limit=30)` returned 29 visible contacts
+
+This PR must remain blocked until the remaining real smoke evidence is attached
 or linked from `verification.md`:
 
-- `inspect_window` returns a normalized WeChat window model
-- `list_contacts(limit=30)` returns visible contacts and action refs
 - `list_conversations(limit=30)` returns visible conversations and action refs
 - `open_contact("文件传输助手")` switches the active chat
 - `read_visible_messages(limit=30)` returns visible message rows

@@ -74,6 +74,11 @@ class FakeAppControl:
             else command
         )
         self.commands.append(tool_command)
+        phase = tool_command.metadata.get("phase") if tool_command.metadata else None
+        if tool_command.operation == "observe" and phase == "verify_wechat_window" and (
+            not self._responses or not _is_explicit_observe_response(self._responses[0])
+        ):
+            return _default_observe_response(tool_command)
         if self._responses:
             response = self._responses.pop(0)
             if isinstance(response, ToolObservation):
@@ -93,6 +98,46 @@ class FakeAppControl:
             summary=f"app-control ok: {tool_command.operation}",
             observation={"input": tool_command.input},
         )
+
+
+def _is_explicit_observe_response(response: dict[str, Any] | ToolObservation) -> bool:
+    if isinstance(response, ToolObservation):
+        return response.operation == "observe"
+    if not response:
+        return True
+    observation = response.get("observation")
+    if not isinstance(observation, Mapping):
+        return False
+    return any(
+        key in observation
+        for key in (
+            "frontmostApp",
+            "frontmostBundleId",
+            "windowTitle",
+            "textExtract",
+            "accessibility",
+        )
+    )
+
+
+def _default_observe_response(command: ToolCommand) -> ToolObservation:
+    target_app = str(command.input.get("targetApp") or command.input.get("app") or "WeChat")
+    bundle_id = str(
+        command.input.get("bundleId")
+        or command.input.get("bundle_id")
+        or "com.tencent.xinWeChat"
+    )
+    return ToolObservation.ok(
+        command_id=command.command_id,
+        tool=command.tool,
+        operation=command.operation,
+        summary=f"Frontmost app: {target_app}. Window: 微信 (聊天).",
+        observation={
+            "frontmostApp": target_app,
+            "frontmostBundleId": bundle_id,
+            "windowTitle": "微信 (聊天)",
+        },
+    )
 
 
 class RecordingObserver:
@@ -815,14 +860,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.operation, "inspect_window")
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "accessibility_query", "accessibility_query"],
+            ["open_app", "observe", "accessibility_query", "accessibility_query"],
         )
-        self.assertEqual(app_control.commands[1].input["root"]["kind"], "focusedWindow")
-        self.assertEqual(app_control.commands[1].input["query"]["scope"], "children")
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 10_000)
-        self.assertIn("AXDescription", app_control.commands[1].input["query"]["attributes"])
-        self.assertEqual(app_control.commands[2].input["root"]["kind"], "axPath")
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11")
+        self.assertEqual(app_control.commands[2].input["root"]["kind"], "focusedWindow")
+        self.assertEqual(app_control.commands[2].input["query"]["scope"], "children")
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 10_000)
+        self.assertIn("AXDescription", app_control.commands[2].input["query"]["attributes"])
+        self.assertEqual(app_control.commands[3].input["root"]["kind"], "axPath")
+        self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/11")
         self.assertEqual(result.observation["schema"], WECHAT_WINDOW_SCHEMA)
         self.assertEqual(result.observation["includeRaw"], False)
         self.assertNotIn("rawObservation", result.observation)
@@ -1064,6 +1109,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
@@ -1072,25 +1118,25 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["target"]["axPath"], "0/2")
-        self.assertEqual(app_control.commands[2].input["action"], "AXPress")
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(app_control.commands[3].input["target"]["axPath"], "0/2")
+        self.assertEqual(app_control.commands[3].input["action"], "AXPress")
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(
-            app_control.commands[1].input["query"]["match"]["roleIn"],
+            app_control.commands[2].input["query"]["match"]["roleIn"],
             ["AXRadioButton"],
         )
-        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(
-            app_control.commands[3].input["query"]["match"]["roleIn"],
-            ["AXSplitGroup"],
-        )
-        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 5_000)
-        self.assertEqual(app_control.commands[4].input["query"]["limit"], 3)
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(
             app_control.commands[4].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 5_000)
+        self.assertEqual(app_control.commands[5].input["query"]["limit"], 3)
+        self.assertEqual(
+            app_control.commands[5].input["query"]["match"]["roleIn"],
             ["AXRow"],
         )
-        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 1_000)
+        self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 1_000)
         self.assertNotIn("attributeNames", result.observation["items"][0]["element"])
 
     def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
@@ -1125,7 +1171,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "accessibility_query"],
+            ["open_app", "observe", "accessibility_query"],
         )
 
     def test_list_conversations_uses_packaged_selector_profile(self) -> None:
@@ -1147,6 +1193,24 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         ),
                     ],
                 ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/0/0",
+                            "AXCell",
+                            description="文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/1/0/1/0",
+                            "AXCell",
+                            description="目标联系人,最近消息,10:00,消息免打扰",
+                        )
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1167,26 +1231,30 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_000)
-        self.assertEqual(
-            app_control.commands[1].input["query"]["match"]["roleIn"],
-            ["AXRadioButton"],
-        )
-        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],
-            ["AXSplitGroup"],
+            ["AXRadioButton"],
         )
-        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 5_000)
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(
             app_control.commands[3].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 5_000)
+        self.assertEqual(
+            app_control.commands[4].input["query"]["match"]["roleIn"],
             ["AXRow"],
         )
+        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 1_000)
 
     def test_execute_action_runs_accessibility_action_ref(self) -> None:
         app_control = FakeAppControl([_accessibility_action_response()])
@@ -1309,6 +1377,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _main_children_query_response(),
                 {},
                 {},
+                {},
                 _accessibility_query_response(
                     [_normalized_row("0/11/search/0", "Ada Lovelace")]
                 ),
@@ -1337,20 +1406,22 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
+                "hotkey",
+                "observe",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_000)
-        self.assertEqual(app_control.commands[5].input["text"], "Ada")
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(app_control.commands[7].input["text"], "Ada")
 
     def test_open_contact_reports_disambiguation_from_query_stub(self) -> None:
         app_control = FakeAppControl(
@@ -1359,6 +1430,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _main_children_query_response(),
+                {},
                 {},
                 {},
                 _accessibility_query_response(
@@ -1383,10 +1455,12 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
+                "hotkey",
+                "observe",
                 "type_text",
                 "accessibility_query",
             ],
@@ -1427,6 +1501,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
@@ -1440,6 +1515,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _top_level_query_response(chats_selected=True),
                 _top_level_query_response(chats_selected=True),
                 _main_children_query_response(),
+                {},
                 {},
                 {},
                 _accessibility_query_response(
@@ -2050,6 +2126,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "type_text",
                 "press_key",
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
@@ -2209,23 +2286,24 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             [
                 "open_app",
+                "observe",
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
             ],
-        )
-        self.assertEqual(app_control.commands[1].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(
-            app_control.commands[1].input["query"]["match"]["roleIn"],
-            ["AXSplitGroup"],
         )
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],
             ["AXSplitGroup"],
         )
+        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(
             app_control.commands[3].input["query"]["match"]["roleIn"],
+            ["AXSplitGroup"],
+        )
+        self.assertEqual(
+            app_control.commands[4].input["query"]["match"]["roleIn"],
             ["AXRow", "AXCell", "AXStaticText"],
         )
 
@@ -2869,9 +2947,9 @@ class WeChatDesktopCliTests(unittest.TestCase):
         )
         self.assertEqual(
             [command.operation for command in app_control.commands],
-            ["open_app", "accessibility_query", "accessibility_query"],
+            ["open_app", "observe", "accessibility_query", "accessibility_query"],
         )
-        self.assertEqual(app_control.commands[1].input["query"]["scope"], "children")
+        self.assertEqual(app_control.commands[2].input["query"]["scope"], "children")
 
 
 class WeChatDesktopSmokeScriptTests(unittest.TestCase):

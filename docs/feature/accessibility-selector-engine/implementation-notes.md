@@ -863,3 +863,91 @@ Remaining work:
 - attach or link the real smoke reports in the PR/MR description before merge;
 - keep public `resolve_selector` / `extract_collection` protocol commands
   deferred until a separate API proposal.
+
+## Slice 5B: Live WeChat Smoke Hardening
+
+Status: implemented; real smoke partially proven.
+
+Commit scope:
+
+- prefer the frontmost running app when it matches the requested bundle id in
+  Accessibility query/action/tree scripts;
+- fail closed when a focused Accessibility element is not an `AXWindow`
+  instead of treating the application root as a successful window root;
+- make the shared WeChat open phase verify the window after `open_app` and
+  retry with `focus_app` when the observation has no window title;
+- focus WeChat search through the configured search hotkey plus an
+  Accessibility-backed observe check instead of the old name-based click path;
+- let descendant collection fields use a normalized node summary when a profile
+  intentionally omits a fixed AX attribute;
+- adjust the packaged conversation collection to read nested `AXStaticText` or
+  `AXCell` content, matching the live WeChat conversation row structure;
+- update SDK example fake-service tests for the new window verification and
+  search-focus command sequence.
+
+Public surface:
+
+- no new public selector command;
+- no WeChat semantic response schema change;
+- no raw coordinate click requirement added;
+- `wechat.selector_profile_path` behavior remains unchanged.
+
+Implemented behavior:
+
+- `inspect_window` no longer reports a false success when the matched running
+  app has no focused AX window;
+- live WeChat window inspection can normalize navigation tabs and regions from
+  the actual focused WeChat window;
+- live contact listing can extract visible contacts through packaged selector
+  profiles and collection extraction;
+- open-contact search focus avoids the older System Events selector that was
+  brittle against WeChat's localized UI labels.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 75 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 86 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest tests.test_sdk_examples
+```
+
+Result: 6 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover -s tests
+```
+
+Result: 101 tests passed.
+
+Real WeChat smoke evidence:
+
+- passed: `inspect_window` normalized `wechat.window.v1` from live WeChat with
+  navigation labels `chats`, `contacts`, and `favorites`, plus `mainContent`
+  and `searchBox` regions;
+- passed: `list_contacts(limit=30)` returned 29 visible contacts from live
+  WeChat;
+- incomplete: later `list_conversations`, `open_contact`, and
+  `read_visible_messages` smoke attempts could not continue because the current
+  desktop state reported WeChat as frontmost but exposed no focused AX window,
+  even after `focus_app`.
+
+Remaining work:
+
+- repeat real smoke after restoring a focused WeChat chat window;
+- record live proof for conversations, opening `文件传输助手`, visible messages,
+  valid override loading, invalid override fallback, and stale actionRef
+  precondition failure before requesting merge.
