@@ -1479,3 +1479,51 @@ Live smoke impact:
   verify listed/visible row opening followed by `read_visible_messages`;
 - arbitrary contacts that are not visible still require the search-box path and
   its real desktop proof.
+
+## WeChat Corrective Slice: ActionRef Precondition Failure Mapping
+
+Status: implemented; automated verification passed; live WeChat stale-actionRef
+proof still required.
+
+Commit scope:
+
+- map backend Accessibility `precondition_failed` results from
+  `execute_action(actionRef)` to the semantic
+  `wechat_action_precondition_failed` failure kind;
+- keep unsupported-backend fallback behavior for `unsupported_operation` and
+  `unsupported_accessibility_action`;
+- ensure stale or invalid actionRefs do not continue into selector-click
+  fallback when preconditions fail;
+- preserve backend diagnostics in the action failure evidence.
+
+Public surface:
+
+- no new command builder, protocol command, or schema name;
+- `execute_action` failure mapping is more specific for stale/precondition
+  failures;
+- existing successful `wechat.execute_action.v1` responses are unchanged.
+
+Implemented behavior:
+
+- stale actionRefs that fail backend role, label, action, or enabled
+  preconditions now fail closed as `wechat_action_precondition_failed`;
+- selector-click fallback remains available only when the backend does not
+  support `accessibility_action`;
+- a precondition failure produces no raw-coordinate or selector-click fallback.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k execute_action
+```
+
+Result: 3 tests passed.
+
+```bash
+python -m py_compile \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.

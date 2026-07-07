@@ -224,6 +224,31 @@ New coverage:
 - SDK send-message fixtures now cover opening File Transfer through the visible
   row actionRef before drafting and submitting.
 
+## Additional Verification: ActionRef Precondition Failure Mapping
+
+Date: 2026-07-07.
+
+This verification covers the WeChat semantic `execute_action(actionRef)` failure
+path for stale or invalid action references.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Execute-action focused tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k execute_action` | Passed: 3 tests |
+| WeChat tool/profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 88 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 6 tests |
+| Python compile check | `python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- backend `precondition_failed` results are mapped to
+  `wechat_action_precondition_failed`;
+- stale actionRefs that fail role, label, action, or enabled checks do not use
+  selector-click fallback;
+- unsupported-backend responses still use selector fallback when one is
+  available;
+- backend failure details remain in the action evidence for caller diagnostics.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

@@ -1203,7 +1203,7 @@ class WeChatDesktopTool:
         if not result.success:
             return _from_app_control_failure(
                 command,
-                "wechat_action_failed",
+                _execute_action_failure_kind(result),
                 result,
                 evidence=evidence,
             )
@@ -2712,7 +2712,7 @@ def _stable_id(label: str, fallback_index: int) -> str:
 
 
 def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
-    failure_kind = result.failure_kind
+    failure_kind = _accessibility_action_failure_kind(result)
     if failure_kind in {
         "unsupported_operation",
         "unsupported_accessibility_action",
@@ -2730,6 +2730,27 @@ def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
                 "unsupported_accessibility_action",
             }
     return False
+
+
+def _execute_action_failure_kind(result: ToolObservation) -> str:
+    if _accessibility_action_failure_kind(result) == "precondition_failed":
+        return "wechat_action_precondition_failed"
+    return "wechat_action_failed"
+
+
+def _accessibility_action_failure_kind(result: ToolObservation) -> str | None:
+    if result.failure_kind is not None:
+        return result.failure_kind
+    observation = result.observation
+    if isinstance(observation, Mapping):
+        for key in ("accessibilityAction", "accessibility_action"):
+            nested = observation.get(key)
+            if not isinstance(nested, Mapping):
+                continue
+            failure_kind = nested.get("failureKind") or nested.get("failure_kind")
+            if isinstance(failure_kind, str) and failure_kind:
+                return failure_kind
+    return None
 
 
 def _selector_fallback_from_action_ref(

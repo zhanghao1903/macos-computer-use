@@ -581,6 +581,27 @@ def _unsupported_accessibility_action_response() -> ToolObservation:
     )
 
 
+def _precondition_failed_accessibility_action_response() -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="precondition_failed",
+            message="label did not match preconditions.labelIn",
+            retryable=True,
+        ),
+        summary="label did not match preconditions.labelIn",
+        observation={
+            "accessibilityAction": {
+                "failureKind": "precondition_failed",
+                "message": "label did not match preconditions.labelIn",
+            }
+        },
+    )
+
+
 def _normalized_node(
     ax_path: str,
     role: str,
@@ -1523,6 +1544,55 @@ class WeChatDesktopToolTests(unittest.TestCase):
             {"role": "radio_button", "name": "通讯录"},
         )
         self.assertIn("execute_action:selector_fallback", result.evidence)
+
+    def test_execute_action_precondition_failure_does_not_use_selector_fallback(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                _precondition_failed_accessibility_action_response(),
+                {},
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+            "fallbacks": [
+                {
+                    "method": "selector_click",
+                    "selector": {
+                        "role": "radio_button",
+                        "name": "通讯录",
+                    },
+                }
+            ],
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_precondition_failed")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action"],
+        )
+        self.assertIn("execute_action", result.error.evidence)
+        self.assertNotIn("execute_action:selector_fallback", result.error.evidence)
 
     def test_click_node_phase_does_not_generate_coordinate_fallback(self) -> None:
         app_control = FakeAppControl([{}])
