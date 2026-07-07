@@ -860,6 +860,6 @@ Result: passed.
 Remaining work:
 
 - record real macOS/WeChat smoke evidence in `verification.md`;
-- run merge-readiness checks after smoke proof;
+- attach or link the real smoke reports in the PR/MR description before merge;
 - keep public `resolve_selector` / `extract_collection` protocol commands
   deferred until a separate API proposal.

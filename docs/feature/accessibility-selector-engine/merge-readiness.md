@@ -94,10 +94,14 @@ Present in `CHANGELOG.md` under `Unreleased`:
 - Internal: selector engine, packaged WeChat selector profile, collection
   extraction, and selector-backed WeChat semantic migration.
 
+## PR/MR Description
+
+Prepared in `pr-description.md`. It should be used as the draft PR body and
+updated with links to real smoke reports before requesting merge.
+
 ## Merge Blockers
 
 1. Real macOS/WeChat smoke evidence is missing.
-2. The final PR/MR description has not been prepared.
 
 ## Recommended PR Summary
 
