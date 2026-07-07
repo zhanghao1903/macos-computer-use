@@ -1786,3 +1786,67 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Selector Corrective Slice: Visible Match Filter
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- apply `MatchRule.visible` as a hard filter in selector matching;
+- infer visibility from explicit `visible`, `hidden`/`AXHidden`, raw
+  `AXHidden`, or positive frame dimensions when AX visibility is absent;
+- add `AXHidden` to selector and collection query attributes so real
+  Accessibility queries can supply hidden-state evidence;
+- record `visible` in selector evidence score breakdown when the filter is
+  applied;
+- add resolver fixtures proving hidden and zero-sized candidates are rejected
+  when `visible = true`.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- behavior remains inside the internal selector-profile MVP.
+
+Implemented behavior:
+
+- `visible = true` rejects explicitly hidden candidates;
+- candidates without explicit visibility can still pass when they have a
+  positive normalized frame;
+- zero-sized candidates fail the visibility heuristic;
+- candidates with no visibility evidence fail closed when a profile asks for a
+  visibility filter.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 43 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/collections.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 97 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.

@@ -216,6 +216,29 @@ New coverage:
 - required frame constraints reject candidates outside the configured geometry;
 - matched structural constraints are recorded in selector evidence.
 
+## Additional Verification: Visible Match Filter
+
+Date: 2026-07-07.
+
+This verification covers `MatchRule.visible`. The field was already parsed from
+profiles and documented as a hard filter; selector matching now applies it.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 43 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 97 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- `visible = true` rejects explicitly hidden candidates;
+- `visible = true` rejects zero-sized frame candidates;
+- positive frame dimensions provide a conservative visibility fallback when AX
+  visibility is absent;
+- selector queries request `AXHidden` for visibility evidence.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

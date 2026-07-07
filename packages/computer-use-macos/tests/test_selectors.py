@@ -551,6 +551,64 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.diagnostics.failure_kind, "selector_ambiguous")
         self.assertEqual(len(result.elements), 2)
 
+    def test_resolver_applies_visible_match_filter(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["steps"][0]["visible"] = True  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "visible": False,
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 0,
+                                "height": 20,
+                            },
+                        },
+                        {
+                            "axPath": "0/3",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                            "frame": {
+                                "x": 1,
+                                "y": 2,
+                                "width": 100,
+                                "height": 20,
+                            },
+                        },
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/3")
+        self.assertEqual(result.elements[0].evidence.score_breakdown["visible"], 1.0)
+        self.assertIn("AXHidden", runner.calls[0]["query"]["attributes"])
+
     def test_resolver_applies_required_frame_constraints(self) -> None:
         raw = _valid_profile()
         selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]

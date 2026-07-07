@@ -60,6 +60,25 @@ def node_frame(node: Mapping[str, Any]) -> Frame | None:
         return None
 
 
+def node_visible(node: Mapping[str, Any]) -> bool | None:
+    visible = node.get("visible")
+    if isinstance(visible, bool):
+        return visible
+    hidden = node.get("hidden")
+    if hidden is None:
+        hidden = node.get("AXHidden")
+    if isinstance(hidden, bool):
+        return not hidden
+    if "raw" in node and isinstance(node["raw"], Mapping):
+        raw_hidden = node["raw"].get("AXHidden")
+        if isinstance(raw_hidden, bool):
+            return not raw_hidden
+    frame = node_frame(node)
+    if frame is not None:
+        return frame.width > 0 and frame.height > 0
+    return None
+
+
 def node_attribute(node: Mapping[str, Any], attribute: str) -> JsonValue | None:
     key = ATTRIBUTE_ALIASES.get(attribute, attribute)
     value = node.get(key)
@@ -95,6 +114,10 @@ def match_node(
             return False, SelectorEvidence()
     if match.enabled is not None and bool(node.get("enabled")) != match.enabled:
         return False, SelectorEvidence()
+    if match.visible is not None:
+        visible = node_visible(node)
+        if visible is None or visible != match.visible:
+            return False, SelectorEvidence()
 
     attribute_matches = 0
     for attribute, matcher in match.attributes.items():
@@ -110,6 +133,8 @@ def match_node(
         score_breakdown["actions"] = 1.0
     if match.role or match.role_in:
         score_breakdown["role"] = 1.0
+    if match.visible is not None:
+        score_breakdown["visible"] = 1.0
     return True, SelectorEvidence(
         matched_attributes=matched_attributes,
         matched_actions=match.actions_include,
