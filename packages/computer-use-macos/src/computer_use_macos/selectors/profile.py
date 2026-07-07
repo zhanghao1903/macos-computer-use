@@ -206,7 +206,7 @@ def _parse_constraint(data: Any, field_name: str) -> SelectorConstraint:
         kind=_string(constraint.get("kind"), f"{field_name}.kind"),  # type: ignore[arg-type]
         value=constraint.get("value"),
         weight=_float(constraint.get("weight", 1.0), f"{field_name}.weight"),
-        required=bool(constraint.get("required", False)),
+        required=_bool(constraint.get("required", False), f"{field_name}.required"),
     )
 
 
@@ -241,7 +241,10 @@ def _parse_cache(data: Mapping[str, Any]) -> CachePolicy:
             if "ttl_seconds" in data
             else 60
         ),
-        validate_signature=bool(data.get("validate_signature", True)),
+        validate_signature=_bool(
+            data.get("validate_signature", True),
+            "cache.validate_signature",
+        ),
         key_attributes=_strings(data.get("key_attributes", ()), "cache.key_attributes"),
     )
 
@@ -290,7 +293,7 @@ def _parse_field(data: Any, field_name: str) -> FieldDefinition:
         source=_string(field.get("source"), f"{field_name}.source"),  # type: ignore[arg-type]
         selector=selector,
         attribute=_optional_string(field.get("attribute"), f"{field_name}.attribute"),
-        required=bool(field.get("required", False)),
+        required=_bool(field.get("required", False), f"{field_name}.required"),
         transform=_optional_string(field.get("transform"), f"{field_name}.transform"),
     )
 
@@ -310,9 +313,18 @@ def _parse_collection_diagnostics(
     data: Mapping[str, Any],
 ) -> CollectionDiagnosticsPolicy:
     return CollectionDiagnosticsPolicy(
-        include_skipped_count=bool(data.get("include_skipped_count", True)),
-        include_field_failures=bool(data.get("include_field_failures", True)),
-        include_candidate_counts=bool(data.get("include_candidate_counts", True)),
+        include_skipped_count=_bool(
+            data.get("include_skipped_count", True),
+            "diagnostics.include_skipped_count",
+        ),
+        include_field_failures=_bool(
+            data.get("include_field_failures", True),
+            "diagnostics.include_field_failures",
+        ),
+        include_candidate_counts=_bool(
+            data.get("include_candidate_counts", True),
+            "diagnostics.include_candidate_counts",
+        ),
     )
 
 

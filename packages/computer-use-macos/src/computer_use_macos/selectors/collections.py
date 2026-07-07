@@ -59,7 +59,10 @@ class CollectionExtractor:
                 diagnostics=selector_diagnostics(
                     tried_selectors=(collection.root_selector_id,),
                     query_count=root.diagnostics.query_count,
-                    node_count=root.diagnostics.node_count,
+                    node_count=_collection_node_count(
+                        collection,
+                        root.diagnostics.node_count,
+                    ),
                     truncated=root.diagnostics.truncated,
                     truncation_reason=root.diagnostics.truncation_reason,
                     failure_kind=root.diagnostics.failure_kind or "selector_not_found",
@@ -118,10 +121,11 @@ class CollectionExtractor:
                 + item_diagnostics.query_count
                 + field_query_count
             ),
-            node_count=(
+            node_count=_collection_node_count(
+                collection,
                 root.diagnostics.node_count
                 + item_diagnostics.node_count
-                + field_node_count
+                + field_node_count,
             ),
             truncated=truncated,
             truncation_reason=truncation_reason,
@@ -135,10 +139,11 @@ class CollectionExtractor:
                     else item_diagnostics.failure_kind
                 )
             ),
-            message=(
-                f"skipped {skipped} item(s); field failures {field_failures}"
-                if skipped
-                else item_diagnostics.message
+            message=_collection_message(
+                collection,
+                skipped=skipped,
+                field_failures=field_failures,
+                fallback=item_diagnostics.message,
             ),
         )
         return CollectionResult(
@@ -404,6 +409,34 @@ def _collection_needs_item_actions(collection: CollectionDefinition) -> bool:
         field.source == "computed" and field.attribute == "elementRef"
         for field in collection.fields.values()
     )
+
+
+def _collection_node_count(
+    collection: CollectionDefinition,
+    node_count: int,
+) -> int:
+    if not collection.diagnostics.include_candidate_counts:
+        return 0
+    return node_count
+
+
+def _collection_message(
+    collection: CollectionDefinition,
+    *,
+    skipped: int,
+    field_failures: int,
+    fallback: str | None,
+) -> str | None:
+    if not skipped:
+        return fallback
+    parts: list[str] = []
+    if collection.diagnostics.include_skipped_count:
+        parts.append(f"skipped {skipped} item(s)")
+    if collection.diagnostics.include_field_failures:
+        parts.append(f"field failures {field_failures}")
+    if parts:
+        return "; ".join(parts)
+    return "collection field extraction failed"
 
 
 @dataclass(frozen=True)

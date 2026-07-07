@@ -168,6 +168,31 @@ New coverage:
   farther candidate appears first;
 - relation-anchor queries remain included in selector diagnostics.
 
+## Additional Verification: Collection Diagnostics Policy Enforcement
+
+Date: 2026-07-07.
+
+This verification covers collection diagnostic policy behavior and strict
+boolean parsing for selector profile fields that previously used Python
+truthiness.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 40 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/profile.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 94 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/profile.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- collection field `required` values must be real booleans;
+- collection diagnostics policy values must be real booleans;
+- disabling `include_candidate_counts` suppresses collection result
+  `node_count`;
+- disabling skipped and field-failure count diagnostics preserves status and
+  failure kind while returning a generic message.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

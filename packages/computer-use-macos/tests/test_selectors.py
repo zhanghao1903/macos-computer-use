@@ -372,6 +372,27 @@ class SelectorProfileTests(unittest.TestCase):
         ):
             parse_selector_profile(profile)
 
+    def test_boolean_profile_fields_must_be_boolean(self) -> None:
+        profile = _valid_profile()
+        fields = profile["collections"]["contacts"]["fields"]  # type: ignore[index]
+        fields["displayName"]["required"] = "true"  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fields.displayName.required must be a boolean",
+        ):
+            parse_selector_profile(profile)
+
+        profile = _valid_profile()
+        diagnostics = profile["collections"]["contacts"]["diagnostics"] = {}  # type: ignore[index]
+        diagnostics["include_skipped_count"] = "false"  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "diagnostics.include_skipped_count must be a boolean",
+        ):
+            parse_selector_profile(profile)
+
     def test_parser_does_not_mutate_input(self) -> None:
         profile = _valid_profile()
         original = deepcopy(profile)
@@ -1038,6 +1059,58 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(
             result.diagnostics.message,
             "skipped 1 item(s); field failures 1",
+        )
+
+    def test_collection_diagnostics_policy_can_suppress_safe_counts(self) -> None:
+        raw = _valid_profile()
+        raw["collections"]["contacts"]["diagnostics"] = {  # type: ignore[index]
+            "include_skipped_count": False,
+            "include_field_failures": False,
+            "include_candidate_counts": False,
+        }
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload([]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=2)
+
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.items, ({"displayName": "Bob"},))
+        self.assertEqual(result.diagnostics.query_count, 4)
+        self.assertEqual(result.diagnostics.node_count, 0)
+        self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
+        self.assertEqual(
+            result.diagnostics.message,
+            "collection field extraction failed",
         )
 
     def test_missing_all_required_fields_fails_collection(self) -> None:

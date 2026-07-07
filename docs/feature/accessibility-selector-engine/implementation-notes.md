@@ -1658,3 +1658,68 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Selector Corrective Slice: Collection Diagnostics Policy Enforcement
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- parse remaining boolean profile fields with strict boolean validation instead
+  of Python truthiness;
+- reject string-like boolean values for collection fields and diagnostics
+  policy entries;
+- apply `CollectionDiagnosticsPolicy.include_candidate_counts` to collection
+  result `node_count`;
+- apply `include_skipped_count` and `include_field_failures` to collection
+  failure messages;
+- keep default diagnostics behavior unchanged for existing profiles.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- behavior remains inside the internal selector-profile MVP.
+
+Implemented behavior:
+
+- profile config such as `required = "true"` or
+  `include_skipped_count = "false"` now fails closed during parsing;
+- collection profiles can suppress candidate node counts while preserving query
+  counts and status/failure kind;
+- collection profiles can suppress skipped-item and field-failure counts from
+  human diagnostic messages;
+- default policy still reports safe counts such as
+  `skipped 1 item(s); field failures 1`.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 40 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/profile.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/collections.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 94 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.
