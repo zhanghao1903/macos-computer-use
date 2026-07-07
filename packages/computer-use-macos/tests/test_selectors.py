@@ -203,6 +203,77 @@ class SelectorProfileTests(unittest.TestCase):
         ):
             parse_selector_profile(profile)
 
+    def test_cursor_pagination_is_rejected_for_internal_mvp(self) -> None:
+        profile = _valid_profile()
+        profile["collections"]["contacts"]["pagination"] = {  # type: ignore[index]
+            "mode": "cursor",
+            "default_limit": 30,
+            "max_limit": 100,
+        }
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "cursor is not supported",
+        ):
+            parse_selector_profile(profile)
+
+    def test_near_relation_requires_positive_max_distance(self) -> None:
+        profile = _valid_profile()
+        step = profile["selectors"]["navigation"]["contacts"]["steps"][0]  # type: ignore[index]
+        step["relation"] = {  # type: ignore[index]
+            "anchor_selector_id": "fallback",
+            "relation": "near",
+        }
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "max_distance is required for near",
+        ):
+            parse_selector_profile(profile)
+
+        step["relation"]["max_distance"] = 0  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "max_distance must be > 0",
+        ):
+            parse_selector_profile(profile)
+
+    def test_best_pick_requires_nonzero_confidence_weight(self) -> None:
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["confidence"] = {  # type: ignore[index]
+            "minimum": 0.5,
+            "attribute_weight": 0,
+            "action_weight": 0,
+            "structure_weight": 0,
+            "geometry_weight": 0,
+            "cache_weight": 0,
+        }
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "non-zero weight",
+        ):
+            parse_selector_profile(profile)
+
+    def test_non_best_pick_allows_zero_confidence_weight(self) -> None:
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["pick"] = "first"  # type: ignore[index]
+        selector["confidence"] = {  # type: ignore[index]
+            "minimum": 0,
+            "attribute_weight": 0,
+            "action_weight": 0,
+            "structure_weight": 0,
+            "geometry_weight": 0,
+            "cache_weight": 0,
+        }
+
+        parsed = parse_selector_profile(profile)
+
+        self.assertEqual(parsed.selectors["navigation.contacts"].pick, "first")
+
     def test_unknown_computed_field_is_rejected(self) -> None:
         profile = _valid_profile()
         fields = profile["collections"]["contacts"]["fields"]  # type: ignore[index]

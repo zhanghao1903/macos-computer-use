@@ -66,6 +66,31 @@ New coverage:
 - `submits_text` and other mutating actions cannot be enabled by default;
 - non-boolean `enabled_by_default` values are rejected during profile parsing.
 
+## Additional Verification: Profile Policy Validation Hardening
+
+Date: 2026-07-07.
+
+This verification covers additional field-matrix enforcement for profile
+policies that were represented in the dataclasses but not fully fail-closed in
+validation.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 34 tests |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 88 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/validation.py packages/computer-use-macos/tests/test_selectors.py docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md` | Passed |
+
+New coverage:
+
+- `PaginationPolicy.mode = "cursor"` is rejected during the internal MVP;
+- `RelationRule.relation = "near"` requires a positive `max_distance`;
+- relation distances cannot be zero or negative;
+- `pick = "best"` requires at least one non-zero confidence scoring weight;
+- non-best pick strategies may still use zero scoring weights when they do not
+  depend on best-candidate scoring.
+
 ## Additional Verification: WeChat Search Hotkey Recovery
 
 Date: 2026-07-07.

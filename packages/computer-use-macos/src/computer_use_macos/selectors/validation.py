@@ -143,7 +143,11 @@ def _validate_selector(
         _validate_constraint(constraint, f"{field_name}.constraints[{index}]")
     if selector.pick not in PICK_STRATEGIES:
         raise SelectorProfileValidationError(f"{field_name}.pick is invalid")
-    _validate_confidence(selector.confidence, f"{field_name}.confidence")
+    _validate_confidence(
+        selector.confidence,
+        f"{field_name}.confidence",
+        pick=selector.pick,
+    )
     _validate_cache(selector.cache, f"{field_name}.cache")
     for fallback in selector.fallbacks:
         if fallback not in selector_ids:
@@ -239,9 +243,13 @@ def _validate_relation(
         )
     if relation.relation not in RELATION_KINDS:
         raise SelectorProfileValidationError(f"{field_name}.relation is invalid")
-    if relation.max_distance is not None and relation.max_distance < 0:
+    if relation.max_distance is not None and relation.max_distance <= 0:
         raise SelectorProfileValidationError(
-            f"{field_name}.max_distance must be >= 0"
+            f"{field_name}.max_distance must be > 0"
+        )
+    if relation.relation == "near" and relation.max_distance is None:
+        raise SelectorProfileValidationError(
+            f"{field_name}.max_distance is required for near relations"
         )
 
 
@@ -258,6 +266,8 @@ def _validate_constraint(
 def _validate_confidence(
     confidence: ConfidencePolicy,
     field_name: str,
+    *,
+    pick: str,
 ) -> None:
     if not 0 <= confidence.minimum <= 1:
         raise SelectorProfileValidationError(f"{field_name}.minimum must be 0..1")
@@ -270,6 +280,10 @@ def _validate_confidence(
     )
     if any(weight < 0 for weight in weights):
         raise SelectorProfileValidationError(f"{field_name} weights must be >= 0")
+    if pick == "best" and all(weight == 0 for weight in weights):
+        raise SelectorProfileValidationError(
+            f"{field_name} must have at least one non-zero weight for best pick"
+        )
 
 
 def _validate_cache(cache: CachePolicy, field_name: str) -> None:
@@ -361,6 +375,10 @@ def _validate_pagination(
 ) -> None:
     if pagination.mode not in PAGINATION_MODES:
         raise SelectorProfileValidationError(f"{field_name}.mode is invalid")
+    if pagination.mode == "cursor":
+        raise SelectorProfileValidationError(
+            f"{field_name}.mode cursor is not supported in the internal MVP"
+        )
     if pagination.default_limit <= 0:
         raise SelectorProfileValidationError(
             f"{field_name}.default_limit must be > 0"

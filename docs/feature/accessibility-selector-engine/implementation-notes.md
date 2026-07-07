@@ -114,6 +114,53 @@ python -m py_compile \
 
 Result: passed.
 
+## Slice 1C: Profile Policy Validation Hardening
+
+Status: implemented.
+
+Commit scope:
+
+- reject `PaginationPolicy.mode = "cursor"` during the internal MVP because
+  cursor continuation semantics are still future-only in the design;
+- require `RelationRule.max_distance` for `near` relations and require any
+  provided relation distance to be positive;
+- reject `pick = "best"` selectors whose confidence weights are all zero;
+- add focused selector-profile tests for these fail-closed validation rules.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no new command builder;
+- no protocol schema change;
+- no CLI change;
+- no stable API docs update.
+
+Implemented behavior:
+
+- visible-window and none pagination remain valid;
+- cursor pagination remains represented in the model as a future design value
+  but is rejected by profile validation until a public cursor lifecycle exists;
+- `near` relation profiles must define a positive maximum distance before they
+  can be activated;
+- `pick = "best"` profiles must provide at least one scoring signal.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 34 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/validation.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
 ## Slice 2: Selector Resolver Over Bounded Queries
 
 Status: implemented.
