@@ -143,6 +143,69 @@ the profile override/fallback checks pass. They still do not produce merge
 proof because macOS keeps Codex frontmost even after WeChat open/focus and
 AppleScript activation report success.
 
+On the continuation run on 2026-07-08, the new read-only prerequisite probe was
+run from the Codex-hosted Python process:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_live_prereq_probe.py \
+  --output /private/tmp/selector-live-prereq-probe-continuation-20260708.json
+```
+
+Result:
+
+```text
+success=false
+readyForSmoke=false
+failureKind=accessibility_not_trusted
+accessibilityTrusted=false
+wechatRunning=false
+frontmostWeChat=false
+wechatAxWindow=false
+```
+
+That result applies only to the Codex-spawned Python process. The local
+app-control service was then used as the authoritative smoke host because its
+readiness check has Accessibility permission.
+
+The consolidated selector-engine smoke was rerun through the existing trusted
+local service:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --output /private/tmp/selector-live-selector-engine-smoke-continuation-20260708.json \
+  --contact "文件传输助手" \
+  --conversation-limit 30 \
+  --contact-limit 30 \
+  --message-limit 30
+```
+
+Result:
+
+```text
+systemOpenWeChat=true
+readiness=true
+accessibility_trusted=true
+validProfileOverride=true
+invalidProfileFallback=true
+openWeChat=false
+failedStep=openWeChat
+failureKind=wechat_not_ready
+open_app WeChat=true
+focus_app WeChat=true
+system open and AppleScript activate=true
+before focus frontmostBundleId=com.openai.codex
+after focus frontmostBundleId=com.openai.codex
+```
+
+This repeats the same trusted-service desktop blocker: automation can request
+WeChat open/focus successfully, but macOS keeps Codex as the frontmost app, so
+the WeChat adapter fails closed before selector queries, contact switching, or
+message reading run.
+
 ## Required Manual Recovery
 
 Before rerunning the remaining smoke tests, restore a real WeChat main window

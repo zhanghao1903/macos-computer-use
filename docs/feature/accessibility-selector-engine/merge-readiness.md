@@ -95,6 +95,17 @@ Blocked smoke conditions observed on 2026-07-07:
   failed at `openWeChat` because `observe` still reported
   `frontmostBundleId=com.openai.codex` after WeChat `open_app`,
   `focus_app`, and AppleScript activation returned success.
+- a continuation probe on 2026-07-08 wrote
+  `/private/tmp/selector-live-prereq-probe-continuation-20260708.json` and
+  showed that the Codex-spawned Python process itself is not
+  Accessibility-trusted. The trusted local service was then used for the
+  authoritative smoke retry.
+- `/private/tmp/selector-live-selector-engine-smoke-continuation-20260708.json`
+  reran the consolidated smoke through the local service. Readiness passed
+  with `accessibility_trusted=true`, system open and AppleScript activation
+  returned success, and profile override/fallback checks passed, but
+  `openWeChat` still failed because Codex remained the frontmost bundle before
+  and after `focus_app`.
 
 Recovery steps and the remaining smoke command sequence are recorded in
 `live-smoke-recovery.md`. The preferred rerun entrypoint is now

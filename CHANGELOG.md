@@ -42,6 +42,9 @@
   required proof.
 - Record the latest live WeChat selector-engine smoke retry evidence and the
   remaining Codex-frontmost desktop blocker.
+- Record the continuation live WeChat selector-engine smoke retry and separate
+  the Codex-hosted probe permission result from the trusted local-service
+  frontmost blocker.
 - Add a documentation index, refresh README installation/API guidance, and
   expand the API reference for package roles and command builders.
 - Add architecture documents for `computer-use-macos` and
