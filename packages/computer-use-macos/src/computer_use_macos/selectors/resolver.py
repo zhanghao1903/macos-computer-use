@@ -317,7 +317,13 @@ class SelectorResolver:
                 score_breakdown=score_breakdown,
                 debug_attributes=evidence.debug_attributes,
             )
-        confidence = confidence_score(evidence, constraint_score=constraint_score)
+        confidence = confidence_score(
+            evidence,
+            constraint_score=constraint_score,
+            policy=selector.confidence,
+            include_structure=bool(selector.constraints) and apply_constraints,
+            include_geometry=step.relation is not None,
+        )
         if confidence < selector.confidence.minimum:
             return None
         path = node_ax_path(node)

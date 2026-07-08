@@ -1811,6 +1811,71 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 Result: passed with existing external-proof warnings for real desktop/PyPI
 proof that remain outside this automated slice.
 
+## Selector Corrective Slice: Confidence Policy Weights
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- apply `ConfidencePolicy` weights during selector candidate scoring;
+- include attribute, action, structure, geometry, and cache score categories
+  only when the selector asks for that signal;
+- make structural constraint scores contribute according to
+  `structure_weight`;
+- make relation geometry evidence contribute according to `geometry_weight`;
+- keep hard filters such as role, enabled, visible, and selected as
+  fail-closed filters rather than independent confidence weights;
+- add resolver fixtures proving a candidate that passes hard filters can still
+  fail the confidence minimum when the profile weights require structural
+  evidence.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- behavior remains inside the internal selector-profile MVP.
+
+Implemented behavior:
+
+- `attribute_weight`, `action_weight`, `structure_weight`,
+  `geometry_weight`, and `cache_weight` are no longer validation-only fields;
+- optional structural constraints can raise or lower candidate confidence
+  without becoming hard rejects;
+- selectors without weighted scoring signals still retain the previous
+  hard-filter-only confidence behavior.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 48 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/matching.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 102 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.
+
 ## Selector Corrective Slice: Nearest-To-Anchor Pick Strategy
 
 Status: implemented; automated verification passed; live profile proof still

@@ -9,6 +9,7 @@ from typing import Any
 
 from .models import (
     AttributeMatcher,
+    ConfidencePolicy,
     Frame,
     JsonValue,
     MatchRule,
@@ -250,15 +251,31 @@ def confidence_score(
     evidence: SelectorEvidence,
     *,
     constraint_score: float,
+    policy: ConfidencePolicy,
+    include_structure: bool = False,
+    include_geometry: bool = False,
 ) -> float:
-    if not evidence.score_breakdown and constraint_score == 0:
-        return 1.0
-    score = 0.0
-    if evidence.score_breakdown:
-        score += sum(evidence.score_breakdown.values()) / len(evidence.score_breakdown)
-    score += min(constraint_score, 1.0)
-    divisor = 2 if constraint_score else 1
-    return min(score / divisor, 1.0)
+    weighted_score = 0.0
+    total_weight = 0.0
+
+    def add_score(score: float | None, weight: float) -> None:
+        nonlocal weighted_score, total_weight
+        if weight <= 0 or score is None:
+            return
+        weighted_score += max(0.0, min(float(score), 1.0)) * weight
+        total_weight += weight
+
+    add_score(evidence.score_breakdown.get("attributes"), policy.attribute_weight)
+    add_score(evidence.score_breakdown.get("actions"), policy.action_weight)
+    if include_structure:
+        add_score(min(constraint_score, 1.0), policy.structure_weight)
+    if include_geometry:
+        add_score(evidence.score_breakdown.get("geometry", 0.0), policy.geometry_weight)
+    add_score(evidence.score_breakdown.get("cache"), policy.cache_weight)
+
+    if total_weight:
+        return min(weighted_score / total_weight, 1.0)
+    return 1.0
 
 
 def _constraint_passes(

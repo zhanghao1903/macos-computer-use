@@ -450,6 +450,31 @@ New coverage:
 - the direct backend script contains `childRoles` and `descendantRoles`
   generation support.
 
+## Additional Verification: Confidence Policy Weights
+
+Date: 2026-07-08.
+
+This verification covers `ConfidencePolicy` runtime scoring. The fields were
+already parsed and validated, but resolver confidence previously used a simple
+average that ignored the profile-defined category weights.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 48 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/matching.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 102 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+
+New coverage:
+
+- candidate confidence uses profile-defined category weights;
+- a candidate that passes hard filters can still fail `minimum` when the
+  profile requires structural evidence;
+- matched optional structural constraints can lift a candidate above the
+  profile minimum;
+- selectors without weighted scoring signals keep hard-filter-only confidence
+  behavior.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
