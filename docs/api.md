@@ -183,6 +183,13 @@ For new UI-model APIs, prefer `accessibility_query` over
 requested subtree and attributes, returns normalized `nodes`, and avoids
 exposing raw `attributeNames` to application callers.
 
+The query `root.kind` can be `focusedWindow`, `frontmostApp`, or `axPath`.
+`focusedWindow` is the default window-rooted query. `frontmostApp` reads from
+the target application's AX root and can still return app-level nodes when no
+focused AX window is available. `axPath` accepts either focused-window paths
+such as `0/12/0` or app-root paths such as `app/0`; app-root paths are intended
+for scoped reads and are not valid `accessibility_action` targets.
+
 Example protocol command:
 
 ```python

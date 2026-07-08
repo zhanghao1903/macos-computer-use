@@ -503,6 +503,32 @@ New coverage:
 - collection queries include custom step match attributes in their bounded AX
   attribute requests.
 
+## Additional Verification: Frontmost App Query Root
+
+Date: 2026-07-08.
+
+This verification covers `SelectorRoot.kind = "frontmostApp"` and the matching
+`accessibility_query` root behavior. Previously the selector resolver rewrote
+`frontmostApp` to `focusedWindow`, and the direct query backend rejected
+`frontmostApp` roots.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 51 tests |
+| Package client tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py` | Passed: 55 tests, 1 skipped |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/tests/test_selectors.py packages/computer-use-macos/tests/test_package.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 106 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+| Release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python scripts/release_preflight.py` | Passed with existing external-proof warnings |
+
+New coverage:
+
+- resolver passes `frontmostApp` to its query runner without rewriting it;
+- direct client request normalization accepts `root.kind = "frontmostApp"`;
+- direct query script supports app-root paths such as `app`;
+- script source keeps focused-window `0/...` paths and app-root `app/...`
+  paths as distinct query roots.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a

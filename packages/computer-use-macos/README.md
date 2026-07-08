@@ -72,6 +72,12 @@ Set `includeChildRoles` or `includeDescendantRoles` in the query when a caller
 needs bounded structural summaries for selector matching. These fields return
 role names only and avoid exposing full child nodes.
 
+Supported query roots are `focusedWindow`, `frontmostApp`, and `axPath`.
+`frontmostApp` reads from the application AX root for app-level inspection;
+`axPath` may reference focused-window paths such as `0/12/0` or app-root paths
+such as `app/0`. App-root paths are read-only query paths and should not be
+passed to `accessibility_action`.
+
 Helper manifests can be used directly:
 
 ```python

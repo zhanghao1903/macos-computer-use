@@ -476,7 +476,7 @@ class SelectorResolver:
         if root.kind == "focusedWindow":
             return {"kind": "focusedWindow"}
         if root.kind == "frontmostApp":
-            return {"kind": "focusedWindow"}
+            return {"kind": "frontmostApp"}
         if root.kind == "axPath":
             return {"kind": "axPath", "axPath": root.ax_path or ""}
         if root.kind == "selector" and root.selector_id:

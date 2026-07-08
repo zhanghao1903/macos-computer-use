@@ -9,6 +9,8 @@
 - Add `wechat.selector_profile_path` and
   `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH` so applications can inject a local
   WeChat selector profile without rebuilding `wechat-desktop-tool`.
+- Add `frontmostApp` root support to scoped `accessibility_query` so selector
+  profiles can inspect app-level Accessibility nodes without a focused window.
 
 ### Internal
 

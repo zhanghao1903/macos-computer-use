@@ -957,6 +957,82 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 
 Result: 6 tests passed.
 
+## Selector Corrective Slice: Frontmost App Query Root
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- add `frontmostApp` to direct `accessibility_query` request normalization as
+  an additive query root kind;
+- make the direct PyObjC query script resolve `frontmostApp` to the
+  application AX element instead of requiring a focused AX window;
+- support app-root query paths such as `app` and `app/0` for scoped reads;
+- preserve focused-window paths such as `0/12/0` for existing query and action
+  behavior;
+- make `SelectorResolver` pass `SelectorRoot(kind="frontmostApp")` through to
+  the query runner instead of rewriting it to `focusedWindow`;
+- update developer docs to distinguish focused-window paths from app-root
+  read paths.
+
+Public surface:
+
+- additive `accessibility_query` root behavior in `computer-use-macos`;
+- no new command builder, protocol command, JSON Schema, or CLI command;
+- no change to `accessibility_action`, which continues to execute only
+  focused-window `axPath` targets;
+- generic public selector protocol commands remain deferred.
+
+Implemented behavior:
+
+- selector profiles can inspect app-level AX nodes when the live app has no
+  focused AX window;
+- app-root reads return normalized `axPath` values rooted at `app`;
+- app-root `axPath` values can be used for follow-up scoped reads through
+  `accessibility_query`;
+- app-root paths are documented as read-only query paths and not action
+  targets.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 51 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_package.py
+```
+
+Result: 55 tests passed, 1 skipped.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/client.py \
+  packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py \
+  packages/computer-use-macos/tests/test_selectors.py \
+  packages/computer-use-macos/tests/test_package.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 106 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python scripts/release_preflight.py
+```
+
+Result: passed with existing external-proof warnings.
+
 ```bash
 PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
   python -m unittest discover -s packages/wechat-desktop-tool/tests

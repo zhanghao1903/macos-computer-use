@@ -846,6 +846,67 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(query["nodes"][0]["description"], "Documents")
         self.assertNotIn("attributeNames", query["nodes"][0])
 
+    def test_package_local_client_supports_frontmost_app_accessibility_query_root(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "", "role": ""},
+                    "root": {"axPath": "app"},
+                    "nodes": [
+                        {
+                            "axPath": "app",
+                            "role": "AXApplication",
+                            "description": "TextEdit",
+                        }
+                    ],
+                    "diagnostics": {
+                        "durationMs": 10,
+                        "truncated": False,
+                        "nodeCount": 1,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "frontmostApp"},
+                query={
+                    "scope": "self",
+                    "limit": 1,
+                    "attributes": ["AXRole", "AXDescription"],
+                },
+                command_id="cmd_frontmost_app_query",
+                timeout_ms=30_000,
+            )
+        )
+
+        query = observation.observation["accessibilityQuery"]
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(request["root"], {"kind": "frontmostApp"})
+        self.assertEqual(request["query"]["scope"], "self")
+        self.assertEqual(query["root"]["axPath"], "app")
+        self.assertEqual(query["nodes"][0]["axPath"], "app")
+
     def test_package_accessibility_query_preserves_longer_time_budget(self) -> None:
         runner = FakeRunner()
         runner.queue(
@@ -1042,6 +1103,8 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("includeDescendantRoles", source)
         self.assertIn("descendantRoles", source)
         self.assertIn("def focused_window_for_app(", source)
+        self.assertIn('kind == "frontmostApp"', source)
+        self.assertIn('raw_path.startswith("app/")', source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)

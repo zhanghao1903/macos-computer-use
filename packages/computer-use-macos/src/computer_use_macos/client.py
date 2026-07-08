@@ -2152,8 +2152,8 @@ def _normalize_accessibility_query_request(
 ) -> dict[str, Any]:
     root_payload = dict(root or {"kind": "focusedWindow"})
     root_kind = root_payload.get("kind", "focusedWindow")
-    if root_kind not in {"focusedWindow", "axPath"}:
-        raise ValueError("root.kind must be focusedWindow or axPath")
+    if root_kind not in {"focusedWindow", "frontmostApp", "axPath"}:
+        raise ValueError("root.kind must be focusedWindow, frontmostApp, or axPath")
     if root_kind == "axPath":
         ax_path = root_payload.get("axPath") or root_payload.get("path")
         if not isinstance(ax_path, str) or not ax_path.strip():
@@ -2870,14 +2870,36 @@ def time_budget_exceeded() -> bool:
     return (time.monotonic() - QUERY_STARTED_AT) * 1000 >= budget_ms
 
 
-def resolve_root(window: Any) -> tuple[Any | None, str]:
+def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
     root = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
     kind = root.get("kind", "focusedWindow")
+    if kind == "frontmostApp":
+        return app_element, "app"
     if kind == "focusedWindow":
+        if window is None:
+            return None, "0"
         return window, "0"
     if kind != "axPath":
         return None, "0"
     raw_path = str(root.get("axPath") or root.get("path") or "").strip()
+    if raw_path == "app":
+        return app_element, "app"
+    if raw_path.startswith("app/"):
+        current = app_element
+        current_path = "app"
+        for raw_index in raw_path.split("/")[1:]:
+            try:
+                index = int(raw_index)
+            except ValueError:
+                return None, raw_path
+            children = children_of(current)
+            if index < 0 or index >= len(children):
+                return None, raw_path
+            current = children[index]
+            current_path = f"{current_path}/{index}"
+        return current, current_path
+    if window is None:
+        return None, raw_path
     if raw_path in {"", "0"}:
         return window, "0"
     parts = raw_path.split("/")
@@ -3058,15 +3080,22 @@ if app is None:
 
 pid = int(app.processIdentifier())
 app_ax = AXUIElementCreateApplication(pid)
+root_request = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
+root_kind = root_request.get("kind", "focusedWindow")
+raw_root_path = str(root_request.get("axPath") or root_request.get("path") or "").strip()
 window = focused_window_for_app(app_ax)
-if window is None:
+if (
+    window is None
+    and root_kind != "frontmostApp"
+    and not raw_root_path.startswith("app")
+):
     fail("accessibility_query_no_focused_window", "No focused window is available.")
 
-root_element, root_path = resolve_root(window)
+root_element, root_path = resolve_root(app_ax, window)
 if root_element is None:
     fail("accessibility_query_root_not_found", "Could not resolve query root.")
 
-window_title = safe_scalar(ax_get(window, "AXTitle"))
+window_title = safe_scalar(ax_get(window, "AXTitle")) if window is not None else None
 QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
 app_name = str(app.localizedName() or "")
@@ -3083,7 +3112,11 @@ payload = {
     },
     "window": {
         "title": str(window_title or ""),
-        "role": str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow"),
+        "role": (
+            str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow")
+            if window is not None
+            else ""
+        ),
     },
     "root": {
         "axPath": root_path,

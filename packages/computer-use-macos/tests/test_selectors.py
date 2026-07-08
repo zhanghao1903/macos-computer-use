@@ -501,6 +501,32 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(runner.calls[0]["query"]["scope"], "descendants")
         self.assertEqual(runner.calls[0]["query"]["limit"], 40)
 
+    def test_resolver_preserves_frontmost_app_root(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["root"] = {"kind": "frontmostApp"}  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "app/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                )
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "app/1")
+        self.assertEqual(runner.calls[0]["root"], {"kind": "frontmostApp"})
+
     def test_resolver_redacts_debug_evidence_by_default(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         runner = FakeQueryRunner(
