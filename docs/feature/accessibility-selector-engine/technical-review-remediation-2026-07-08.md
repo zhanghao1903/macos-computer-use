@@ -20,6 +20,18 @@ This remediation record makes the improvement traceable. It records where each
 review issue is now handled and what implementation evidence is required before
 a later slice can claim completion.
 
+## Remediation Status
+
+The failed 2026-07-06 review has been remediated at the design level. The
+follow-up review in `technical-review-2026-07-07.md` passed the revised plan for
+F3 implementation planning.
+
+This status means developers may implement the internal MVP slices described in
+`implementation-plan.md`. It does not remove the implementation gates below,
+and it does not approve early public protocol exposure, service-owned selector
+state, public config overrides, text-submitting actionRefs, or incompatible
+WeChat semantic response changes.
+
 ## Remediation Summary
 
 | 2026-07-06 review issue | Remediated in plan | Implementation gate | Acceptance evidence |

@@ -10,6 +10,8 @@ Requirement artifact: `requirements.md`.
 Design document: `design.md`.
 Review artifact: `technical-review-2026-07-06.md`.
 Review remediation: `technical-review-remediation-2026-07-08.md`.
+Follow-up review: `technical-review-2026-07-07.md` passed the revised
+handoff plan.
 
 This document defines the proposed selector/profile architecture for solving
 macOS Accessibility graph search in a reusable way. The design is motivated by
@@ -49,6 +51,12 @@ addresses the blocking review items before implementation starts:
 No package code or stable protocol schema is changed by this document. The MVP
 remains internal to `computer-use-macos` and `wechat-desktop-tool` until fixture
 coverage and real WeChat smoke proof are available.
+
+The 2026-07-07 follow-up review accepted this design for F3 implementation
+planning. That pass is scoped to the internal selector engine, WeChat semantic
+migration, and gated proof work below. It is not approval to expose public
+`resolve_selector` or `extract_collection` protocol commands before the Slice 6
+public API gate.
 
 ### 2026-07-06 Review Gap Closure Matrix
 

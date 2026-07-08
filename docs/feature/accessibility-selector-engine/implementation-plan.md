@@ -27,6 +27,19 @@ The final feature remains broader than Slice 1:
 5. optional config override path;
 6. public protocol proposal only after the internal model is proven.
 
+## F3 Handoff Status
+
+The 2026-07-06 review failed the original design. The revised `design.md` and
+`technical-review-remediation-2026-07-08.md` close those design-level blockers,
+and `technical-review-2026-07-07.md` passes the plan for implementation
+planning.
+
+Implementation remains slice-gated. A slice is complete only when its code,
+tests, `implementation-notes.md`, and `verification.md` show which 2026-07-06
+review gaps were implemented, explicitly deferred, or revised. Public selector
+protocol commands, public config overrides, service-owned resolver/cache state,
+and higher-risk actionRefs remain blocked until their documented later gates.
+
 ## Review-Driven Handoff Checklist
 
 The 2026-07-06 technical review is the source of truth for the gaps this plan
