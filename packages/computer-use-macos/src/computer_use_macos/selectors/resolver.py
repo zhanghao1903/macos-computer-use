@@ -562,12 +562,18 @@ class SelectorResolver:
             "AXValue",
             "AXDescription",
             "AXPlaceholderValue",
-            "AXHidden",
-            "AXEnabled",
-            "AXSelected",
         }
         for attribute in step_obj.match.attributes:  # type: ignore[attr-defined]
             attributes.add(attribute)
+        if step_obj.match.enabled is not None:  # type: ignore[attr-defined]
+            attributes.add("AXEnabled")
+        if step_obj.match.visible is not None:  # type: ignore[attr-defined]
+            attributes.add("AXHidden")
+        if any(
+            getattr(constraint, "kind", None) == "selected"
+            for constraint in constraints
+        ):
+            attributes.add("AXSelected")
         payload: dict[str, JsonValue] = {
             "scope": step_obj.scope,  # type: ignore[attr-defined]
             "maxDepth": step_obj.max_depth,  # type: ignore[attr-defined]

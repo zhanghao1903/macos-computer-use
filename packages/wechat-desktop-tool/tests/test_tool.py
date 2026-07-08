@@ -1217,20 +1217,12 @@ class WeChatDesktopToolTests(unittest.TestCase):
                             "0/11/1/0/0/0",
                             "AXStaticText",
                             value="Ada",
-                        )
-                    ]
-                ),
-                _accessibility_query_response(
-                    [
+                        ),
                         _normalized_node(
                             "0/11/1/0/1/0",
                             "AXStaticText",
                             value="Bob",
-                        )
-                    ]
-                ),
-                _accessibility_query_response(
-                    [
+                        ),
                         _normalized_node(
                             "0/11/1/0/2/0",
                             "AXStaticText",
@@ -1275,13 +1267,16 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "accessibility_query",
-                "accessibility_query",
             ],
         )
         self.assertEqual(app_control.commands[3].input["target"]["axPath"], "0/2")
         self.assertEqual(app_control.commands[3].input["action"], "AXPress")
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(app_control.commands[6].input["root"]["axPath"], "0/11")
+        self.assertEqual(
+            app_control.commands[6].input["query"]["match"]["roleIn"],
+            ["AXStaticText"],
+        )
 
     def test_list_contacts_skips_special_and_section_rows_before_limit(
         self,
@@ -1325,29 +1320,17 @@ class WeChatDesktopToolTests(unittest.TestCase):
                             "0/11/1/0/0/0",
                             "AXStaticText",
                             value="新的朋友",
-                        )
-                    ]
-                ),
-                _accessibility_query_response(
-                    [
+                        ),
                         _normalized_node(
                             "0/11/1/0/1/0",
                             "AXStaticText",
                             value="A",
-                        )
-                    ]
-                ),
-                _accessibility_query_response(
-                    [
+                        ),
                         _normalized_node(
                             "0/11/1/0/2/0",
                             "AXStaticText",
                             value="Ada",
-                        )
-                    ]
-                ),
-                _accessibility_query_response(
-                    [
+                        ),
                         _normalized_node(
                             "0/11/1/0/3/0",
                             "AXStaticText",
@@ -1368,6 +1351,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(result.observation["pagination"]["limit"], 2)
         self.assertEqual(app_control.commands[5].input["query"]["limit"], 13)
+        self.assertEqual(app_control.commands[6].input["root"]["axPath"], "0/11")
+        self.assertEqual(app_control.commands[6].input["query"]["limit"], 32)
 
     def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
         app_control = FakeAppControl(

@@ -70,6 +70,9 @@
 - Allow scoped Accessibility queries to use a longer bounded timeout and give
   WeChat contact/conversation row queries larger time budgets, avoiding
   `list_contacts` failures on slower real WeChat windows.
+- Batch selector collection descendant field extraction and trim unused
+  selector query attributes so WeChat contact listing no longer performs one
+  Accessibility query per visible row.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

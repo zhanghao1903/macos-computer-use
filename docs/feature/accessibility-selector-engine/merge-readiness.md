@@ -126,6 +126,9 @@ Latest targeted verification recorded in `verification.md`:
 
 - GitHub Actions PR #3 `test` check passed on run
   `28958774968` / job `85924596643`;
+- selector collection batch field extraction: `computer-use-macos` package
+  tests passed with 108 tests and 1 skipped; WeChat package tests passed with
+  96 tests;
 - release preflight source-path recovery: 3 targeted tests passed;
 - CI workflow WeChat package dependency-path recovery: 2 targeted tests passed;
 - CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`:

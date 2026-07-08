@@ -72,6 +72,7 @@ and is not hidden behind selector resolution.
 Latest targeted checks recorded in `verification.md`:
 
 - GitHub Actions PR #3 `test`: passed
+- selector collection batch field extraction: package tests passed
 - release-preflight source-path recovery: 3 targeted tests passed
 - CI workflow WeChat dependency-path recovery: 2 targeted tests passed
 - CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`: passed

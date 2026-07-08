@@ -82,14 +82,20 @@ class CollectionExtractor:
             debug=debug,
         )
         has_more = len(item_nodes) > effective_limit
+        field_cache, batch_field_diagnostics = self._batch_extract_fields(
+            collection,
+            root_path,
+            item_nodes,
+            debug=debug,
+        )
 
         items: list[dict[str, JsonValue]] = []
         skipped = 0
         field_failures = 0
-        field_query_count = 0
-        field_node_count = 0
-        field_truncated = False
-        field_truncation_reason: str | None = None
+        field_query_count = batch_field_diagnostics.query_count
+        field_node_count = batch_field_diagnostics.node_count
+        field_truncated = batch_field_diagnostics.truncated
+        field_truncation_reason = batch_field_diagnostics.truncation_reason
         for item_node in item_nodes:
             if len(items) >= effective_limit:
                 break
@@ -97,6 +103,7 @@ class CollectionExtractor:
                 collection,
                 item_node,
                 debug=debug,
+                field_cache=field_cache,
             )
             field_query_count += field_diagnostics.query_count
             field_node_count += field_diagnostics.node_count
@@ -233,6 +240,7 @@ class CollectionExtractor:
         item_node: Mapping[str, Any],
         *,
         debug: bool,
+        field_cache: Mapping[tuple[str, str], "_FieldExtraction"] | None = None,
     ) -> tuple[dict[str, JsonValue] | None, SelectorDiagnostics]:
         output: dict[str, JsonValue] = {}
         query_count = 0
@@ -240,7 +248,13 @@ class CollectionExtractor:
         truncated = False
         truncation_reason: str | None = None
         for field_name, field in collection.fields.items():
-            field_result = self._extract_field(item_node, field, debug=debug)
+            field_result = self._extract_field(
+                item_node,
+                field,
+                debug=debug,
+                field_name=field_name,
+                field_cache=field_cache,
+            )
             query_count += field_result.query_count
             node_count += field_result.node_count
             if field_result.truncated:
@@ -271,6 +285,8 @@ class CollectionExtractor:
         field: FieldDefinition,
         *,
         debug: bool,
+        field_name: str | None = None,
+        field_cache: Mapping[tuple[str, str], "_FieldExtraction"] | None = None,
     ) -> "_FieldExtraction":
         if field.source == "self":
             return _FieldExtraction(value=_node_summary(item_node))
@@ -283,6 +299,10 @@ class CollectionExtractor:
         item_path = node_ax_path(item_node)
         if item_path is None or not field.selector.steps:
             return _FieldExtraction()
+        if field_name is not None and field_cache is not None:
+            cached = field_cache.get((item_path, field_name))
+            if cached is not None:
+                return cached
         step = field.selector.steps[0]
         match = effective_step_match(step)
         payload = self.resolver.query_runner(
@@ -337,6 +357,88 @@ class CollectionExtractor:
         return _FieldExtraction(
             query_count=1,
             node_count=len(normalized["nodes"]),
+            truncated=truncated,
+            truncation_reason=truncation_reason,
+            failure_kind="selector_query_truncated" if truncated else None,
+        )
+
+    def _batch_extract_fields(
+        self,
+        collection: CollectionDefinition,
+        root_path: str,
+        item_nodes: list[Mapping[str, Any]],
+        *,
+        debug: bool,
+    ) -> tuple[dict[tuple[str, str], "_FieldExtraction"], SelectorDiagnostics]:
+        if len(item_nodes) <= 1 or not collection.item_selector.steps:
+            return {}, selector_diagnostics()
+        item_paths = [path for item in item_nodes if (path := node_ax_path(item))]
+        if not item_paths:
+            return {}, selector_diagnostics()
+
+        cache: dict[tuple[str, str], _FieldExtraction] = {}
+        query_count = 0
+        node_count = 0
+        truncated = False
+        truncation_reason: str | None = None
+        item_step = collection.item_selector.steps[0]
+        for field_name, field in collection.fields.items():
+            if not _can_batch_descendant_field(field):
+                continue
+            assert field.selector is not None
+            step = field.selector.steps[0]
+            match = effective_step_match(step)
+            payload = self.resolver.query_runner(
+                root={"kind": "axPath", "axPath": root_path},
+                query={
+                    "scope": "descendants",
+                    "maxDepth": item_step.max_depth + step.max_depth,
+                    "limit": max(len(item_paths), len(item_paths) * step.limit),
+                    "timeBudgetMs": step.time_budget_ms,
+                    "attributes": _query_attributes(step, field.selector.constraints),
+                    "actions": bool(step.match.actions_include),
+                    "match": {"roleIn": list(step.role_in or step.match.role_in)},
+                    **_constraint_query_flags(field.selector.constraints),
+                },
+                include_raw=debug,
+            )
+            normalized = _normalize_query_payload(payload)
+            diagnostics = normalized["diagnostics"]
+            query_count += 1
+            node_count += len(normalized["nodes"])
+            if diagnostics.get("truncated", False):
+                truncated = True
+                truncation_reason = str(
+                    diagnostics.get("truncationReason")
+                    or diagnostics.get("truncation_reason")
+                    or "query truncated"
+                )
+            for node in normalized["nodes"]:
+                item_path = _owning_item_path(node, item_paths)
+                if item_path is None or (item_path, field_name) in cache:
+                    continue
+                matched, _ = match_node(
+                    node,
+                    match,
+                    self.resolver.profile.locale_aliases,
+                )
+                if not matched:
+                    continue
+                constraints_ok, _, _ = constraints_match(
+                    node,
+                    field.selector.constraints,
+                )
+                if not constraints_ok:
+                    continue
+                value = (
+                    node_attribute(node, field.attribute)
+                    if field.attribute is not None
+                    else _node_summary(node)
+                )
+                cache[(item_path, field_name)] = _FieldExtraction(value=value)
+        return cache, selector_diagnostics(
+            query_count=query_count,
+            node_count=node_count,
             truncated=truncated,
             truncation_reason=truncation_reason,
             failure_kind="selector_query_truncated" if truncated else None,
@@ -404,6 +506,31 @@ def _element_ref(node: Mapping[str, Any]) -> JsonValue:
         if isinstance(value, bool):
             payload[key] = value
     return payload
+
+
+def _can_batch_descendant_field(field: FieldDefinition) -> bool:
+    return (
+        field.source == "descendant"
+        and field.selector is not None
+        and len(field.selector.steps) == 1
+    )
+
+
+def _owning_item_path(
+    node: Mapping[str, Any],
+    item_paths: list[str],
+) -> str | None:
+    node_path = node_ax_path(node)
+    if node_path is None:
+        return None
+    matches = [
+        item_path
+        for item_path in item_paths
+        if node_path.startswith(f"{item_path}/")
+    ]
+    if not matches:
+        return None
+    return max(matches, key=len)
 
 
 def _collection_needs_item_actions(collection: CollectionDefinition) -> bool:

@@ -2632,3 +2632,63 @@ python -m py_compile \
 ```
 
 Result: passed.
+
+## Selector Collection Batch Field Extraction
+
+Status: implemented; targeted package tests passed.
+
+Commit scope:
+
+- teach `CollectionExtractor` to batch one-step descendant field queries for
+  visible collection items;
+- group batch field candidates back to their owning row by normalized AX path
+  prefix, then reuse cached field values during item extraction;
+- keep the original per-item descendant query as a fallback when a required
+  field is not found in the batch result;
+- reduce selector resolver query attributes so `AXHidden`, `AXEnabled`, and
+  `AXSelected` are requested only when the profile explicitly needs visible,
+  enabled, or selected evidence;
+- update selector and WeChat tests so `list_contacts`/collection extraction
+  prove batched text extraction instead of per-row descendant queries.
+
+Public surface:
+
+- no package API, command builder, protocol schema, or WeChat response schema
+  change;
+- `wechat.contacts.v1` and `wechat.conversations.v1` item shapes remain
+  unchanged;
+- this is an internal performance optimization for selector-backed semantic
+  reads.
+
+Implemented behavior:
+
+- contact/conversation collection extraction now performs one descendant field
+  query per field instead of one query per candidate row when the field selector
+  has a single step;
+- missing fields still fail closed or produce partial collection results using
+  the existing diagnostics behavior;
+- selector navigation queries avoid expensive unused AX attributes unless the
+  profile requires them.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 51 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 108 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 96 tests passed.

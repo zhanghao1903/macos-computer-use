@@ -877,6 +877,36 @@ New coverage:
 - full release preflight now passes with `PYTHONPATH` explicitly removed from
   the environment, matching the failing GitHub Actions mode.
 
+## Additional Verification: Selector Collection Batch Field Extraction
+
+Date: 2026-07-09.
+
+This verification covers the performance fix for `list_contacts`, where live
+WeChat contact listing previously issued one descendant Accessibility query per
+candidate row. A live run with 30 returned contacts showed 44 selector query
+phases and `listContacts.durationMs=53863`; the dominant cost was per-row
+field extraction after the row list had already been found.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 51 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 108 tests, 1 skipped |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 96 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+
+New coverage:
+
+- collection extraction batches one-step descendant field queries under the
+  collection root and maps field nodes back to row items by AX path prefix;
+- missing required fields still fall back to per-item descendant queries and
+  keep existing partial/failure diagnostics;
+- WeChat `list_contacts` tests now prove batch extraction by returning all
+  row text nodes from one query and asserting the query root is the main
+  content area;
+- selector resolution requests `AXHidden`, `AXEnabled`, and `AXSelected` only
+  when profile rules need visible, enabled, or selected evidence.
+
 ## Release Readiness Gate
 
 The consolidated real WeChat selector-engine smoke evidence has been recorded

@@ -496,6 +496,9 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertIsNotNone(result.elements[0].frame)
         self.assertEqual(result.elements[0].frame.x, 1)
         self.assertIn("AXFrame", runner.calls[0]["query"]["attributes"])
+        self.assertNotIn("AXHidden", runner.calls[0]["query"]["attributes"])
+        self.assertNotIn("AXEnabled", runner.calls[0]["query"]["attributes"])
+        self.assertNotIn("AXSelected", runner.calls[0]["query"]["attributes"])
         self.assertEqual(result.diagnostics.query_count, 1)
         self.assertEqual(runner.calls[0]["root"], {"kind": "focusedWindow"})
         self.assertEqual(runner.calls[0]["query"]["scope"], "descendants")
@@ -1373,11 +1376,7 @@ class CollectionExtractorTests(unittest.TestCase):
                             "axPath": "0/11/0/0",
                             "role": "AXStaticText",
                             "value": " Alice ",
-                        }
-                    ]
-                ),
-                _query_payload(
-                    [
+                        },
                         {
                             "axPath": "0/11/1/0",
                             "role": "AXStaticText",
@@ -1399,13 +1398,14 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.pagination.limit, 2)
         self.assertEqual(result.pagination.returned, 2)
         self.assertEqual(result.pagination.has_more, False)
-        self.assertEqual(result.diagnostics.query_count, 4)
+        self.assertEqual(result.diagnostics.query_count, 3)
         self.assertEqual(result.diagnostics.node_count, 5)
         self.assertEqual(runner.calls[1]["root"], {"kind": "axPath", "axPath": "0/1"})
         self.assertEqual(
             runner.calls[2]["root"],
-            {"kind": "axPath", "axPath": "0/11/0"},
+            {"kind": "axPath", "axPath": "0/1"},
         )
+        self.assertEqual(runner.calls[2]["query"]["limit"], 20)
 
     def test_missing_required_field_returns_partial_collection(self) -> None:
         profile = parse_selector_profile(_valid_profile())
@@ -1427,7 +1427,6 @@ class CollectionExtractorTests(unittest.TestCase):
                         {"axPath": "0/11/1", "role": "AXRow"},
                     ]
                 ),
-                _query_payload([]),
                 _query_payload(
                     [
                         {
@@ -1480,7 +1479,6 @@ class CollectionExtractorTests(unittest.TestCase):
                         {"axPath": "0/11/1", "role": "AXRow"},
                     ]
                 ),
-                _query_payload([]),
                 _query_payload(
                     [
                         {
@@ -1790,7 +1788,6 @@ class CollectionExtractorTests(unittest.TestCase):
                         {"axPath": "0/11/1", "role": "AXRow"},
                     ]
                 ),
-                _query_payload([]),
                 _query_payload(
                     [
                         {
