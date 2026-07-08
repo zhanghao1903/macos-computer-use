@@ -681,11 +681,28 @@ Incomplete evidence:
   WeChat running but inactive, `AXFocusedWindow` role `AXApplication`, and
   three WeChat `AXWindows` entries whose roles were all `AXApplication`, not
   `AXWindow`.
+- `/private/tmp/selector-live-selector-engine-smoke-20260708.json` was run
+  against the existing local service with `--skip-system-open`. It connected to
+  `/tmp/app-control.sock`, readiness passed with
+  `accessibility_trusted=true`, generated valid/invalid profile override proof,
+  but failed at `openWeChat`. Evidence shows `open_app` and `focus_app` both
+  returned success for WeChat, while `observe` before and after focus still
+  reported `frontmostBundleId=com.openai.codex` and
+  `failureKind=needs_user`. The WeChat adapter failed closed as
+  `wechat_not_ready`.
+- `/private/tmp/selector-live-selector-engine-smoke-system-open-20260708.json`
+  reran the same consolidated smoke without `--skip-system-open`. The local
+  `open -b com.tencent.xinWeChat` and AppleScript
+  `tell application id "com.tencent.xinWeChat" to activate` attempts both
+  returned code `0`, but the service observations still reported Codex as the
+  frontmost bundle before and after `focus_app`. It failed at the same
+  `openWeChat` gate with `wechat_not_ready`.
 
 This is not enough for merge readiness. It proves that the selector-backed
 window model and contacts collection work on a live client, and it also proves
 that the backend and WeChat semantic layer now fail closed when no focused AX
-window is available.
+window is available or when macOS focus remains on Codex despite successful
+WeChat open/focus attempts.
 
 After manually restoring a real WeChat `AXWindow`, first run
 `examples/wechat_selector_engine_smoke_test.py`. The script writes one report

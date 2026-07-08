@@ -100,6 +100,49 @@ window 2 role AXApplication title 微信 children 5
 This retry did not exercise contact listing, actionRef opening, or message
 reading. It stopped at the same desktop-window prerequisite as earlier reruns.
 
+On 2026-07-08, the consolidated selector-engine smoke was run twice against
+the existing local app-control service:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+    --skip-system-open \
+    --socket-path /tmp/app-control.sock \
+    --token-file ./app-control.token \
+    --output /private/tmp/selector-live-selector-engine-smoke-20260708.json \
+    --contact "文件传输助手"
+```
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+    --socket-path /tmp/app-control.sock \
+    --token-file ./app-control.token \
+    --output /private/tmp/selector-live-selector-engine-smoke-system-open-20260708.json \
+    --contact "文件传输助手"
+```
+
+Results:
+
+```text
+readiness=true
+accessibility_trusted=true
+profile override checks=true
+open_app WeChat=true
+focus_app WeChat=true
+system open and AppleScript activate=true in the second run
+openWeChat=false
+failedStep=openWeChat
+failureKind=wechat_not_ready
+before focus frontmostBundleId=com.openai.codex
+after focus frontmostBundleId=com.openai.codex
+```
+
+These runs prove the local service and Accessibility permission are usable, and
+the profile override/fallback checks pass. They still do not produce merge
+proof because macOS keeps Codex frontmost even after WeChat open/focus and
+AppleScript activation report success.
+
 ## Required Manual Recovery
 
 Before rerunning the remaining smoke tests, restore a real WeChat main window

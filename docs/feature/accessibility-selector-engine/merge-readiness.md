@@ -87,6 +87,14 @@ Blocked smoke conditions observed on 2026-07-07:
   `openWeChat`, with readiness passing but
   `verify_wechat_accessibility_window` returning
   `accessibility_query_no_focused_window`.
+- the consolidated selector-engine smoke was rerun on 2026-07-08 with and
+  without local system-open activation. Both
+  `/private/tmp/selector-live-selector-engine-smoke-20260708.json` and
+  `/private/tmp/selector-live-selector-engine-smoke-system-open-20260708.json`
+  reached the local service, passed readiness and profile override checks, but
+  failed at `openWeChat` because `observe` still reported
+  `frontmostBundleId=com.openai.codex` after WeChat `open_app`,
+  `focus_app`, and AppleScript activation returned success.
 
 Recovery steps and the remaining smoke command sequence are recorded in
 `live-smoke-recovery.md`. The preferred rerun entrypoint is now

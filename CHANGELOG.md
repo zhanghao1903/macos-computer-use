@@ -37,6 +37,8 @@
 - Add a remediation record that maps the failed Accessibility Selector Engine
   technical review items to revised design sections, implementation gates, and
   required proof.
+- Record the latest live WeChat selector-engine smoke retry evidence and the
+  remaining Codex-frontmost desktop blocker.
 - Add a documentation index, refresh README installation/API guidance, and
   expand the API reference for package roles and command builders.
 - Add architecture documents for `computer-use-macos` and
