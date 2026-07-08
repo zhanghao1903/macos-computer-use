@@ -860,6 +860,7 @@ workspace source path and release preflight checks that contract.
 | CI-equivalent release preflight | `env -u PYTHONPATH python scripts/release_preflight.py` | Passed; WeChat module-entrypoint, dry-run smoke, and workflow source-path checks were `OK` |
 | Python compile check | `python -m py_compile scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
 | Whitespace/conflict check | `git diff --check -- .github/workflows/ci.yml scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
+| GitHub Actions PR CI | PR #3 run `28958774968`, job `85924596643` | Passed: `test` |
 
 `uv run ruff check scripts/release_preflight.py tests/test_release_preflight.py`
 could not run in the local environment because `ruff` is not installed.

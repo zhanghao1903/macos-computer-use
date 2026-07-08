@@ -4,11 +4,13 @@
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Feature directory: `docs/feature/accessibility-selector-engine/`
-- Status: merge-ready for PR review after branch CI is green
+- Status: technically merge-ready; branch CI is green and the PR remains draft
 
 ## Decision
 
-The feature is ready for PR review after the branch CI checks pass.
+The feature is ready for PR review. Branch CI passed on PR #3 after the CI
+source-path fixes, and the PR is mergeable. The PR remains a draft until the
+owner chooses to request review.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
@@ -122,6 +124,8 @@ Automated package-boundary tests passed during F5 verification.
 
 Latest targeted verification recorded in `verification.md`:
 
+- GitHub Actions PR #3 `test` check passed on run
+  `28958774968` / job `85924596643`;
 - release preflight source-path recovery: 3 targeted tests passed;
 - CI workflow WeChat package dependency-path recovery: 2 targeted tests passed;
 - CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`:
@@ -141,8 +145,8 @@ Broader earlier F5 verification also remains recorded in `verification.md`:
   passed;
 - WeChat package-boundary tests: 5 tests passed.
 
-Before merge, rely on GitHub CI for the full repository matrix and rerun local
-checks only if CI reports a failure.
+Before merge, rely on GitHub CI for the full repository matrix if new commits
+are added.
 
 Unavailable:
 
@@ -161,14 +165,16 @@ Present in `CHANGELOG.md` under `Unreleased`:
 ## PR/MR Description
 
 Prepared in `pr-description.md`. It now includes the passing live smoke proof
-and should be used as the PR body before requesting review.
+and CI source-path recovery evidence, and has been synced to PR #3.
 
 ## Merge Blockers
 
-1. Branch CI must pass on GitHub before merge.
-2. The draft PR body should be refreshed from `pr-description.md` after the CI
-   source-path fix lands.
-3. Do not add public `resolve_selector` or `extract_collection` protocol
+No technical merge blockers remain in the current branch state.
+
+Administrative follow-up:
+
+1. Mark PR #3 ready for review when the owner wants review to start.
+2. Do not add public `resolve_selector` or `extract_collection` protocol
    commands in this PR; those remain deferred to a future reviewed API proposal.
 
 ## Recommended PR Summary
