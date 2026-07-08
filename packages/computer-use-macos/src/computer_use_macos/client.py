@@ -3087,7 +3087,8 @@ window = focused_window_for_app(app_ax)
 if (
     window is None
     and root_kind != "frontmostApp"
-    and not raw_root_path.startswith("app")
+    and raw_root_path != "app"
+    and not raw_root_path.startswith("app/")
 ):
     fail("accessibility_query_no_focused_window", "No focused window is available.")
 

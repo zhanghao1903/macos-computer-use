@@ -968,6 +968,8 @@ Commit scope:
 - make the direct PyObjC query script resolve `frontmostApp` to the
   application AX element instead of requiring a focused AX window;
 - support app-root query paths such as `app` and `app/0` for scoped reads;
+- restrict the no-focused-window app-root bypass to exactly `app` or `app/...`
+  paths so malformed paths do not skip window-root validation;
 - preserve focused-window paths such as `0/12/0` for existing query and action
   behavior;
 - make `SelectorResolver` pass `SelectorRoot(kind="frontmostApp")` through to
@@ -990,6 +992,8 @@ Implemented behavior:
 - app-root reads return normalized `axPath` values rooted at `app`;
 - app-root `axPath` values can be used for follow-up scoped reads through
   `accessibility_query`;
+- malformed `axPath` values that only start with the letters `app` no longer
+  bypass the focused-window requirement;
 - app-root paths are documented as read-only query paths and not action
   targets.
 

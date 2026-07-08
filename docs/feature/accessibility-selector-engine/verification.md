@@ -528,6 +528,8 @@ New coverage:
 - direct query script supports app-root paths such as `app`;
 - script source keeps focused-window `0/...` paths and app-root `app/...`
   paths as distinct query roots.
+- script source now verifies the no-focused-window bypass is limited to exactly
+  `app` or `app/...`, not arbitrary paths that merely start with `app`.
 
 ## Unavailable Checks
 
