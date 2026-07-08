@@ -131,6 +131,12 @@ PACKAGE_SOURCES = {
     ),
 }
 
+WORKSPACE_SOURCE_PATHS = (
+    "packages/app-control-protocol/src",
+    "packages/computer-use-macos/src",
+    "packages/wechat-desktop-tool/src",
+)
+
 PACKAGE_MODULE_FILES = (
     "packages/computer-use-macos/src/computer_use_macos/commands.py",
     "packages/computer-use-macos/src/computer_use_macos/observations.py",
@@ -1240,7 +1246,9 @@ def _check_module_entrypoints(root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
     for name, module_args, pythonpath_paths, expected_terms in MODULE_ENTRYPOINT_CHECKS:
         command = [sys.executable, "-m", *module_args]
-        env_updates = {"PYTHONPATH": _pythonpath(root, *pythonpath_paths)}
+        env_updates = {
+            "PYTHONPATH": _workspace_source_pythonpath(root, *pythonpath_paths)
+        }
         try:
             output = _run_help_command(root, command, env_updates=env_updates)
             missing = [term for term in expected_terms if term not in output]
@@ -1290,7 +1298,7 @@ def _run_help_command(
 
 def _check_helper_template_smoke(root: Path) -> list[CheckResult]:
     env_updates = {
-        "PYTHONPATH": _pythonpath(
+        "PYTHONPATH": _workspace_source_pythonpath(
             root,
             "packages/app-control-protocol/src",
             "packages/computer-use-macos/src",
@@ -1479,7 +1487,7 @@ def _check_dry_run_smokes(root: Path) -> list[CheckResult]:
                 "--dry-run",
             ],
             {
-                "PYTHONPATH": _pythonpath(
+                "PYTHONPATH": _workspace_source_pythonpath(
                     root,
                     "packages/app-control-protocol/src",
                     "packages/wechat-desktop-tool/src",
@@ -1498,7 +1506,7 @@ def _check_dry_run_smokes(root: Path) -> list[CheckResult]:
                 "WECHAT_TOOL_CONTACT": "File Transfer",
                 "WECHAT_TOOL_MESSAGE": "hello",
                 "WECHAT_TOOL_DRY_RUN": "1",
-                "PYTHONPATH": _pythonpath(
+                "PYTHONPATH": _workspace_source_pythonpath(
                     root,
                     "packages/app-control-protocol/src",
                     "packages/wechat-desktop-tool/src",
@@ -1758,6 +1766,14 @@ def _pythonpath(root: Path, *relative_paths: str) -> str:
     if current:
         values.append(current)
     return os.pathsep.join(values)
+
+
+def _workspace_source_pythonpath(root: Path, *relative_paths: str) -> str:
+    ordered_paths: list[str] = []
+    for relative_path in (*relative_paths, *WORKSPACE_SOURCE_PATHS):
+        if relative_path not in ordered_paths:
+            ordered_paths.append(relative_path)
+    return _pythonpath(root, *ordered_paths)
 
 
 def _validate_textedit_dry_run(payload: dict[str, Any], root: Path) -> None:

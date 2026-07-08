@@ -841,6 +841,36 @@ New coverage:
   `list_contacts`, `list_conversations`, profile override checks, and expired
   actionRef rejection on a real WeChat desktop.
 
+## Additional Verification: Release Preflight Source Path Recovery
+
+Date: 2026-07-09.
+
+This verification covers the CI failure where `python
+scripts/release_preflight.py` ran from a clean checkout without `PYTHONPATH`.
+The WeChat source entrypoints imported `computer_use_macos.selectors`, but the
+preflight subprocess environment only included the protocol and WeChat source
+roots.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Targeted release-preflight tests | `uv run pytest tests/test_release_preflight.py -k "wechat_module_entrypoint or wechat_dry_run_smokes or default_preflight_passes_local_checks"` | Passed: 3 tests |
+| CI-equivalent release preflight | `env -u PYTHONPATH python scripts/release_preflight.py` | Passed; WeChat module-entrypoint and dry-run smoke checks were `OK` |
+| Python compile check | `python -m py_compile scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
+
+`uv run ruff check scripts/release_preflight.py tests/test_release_preflight.py`
+could not run in the local environment because `ruff` is not installed.
+
+New coverage:
+
+- WeChat module-entrypoint preflight checks assert that subprocess
+  `PYTHONPATH` contains `app-control-protocol/src`,
+  `computer-use-macos/src`, and `wechat-desktop-tool/src`;
+- both WeChat dry-run smoke checks assert the same workspace source-path
+  contract;
+- full release preflight now passes with `PYTHONPATH` explicitly removed from
+  the environment, matching the failing GitHub Actions mode.
+
 ## Release Readiness Gate
 
 The consolidated real WeChat selector-engine smoke evidence has been recorded

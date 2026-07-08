@@ -122,6 +122,9 @@ Automated package-boundary tests passed during F5 verification.
 
 Latest targeted verification recorded in `verification.md`:
 
+- release preflight source-path recovery: 3 targeted tests passed;
+- CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`:
+  passed, including WeChat module-entrypoint and dry-run smoke checks;
 - `computer-use-macos` targeted package tests: 108 tests passed, 1 skipped;
 - WeChat tool/profile tests: 91 tests passed;
 - Python compile check: passed;
@@ -141,7 +144,8 @@ checks only if CI reports a failure.
 
 Unavailable:
 
-- no current local `ruff` run is recorded for this branch.
+- local `ruff` could not run because the command is not installed in the
+  current environment.
 
 ## Release Record
 
@@ -160,7 +164,8 @@ and should be used as the PR body before requesting review.
 ## Merge Blockers
 
 1. Branch CI must pass on GitHub before merge.
-2. The draft PR body should be refreshed from `pr-description.md`.
+2. The draft PR body should be refreshed from `pr-description.md` after the CI
+   source-path fix lands.
 3. Do not add public `resolve_selector` or `extract_collection` protocol
    commands in this PR; those remain deferred to a future reviewed API proposal.
 

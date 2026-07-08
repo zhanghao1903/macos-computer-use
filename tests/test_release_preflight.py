@@ -190,6 +190,104 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertEqual(results[0].status, "fail")
         self.assertIn("definitely-not-in-help-output", results[0].summary)
 
+    def test_wechat_module_entrypoint_includes_workspace_dependency_paths(self) -> None:
+        preflight = _load_preflight()
+        original_checks = preflight.MODULE_ENTRYPOINT_CHECKS
+        original_run_help = preflight._run_help_command
+        captured_pythonpaths: list[str] = []
+        preflight.MODULE_ENTRYPOINT_CHECKS = (
+            (
+                "wechat-desktop-tool:root",
+                ("wechat_desktop_tool", "--help"),
+                (
+                    "packages/app-control-protocol/src",
+                    "packages/wechat-desktop-tool/src",
+                ),
+                ("examples",),
+            ),
+        )
+
+        def fake_run_help(
+            root: Path,
+            command: list[str],
+            *,
+            env_updates: dict[str, str],
+        ) -> str:
+            self.assertEqual(root, ROOT)
+            self.assertEqual(
+                command[:3],
+                [sys.executable, "-m", "wechat_desktop_tool"],
+            )
+            captured_pythonpaths.append(env_updates["PYTHONPATH"])
+            return "examples"
+
+        preflight._run_help_command = fake_run_help
+        try:
+            results = preflight._check_module_entrypoints(ROOT)
+        finally:
+            preflight.MODULE_ENTRYPOINT_CHECKS = original_checks
+            preflight._run_help_command = original_run_help
+
+        self.assertEqual(results[0].status, "ok")
+        pythonpath_entries = captured_pythonpaths[0].split(preflight.os.pathsep)
+        self.assertIn(
+            str(ROOT / "packages/app-control-protocol/src"),
+            pythonpath_entries,
+        )
+        self.assertIn(
+            str(ROOT / "packages/computer-use-macos/src"),
+            pythonpath_entries,
+        )
+        self.assertIn(
+            str(ROOT / "packages/wechat-desktop-tool/src"),
+            pythonpath_entries,
+        )
+
+    def test_wechat_dry_run_smokes_include_workspace_dependency_paths(self) -> None:
+        preflight = _load_preflight()
+        original_run_json = preflight._run_json_command
+        original_validate_textedit = preflight._validate_textedit_dry_run
+        original_validate_wechat = preflight._validate_wechat_dry_run
+        captured_wechat_pythonpaths: list[str] = []
+
+        def fake_run_json(
+            root: Path,
+            command: list[str],
+            *,
+            env_updates: dict[str, str],
+        ) -> dict[str, Any]:
+            self.assertEqual(root, ROOT)
+            if any("wechat_desktop_tool" in part for part in command):
+                captured_wechat_pythonpaths.append(env_updates["PYTHONPATH"])
+            return {"dryRun": True, "commands": []}
+
+        preflight._run_json_command = fake_run_json
+        preflight._validate_textedit_dry_run = lambda payload, root: None
+        preflight._validate_wechat_dry_run = lambda payload, root: None
+        try:
+            results = preflight._check_dry_run_smokes(ROOT)
+        finally:
+            preflight._run_json_command = original_run_json
+            preflight._validate_textedit_dry_run = original_validate_textedit
+            preflight._validate_wechat_dry_run = original_validate_wechat
+
+        self.assertTrue(all(result.status == "ok" for result in results))
+        self.assertEqual(len(captured_wechat_pythonpaths), 2)
+        for pythonpath in captured_wechat_pythonpaths:
+            pythonpath_entries = pythonpath.split(preflight.os.pathsep)
+            self.assertIn(
+                str(ROOT / "packages/app-control-protocol/src"),
+                pythonpath_entries,
+            )
+            self.assertIn(
+                str(ROOT / "packages/computer-use-macos/src"),
+                pythonpath_entries,
+            )
+            self.assertIn(
+                str(ROOT / "packages/wechat-desktop-tool/src"),
+                pythonpath_entries,
+            )
+
     def test_markdown_json_check_reports_invalid_example(self) -> None:
         preflight = _load_preflight()
         original = preflight.MARKDOWN_JSON_DOCS
