@@ -14,6 +14,9 @@
 - Add an SDK-style WeChat selector-engine smoke checklist example that writes
   one JSON report for conversations, contact opening, visible messages, profile
   override checks, and expired actionRef rejection.
+- Add a read-only WeChat live prerequisite probe example that reports whether
+  the current desktop can expose a frontmost WeChat `AXWindow` before live
+  selector-engine smoke tests run.
 
 ### Internal
 

@@ -498,6 +498,14 @@ class FakeSystemOpenRunner:
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
+class FakeWeChatLivePrereqProvider:
+    def __init__(self, raw_state: dict[str, Any]) -> None:
+        self.raw_state = raw_state
+
+    def collect(self) -> dict[str, Any]:
+        return self.raw_state
+
+
 class SdkExampleTests(unittest.TestCase):
     def test_wechat_window_sdk_test_runs_through_service_adapter(self) -> None:
         module = _load_wechat_window_sdk_test_module()
@@ -786,6 +794,94 @@ class SdkExampleTests(unittest.TestCase):
             "expired actionRef check must not add a third backend action",
         )
 
+    def test_wechat_live_prereq_probe_reports_ready_state(self) -> None:
+        module = _load_wechat_live_prereq_probe_module()
+        provider = FakeWeChatLivePrereqProvider(
+            {
+                "status": "ok",
+                "accessibilityTrusted": True,
+                "frontmost": {
+                    "name": "WeChat",
+                    "bundleId": "com.tencent.xinWeChat",
+                    "pid": 100,
+                },
+                "wechatApps": [
+                    {
+                        "name": "WeChat",
+                        "bundleId": "com.tencent.xinWeChat",
+                        "pid": 100,
+                        "focusedWindow": {
+                            "role": "AXWindow",
+                            "title": "微信 (聊天)",
+                        },
+                        "windows": [
+                            {
+                                "index": 0,
+                                "role": "AXWindow",
+                                "title": "微信 (聊天)",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "wechat-live-prereq.json"
+            payload = module.run_live_prereq_probe(
+                output_path=output_path,
+                provider=provider,
+            )
+
+            persisted = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["schema"], module.SCHEMA)
+        self.assertEqual(payload["success"], True)
+        self.assertEqual(payload["readyForSmoke"], True)
+        self.assertEqual(payload["failureKind"], None)
+        self.assertEqual(payload["summary"]["checks"]["wechatAxWindow"], True)
+        self.assertEqual(persisted["status"], "ready")
+
+    def test_wechat_live_prereq_probe_reports_frontmost_blocker(self) -> None:
+        module = _load_wechat_live_prereq_probe_module()
+        provider = FakeWeChatLivePrereqProvider(
+            {
+                "status": "ok",
+                "accessibilityTrusted": True,
+                "frontmost": {
+                    "name": "Codex",
+                    "bundleId": "com.openai.codex",
+                    "pid": 200,
+                },
+                "wechatApps": [
+                    {
+                        "name": "WeChat",
+                        "bundleId": "com.tencent.xinWeChat",
+                        "pid": 100,
+                        "focusedWindow": {
+                            "role": "AXApplication",
+                            "title": "微信",
+                        },
+                        "windows": [
+                            {
+                                "index": 0,
+                                "role": "AXApplication",
+                                "title": "微信",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        payload = module.run_live_prereq_probe(provider=provider)
+
+        self.assertEqual(payload["success"], False)
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["failureKind"], "frontmost_not_wechat")
+        self.assertEqual(payload["summary"]["checks"]["frontmostWeChat"], False)
+        self.assertEqual(payload["summary"]["checks"]["wechatAxWindow"], False)
+
     def test_wechat_window_sdk_test_rejects_missing_token_file(self) -> None:
         module = _load_wechat_window_sdk_test_module()
 
@@ -832,6 +928,12 @@ def _load_wechat_selector_engine_smoke_test_module() -> Any:
     root = Path(__file__).resolve().parents[1]
     example_path = root / "examples" / "wechat_selector_engine_smoke_test.py"
     return _load_example_module(example_path, "wechat_selector_engine_smoke_test")
+
+
+def _load_wechat_live_prereq_probe_module() -> Any:
+    root = Path(__file__).resolve().parents[1]
+    example_path = root / "examples" / "wechat_live_prereq_probe.py"
+    return _load_example_module(example_path, "wechat_live_prereq_probe")
 
 
 def _load_example_module(example_path: Path, name: str) -> Any:

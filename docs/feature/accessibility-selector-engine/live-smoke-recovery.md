@@ -167,48 +167,41 @@ state and should not be treated as sufficient proof:
 
 ## Verification Probe
 
-After manual recovery, run this read-only probe. It must show at least one
-window with role `AXWindow`.
+After manual recovery, run this read-only probe. It must report
+`readyForSmoke=true` and show at least one WeChat window with role `AXWindow`.
 
 ```bash
-.venv/bin/python - <<'PY'
-from AppKit import NSWorkspace
-from ApplicationServices import AXUIElementCreateApplication, AXUIElementCopyAttributeValue
-
-def ax_get(element, attr):
-    try:
-        err, value = AXUIElementCopyAttributeValue(element, attr, None)
-        return None if err else value
-    except Exception as exc:
-        return f"<error {exc!r}>"
-
-workspace = NSWorkspace.sharedWorkspace()
-frontmost = workspace.frontmostApplication()
-print("frontmost", frontmost.localizedName(), frontmost.bundleIdentifier(), frontmost.processIdentifier())
-apps = [app for app in workspace.runningApplications() if str(app.bundleIdentifier()) == "com.tencent.xinWeChat"]
-for app in apps:
-    ax_app = AXUIElementCreateApplication(app.processIdentifier())
-    focused = ax_get(ax_app, "AXFocusedWindow")
-    print("focused_window_role", ax_get(focused, "AXRole") if focused else None)
-    print("focused_window_title", ax_get(focused, "AXTitle") if focused else None)
-    windows = ax_get(ax_app, "AXWindows") or []
-    print("windows_count", len(windows))
-    for idx, window in enumerate(windows):
-        print("window", idx, "role", ax_get(window, "AXRole"), "title", ax_get(window, "AXTitle"))
-PY
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_live_prereq_probe.py \
+  --output /private/tmp/selector-live-prereq-probe.json
 ```
 
 Expected success signal:
 
-```text
-focused_window_role AXWindow
+```json
+{
+  "success": true,
+  "readyForSmoke": true,
+  "failureKind": null,
+  "checks": {
+    "accessibilityTrusted": true,
+    "wechatRunning": true,
+    "frontmostWeChat": true,
+    "wechatAxWindow": true
+  }
+}
 ```
 
-or:
+The probe is intentionally read-only. It does not open WeChat, focus WeChat,
+click, type, draft messages, or call the WeChat semantic API. If it returns
+`frontmost_not_wechat`, manually bring the WeChat chat window to the foreground
+and rerun the probe. If it returns `wechat_ax_window_missing`, restore the main
+chat window until macOS exposes an `AXWindow`.
 
-```text
-window 0 role AXWindow title ...
-```
+The full report is written to `/private/tmp/selector-live-prereq-probe.json`
+and includes `frontmost`, `wechat.apps[*].focusedWindow`, and
+`wechat.apps[*].windows` for diagnosing the desktop state without exposing raw
+Accessibility trees to package consumers.
 
 ## Remaining Smoke Commands
 

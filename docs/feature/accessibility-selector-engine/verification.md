@@ -764,6 +764,37 @@ local proof paths from this file. If the consolidated checklist fails, run the
 narrower existing SDK/example scripts against the same service to isolate the
 failing step.
 
+## Additional Verification: Live Prerequisite Probe
+
+Date: 2026-07-08.
+
+This verification covers the read-only live prerequisite probe added for the
+remaining WeChat smoke blocker. The probe reports whether the current Python
+host is Accessibility-trusted, whether WeChat is running, whether WeChat is
+frontmost, and whether macOS exposes a WeChat `AXWindow`.
+
+The probe is not a substitute for the selector-engine smoke checklist. It is a
+preflight diagnostic that explains why the live checklist cannot proceed when
+macOS keeps Codex or `loginwindow` frontmost, or when WeChat only exposes
+`AXApplication` nodes.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples -k live_prereq` | Passed: 2 tests |
+| Python compile check | `python -m py_compile examples/wechat_live_prereq_probe.py tests/test_sdk_examples.py` | Passed |
+| Full SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 106 tests |
+
+New coverage:
+
+- a ready fake desktop state returns `readyForSmoke=true` and writes the JSON
+  report;
+- the observed Codex-frontmost blocker returns `frontmost_not_wechat` and keeps
+  `readyForSmoke=false`;
+- the report includes only normalized prerequisite data:
+  `frontmost`, `wechat.apps[*].focusedWindow`, `wechat.apps[*].windows`, and
+  summary checks.
+
 ## Release Readiness Gate
 
 The feature is not release-ready until the remaining real WeChat smoke evidence
