@@ -469,7 +469,9 @@ entire tree.
         }
       ],
       "risk": "changes_current_chat",
-      "targetSummary": "Open conversation: File Transfer"
+      "targetSummary": "Open conversation: File Transfer",
+      "createdAt": "2026-07-08T10:00:00Z",
+      "expiresAt": "2026-07-08T10:05:00Z"
     }
   },
   "actionRef": {
@@ -481,6 +483,13 @@ entire tree.
   "risk": "changes_current_chat"
 }
 ```
+
+Generated `actionRef` payloads are time-bound. `createdAt` records when the
+window model produced the ref, and `expiresAt` marks the point after which the
+WeChat adapter rejects the ref as `wechat_action_ref_expired` before executing
+backend or fallback actions. Legacy caller-supplied refs without `expiresAt`
+remain accepted for compatibility, but new callers should treat actionRefs as
+short-lived and refresh them after window focus, navigation, or timeout.
 
 Allowed statuses:
 

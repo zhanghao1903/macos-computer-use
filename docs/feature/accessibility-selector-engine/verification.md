@@ -372,6 +372,33 @@ New coverage:
   available;
 - backend failure details remain in the action evidence for caller diagnostics.
 
+## Additional Verification: ActionRef Expiry Enforcement
+
+Date: 2026-07-08.
+
+This verification covers the WeChat semantic `execute_action(actionRef)`
+lifecycle path for generated, expired, and malformed action references.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Execute-action focused tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k execute_action` | Passed: 5 tests |
+| Python compile check | `python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/src/wechat_desktop_tool/window_model.py packages/wechat-desktop-tool/src/wechat_desktop_tool/errors.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 95 tests |
+| Release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python scripts/release_preflight.py` | Passed with existing external-proof warnings for real desktop, TestPyPI, and PyPI publisher checks |
+| Whitespace/conflict check | `git diff --check -- packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/src/wechat_desktop_tool/window_model.py packages/wechat-desktop-tool/src/wechat_desktop_tool/errors.py packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/README.md docs/feature/accessibility-selector-engine/design.md docs/feature/accessibility-selector-engine/implementation-notes.md docs/feature/accessibility-selector-engine/verification.md docs/api.md docs/wechat-window-data-model.md CHANGELOG.md` | Passed |
+
+New coverage:
+
+- generated actionRefs include `createdAt` and `expiresAt`;
+- expired actionRefs are rejected as `wechat_action_ref_expired`;
+- malformed `expiresAt` values fail closed as expired;
+- expiry rejection happens before backend `accessibility_action` or fallback
+  execution;
+- `WECHAT_FAILURE_KINDS` declares the new expiry failure and the existing
+  action precondition failure for caller-side routing;
+- legacy actionRefs without `expiresAt` continue to use the existing execution
+  path for compatibility.
+
 ## Additional Verification: Enabled Match Filter
 
 Date: 2026-07-07.

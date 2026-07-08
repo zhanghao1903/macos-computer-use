@@ -1608,6 +1608,77 @@ python -m py_compile \
 
 Result: passed.
 
+## WeChat Corrective Slice: ActionRef Expiry Enforcement
+
+Status: implemented; automated verification passed; live WeChat expired-actionRef
+proof still required.
+
+Commit scope:
+
+- add `createdAt` and `expiresAt` metadata to generated WeChat actionRefs from
+  `inspect_window`, available actions, contact rows, conversation rows, and
+  selector-backed window models;
+- keep legacy caller-supplied actionRefs without `expiresAt` executable for
+  compatibility;
+- reject actionRefs with expired or malformed `expiresAt` before calling the
+  app-control backend or selector-click fallback;
+- return `wechat_action_ref_expired` with redacted actionRef evidence and a
+  recovery hint to re-run a read-model operation.
+
+Public surface:
+
+- no new command builder, protocol command, or schema name;
+- generated `wechat.action_ref.v1` payloads now include time-bound lifecycle
+  metadata;
+- `execute_action` can fail with `wechat_action_ref_expired` before any desktop
+  mutation is attempted;
+- `WECHAT_FAILURE_KINDS` now declares both
+  `wechat_action_precondition_failed` and `wechat_action_ref_expired` for
+  caller-side routing.
+
+Implemented behavior:
+
+- generated actionRefs are short-lived recommendations instead of durable
+  capabilities;
+- malformed expiry values fail closed the same way as expired refs;
+- stale precondition failures remain distinct as
+  `wechat_action_precondition_failed`;
+- backend and fallback execution are skipped when expiry validation fails.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py -k execute_action
+```
+
+Result: 5 tests passed.
+
+```bash
+python -m py_compile \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/window_model.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/errors.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s packages/wechat-desktop-tool/tests
+```
+
+Result: 95 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python scripts/release_preflight.py
+```
+
+Result: passed with existing external-proof warnings for real desktop, TestPyPI,
+and PyPI publisher checks.
+
 ## Selector Corrective Slice: Relation Anchor Matching
 
 Status: implemented; automated verification passed; live WeChat relation-based

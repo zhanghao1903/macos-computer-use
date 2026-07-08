@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 import time
@@ -75,6 +75,7 @@ _CHAT_INPUT_MARKERS = (
     "聊天输入",
     "消息输入",
 )
+_ACTION_REF_TTL_SECONDS = 300
 _QUERY_ATTRIBUTES: list[str] = [
     "AXRole",
     "AXSubrole",
@@ -1201,6 +1202,8 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         if not result.success:
+            if result.failure_kind == "wechat_action_ref_expired":
+                return result
             return _from_app_control_failure(
                 command,
                 _execute_action_failure_kind(result),
@@ -2121,6 +2124,14 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        expiry_failure = _action_ref_expiry_failure(command, action_ref)
+        if expiry_failure is not None:
+            evidence[phase] = {
+                "failureKind": "action_ref_expired",
+                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
+                "expiresAt": _action_ref_expiry_value(action_ref),
+            }
+            return expiry_failure
         input_payload = self._accessibility_action_input(action_ref)
         result = self._app_control_command(
             command,
@@ -2631,6 +2642,74 @@ def _node_ax_path(node: Mapping[str, Any]) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _utc_now_datetime() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _isoformat_utc(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _action_ref_time_bounds() -> tuple[str, str]:
+    created_at = _utc_now_datetime()
+    expires_at = created_at + timedelta(seconds=_ACTION_REF_TTL_SECONDS)
+    return _isoformat_utc(created_at), _isoformat_utc(expires_at)
+
+
+def _action_ref_expiry_value(action_ref: Mapping[str, Any]) -> str | None:
+    return _optional_string_from_mapping(action_ref, "expiresAt", "expires_at")
+
+
+def _parse_action_ref_time(value: str) -> datetime | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _action_ref_expiry_failure(
+    command: ToolCommand,
+    action_ref: Mapping[str, Any],
+) -> ToolObservation | None:
+    raw_expires_at = _action_ref_expiry_value(action_ref)
+    if raw_expires_at is None:
+        return None
+    expires_at = _parse_action_ref_time(raw_expires_at)
+    if expires_at is not None and _utc_now_datetime() < expires_at:
+        return None
+    action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
+    message = f"WeChat actionRef is expired or invalid: {action_id}"
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_ref_expired",
+        message=message,
+        recovery_hint="Re-run inspect_window or list operation to get a fresh actionRef.",
+        retryable=True,
+        observation={
+            "schema": "wechat.execute_action.v1",
+            "status": "failed",
+            "actionId": action_id,
+            "failureKind": "wechat_action_ref_expired",
+            "expiresAt": raw_expires_at,
+        },
+        evidence={
+            "actionRef": {
+                "id": action_id,
+                "expiresAt": raw_expires_at,
+            }
+        },
+    )
+
+
 def _action_ref_from_node(
     node: Mapping[str, Any],
     *,
@@ -2660,6 +2739,7 @@ def _action_ref_from_node(
         preconditions["labelIn"] = _label_precondition_values(label)
     if isinstance(node.get("enabled"), bool):
         preconditions["enabled"] = bool(node["enabled"])
+    created_at, expires_at = _action_ref_time_bounds()
     action_ref: dict[str, JsonValue] = {
         "schema": "wechat.action_ref.v1",
         "id": action_id or f"ui.{_stable_id(label or ax_path, 0)}.press",
@@ -2670,6 +2750,8 @@ def _action_ref_from_node(
         "preconditions": preconditions,
         "risk": risk,
         "targetSummary": target_summary or f"Press {label or ax_path}",
+        "createdAt": created_at,
+        "expiresAt": expires_at,
     }
     if snapshot_id is not None:
         action_ref["snapshotId"] = snapshot_id
@@ -2733,7 +2815,10 @@ def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
 
 
 def _execute_action_failure_kind(result: ToolObservation) -> str:
-    if _accessibility_action_failure_kind(result) == "precondition_failed":
+    failure_kind = _accessibility_action_failure_kind(result)
+    if failure_kind == "wechat_action_ref_expired":
+        return "wechat_action_ref_expired"
+    if failure_kind == "precondition_failed":
         return "wechat_action_precondition_failed"
     return "wechat_action_failed"
 

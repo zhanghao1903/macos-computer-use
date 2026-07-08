@@ -574,7 +574,9 @@ raw `attributeNames` or full AX trees.
           "id": "nav.contacts.press",
           "preferredMethod": "accessibility_action",
           "target": {"axPath": "0/2", "role": "AXRadioButton"},
-          "action": "AXPress"
+          "action": "AXPress",
+          "createdAt": "2026-07-08T10:00:00Z",
+          "expiresAt": "2026-07-08T10:05:00Z"
         }
       }
     ],
@@ -622,7 +624,9 @@ List APIs return visible rows only:
         "kind": "chats.open",
         "preferredMethod": "accessibility_action",
         "target": {"axPath": "0/11/1/0/0", "role": "AXRow"},
-        "action": "AXPress"
+        "action": "AXPress",
+        "createdAt": "2026-07-08T10:00:00Z",
+        "expiresAt": "2026-07-08T10:05:00Z"
       }
     }
   ],
@@ -634,6 +638,12 @@ List APIs return visible rows only:
   }
 }
 ```
+
+WeChat `actionRef` values are short-lived recommendations. Generated refs
+include `createdAt` and `expiresAt`; `execute_action` rejects expired or
+malformed refs with `wechat_action_ref_expired` before calling macOS
+Accessibility or selector fallback. Re-run `inspect_window`, `list_contacts`,
+or `list_conversations` to obtain a fresh ref when this happens.
 
 `read_visible_messages` returns normalized visible messages:
 
@@ -723,8 +733,9 @@ from wechat_desktop_tool import WECHAT_FAILURE_KINDS
 
 These constants cover package-owned failures such as `invalid_input`,
 `coordinate_click_disabled`, `app_not_allowlisted`, `contact_not_found`,
-`draft_failed`, and `submit_unknown`. A tool may still propagate a lower-level
-`failureKind` from another compatible app-control client in nested evidence.
+`wechat_action_ref_expired`, `draft_failed`, and `submit_unknown`. A tool may
+still propagate a lower-level `failureKind` from another compatible app-control
+client in nested evidence.
 
 The caller must own:
 

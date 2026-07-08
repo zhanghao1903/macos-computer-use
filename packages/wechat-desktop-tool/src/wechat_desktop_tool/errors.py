@@ -10,6 +10,8 @@ WECHAT_NOT_LOGGED_IN = "wechat_not_logged_in"
 WECHAT_WINDOW_UNAVAILABLE = "wechat_window_unavailable"
 WECHAT_NAVIGATION_FAILED = "wechat_navigation_failed"
 WECHAT_ACTION_FAILED = "wechat_action_failed"
+WECHAT_ACTION_PRECONDITION_FAILED = "wechat_action_precondition_failed"
+WECHAT_ACTION_REF_EXPIRED = "wechat_action_ref_expired"
 WECHAT_LIST_FAILED = "wechat_list_failed"
 CONTACT_NOT_FOUND = "contact_not_found"
 CONTACT_AMBIGUOUS = "contact_ambiguous"
@@ -42,6 +44,8 @@ WECHAT_FAILURE_KINDS = (
     WECHAT_WINDOW_UNAVAILABLE,
     WECHAT_NAVIGATION_FAILED,
     WECHAT_ACTION_FAILED,
+    WECHAT_ACTION_PRECONDITION_FAILED,
+    WECHAT_ACTION_REF_EXPIRED,
     WECHAT_LIST_FAILED,
     CONTACT_NOT_FOUND,
     CONTACT_AMBIGUOUS,

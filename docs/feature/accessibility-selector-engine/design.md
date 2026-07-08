@@ -414,6 +414,8 @@ class ActionRef:
     preconditions: list[ActionPrecondition]
     risk: Literal["read_only", "changes_focus", "changes_current_chat", "submits_text"]
     target_summary: str
+    created_at: str
+    expires_at: str | None
 ```
 
 ```python
@@ -635,6 +637,8 @@ class PaginationState:
 | `SelectorDiagnostics` | `tried_selectors`, `query_count`, `node_count`, `truncated`, `truncation_reason`, `cache_status`, `failure_kind`, `message` | New | Required except nullable fields | Message must avoid raw message/contact text by default. |
 | `CollectionResult` | `schema`, `status`, `collection_id`, `profile_id`, `profile_version`, `snapshot_id`, `items`, `pagination`, `diagnostics` | New | Required | Items are semantic field dictionaries; no raw AX nodes. |
 | `ActionRef` | `schema`, `id`, `kind`, `target`, `action`, `preconditions`, `risk`, `target_summary` | New | Required | Revalidated before execution; applications must authorize risky actions. |
+| `ActionRef` | `created_at` / JSON `createdAt` | New | Required on generated refs | RFC 3339 UTC timestamp; used for diagnostics and one-shot lifecycle auditing. Legacy caller-supplied refs without this field remain accepted. |
+| `ActionRef` | `expires_at` / JSON `expiresAt` | New | Required on generated refs; optional on legacy input | RFC 3339 UTC timestamp or `None`; expired or malformed timestamps fail closed before backend action/fallback with `wechat_action_ref_expired` in the WeChat adapter. |
 | `ActionPrecondition` | `kind`, `value` | New | Required | Supported kinds are explicit and fail closed on unknown values. |
 | `SelectorCacheEntry` | `profile_id`, `profile_version`, `selector_id`, `app_bundle_id`, `window_fingerprint`, `element_ref`, `created_at`, `expires_at` | New | Required except `expires_at` optional | In-memory only for MVP; invalidated by profile/window/signature mismatch or TTL. |
 | TOML override | `selector_profiles.<id>.enabled` | New config proposal | Default `true` | Disables an override without removing packaged defaults. |
@@ -1007,6 +1011,7 @@ generic failure kind in debug diagnostics.
 | `selector_query_failed` | Underlying `accessibility_query` | Maybe | Retry once only for transient timeout; do not spin on permission failures. | Existing macOS/accessibility failure kind plus selector context. | Check permissions, app focus, or service readiness. |
 | `selector_query_truncated` | Query budget enforcement | Maybe | Retry with narrower root or explicit higher limit; not with full-window dump. | `wechat_query_truncated`. | Use pagination, refine selector, or show partial data with diagnostics. |
 | `selector_field_missing` | Collection field extraction | Maybe | Retry after profile update or app navigation. | `wechat_contact_field_missing`, `wechat_message_field_missing`. | Treat collection as partial or ask for profile fixture update. |
+| `selector_action_ref_expired` | Action executor | Yes | Re-observe or re-list to obtain a fresh actionRef; do not execute backend or fallback. | `wechat_action_ref_expired`. | Rebuild the actionRef from the current window model before asking for user/app confirmation. |
 | `selector_action_precondition_failed` | Action executor | Yes | Re-resolve selector and rebuild actionRef; do not reuse stale ref. | `wechat_action_precondition_failed`. | Re-observe and ask for user/app confirmation when risk changed. |
 | `selector_action_failed` | Underlying `accessibility_action` | Maybe | Retry only if AX reports transient failure and preconditions still pass. | Existing action failure plus selector context. | Report failure; avoid repeated mutating actions without confirmation. |
 

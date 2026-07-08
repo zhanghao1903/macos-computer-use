@@ -179,7 +179,8 @@ default_timeout_ms = 30000
 
 Import `WECHAT_FAILURE_KINDS` when callers need stable routing for
 package-owned semantic failures such as `contact_not_found`, `draft_failed`,
-`input_not_focused`, `submit_failed`, `submit_unknown`, and `send_unverified`.
+`input_not_focused`, `wechat_action_ref_expired`, `submit_failed`,
+`submit_unknown`, and `send_unverified`.
 
 ## Package Boundary
 

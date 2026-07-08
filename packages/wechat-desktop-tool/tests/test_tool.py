@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Mapping
 from contextlib import redirect_stdout
 from contextlib import redirect_stderr
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 import importlib.util
 import json
@@ -999,6 +1000,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             item for item in window["actionables"] if item["id"] == "nav.contacts.press"
         )
         self.assertEqual(nav_contacts["actionRef"]["action"], "AXPress")
+        self.assertIn("createdAt", nav_contacts["actionRef"])
+        self.assertIn("expiresAt", nav_contacts["actionRef"])
         self.assertEqual(
             nav_contacts["actionRef"]["target"]["axPath"],
             "0/2",
@@ -1112,6 +1115,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         nav_action = available_actions["ui.nav.contacts.press"]
         self.assertEqual(nav_action["operation"], "execute_action")
         self.assertEqual(nav_action["inputTemplate"]["actionRef"]["action"], "AXPress")
+        self.assertIn("createdAt", nav_action["inputTemplate"]["actionRef"])
+        self.assertIn("expiresAt", nav_action["inputTemplate"]["actionRef"])
         self.assertEqual(
             nav_action["inputTemplate"]["actionRef"]["target"]["axPath"],
             "0/2",
@@ -1234,6 +1239,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             result.observation["items"][0]["actionRef"]["action"],
             "AXPress",
         )
+        self.assertIn("createdAt", result.observation["items"][0]["actionRef"])
+        self.assertIn("expiresAt", result.observation["items"][0]["actionRef"])
         self.assertEqual(result.observation["pagination"]["limit"], 2)
         self.assertEqual(result.observation["pagination"]["hasMore"], True)
         self.assertIsNotNone(result.observation["pagination"]["nextPageToken"])
@@ -1593,6 +1600,87 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertIn("execute_action", result.error.evidence)
         self.assertNotIn("execute_action:selector_fallback", result.error.evidence)
+
+    def test_execute_action_rejects_expired_action_ref_before_backend(self) -> None:
+        expired_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        ).isoformat().replace("+00:00", "Z")
+        for expires_at in (expired_at, "not-a-date"):
+            with self.subTest(expires_at=expires_at):
+                app_control = FakeAppControl([_accessibility_action_response()])
+                tool = WeChatDesktopTool(app_control)
+                action_ref = {
+                    "schema": "wechat.action_ref.v1",
+                    "id": "nav.contacts.press",
+                    "kind": "navigation.switch",
+                    "preferredMethod": "accessibility_action",
+                    "target": {
+                        "axPath": "0/2",
+                        "role": "AXRadioButton",
+                        "label": "通讯录",
+                        "actions": ["AXPress"],
+                    },
+                    "action": "AXPress",
+                    "preconditions": {
+                        "roleIn": ["AXRadioButton"],
+                        "labelIn": ["通讯录"],
+                        "actionIn": ["AXPress"],
+                    },
+                    "expiresAt": expires_at,
+                    "fallbacks": [
+                        {
+                            "method": "selector_click",
+                            "selector": {
+                                "role": "radio_button",
+                                "name": "通讯录",
+                            },
+                        }
+                    ],
+                }
+
+                result = tool.execute_action(action_ref)
+
+                self.assertFalse(result.success)
+                self.assertEqual(result.failure_kind, "wechat_action_ref_expired")
+                self.assertEqual(result.observation["schema"], "wechat.execute_action.v1")
+                self.assertEqual(result.observation["actionId"], "nav.contacts.press")
+                self.assertEqual(app_control.commands, [])
+                self.assertIn("actionRef", result.error.evidence)
+
+    def test_execute_action_accepts_unexpired_action_ref(self) -> None:
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat().replace("+00:00", "Z")
+        app_control = FakeAppControl([_accessibility_action_response()])
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+            "expiresAt": expires_at,
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["method"], "accessibility_action")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action"],
+        )
 
     def test_click_node_phase_does_not_generate_coordinate_fallback(self) -> None:
         app_control = FakeAppControl([{}])
