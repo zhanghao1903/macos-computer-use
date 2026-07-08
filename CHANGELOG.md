@@ -59,9 +59,9 @@
 
 - Track the `examples/app-control.toml` template so CI release preflight checks
   pass in clean checkouts.
-- Make release preflight source entrypoint checks inject all workspace package
-  source roots so WeChat checks can import `computer_use_macos` in clean CI
-  checkouts.
+- Make release preflight and CI WeChat package-test checks inject all workspace
+  package source roots so WeChat checks can import `computer_use_macos` in
+  clean CI checkouts.
 - Install CI build tooling before no-isolation wheel builds so package
   verification can import the configured `setuptools.build_meta` backend.
 - Allow selector-backed WeChat row actionRefs and `open_contact` to work when

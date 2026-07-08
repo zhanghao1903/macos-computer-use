@@ -2564,7 +2564,7 @@ python scripts/release_preflight.py \
 
 Result: passed; `external-proof:wechat_selector_engine_smoke` verified.
 
-## Release Preflight CI Source Path Recovery
+## Release Preflight And CI Source Path Recovery
 
 Status: implemented; local CI-equivalent release preflight passed without an
 external `PYTHONPATH`.
@@ -2578,6 +2578,10 @@ Commit scope:
 - cover the WeChat module entrypoint and both WeChat dry-run smokes with tests
   that assert the subprocess environment includes `computer-use-macos/src` as
   well as the protocol and WeChat package sources.
+- update the GitHub Actions WeChat package-test step so it uses the same
+  workspace source roots as the root tests;
+- add a release-preflight workflow gate that fails if the CI WeChat package
+  tests omit `computer-use-macos/src`.
 
 Public surface:
 
@@ -2590,6 +2594,8 @@ Implemented behavior:
 
 - CI can run `python scripts/release_preflight.py` from a clean checkout
   without relying on editable installs or ambient `PYTHONPATH`;
+- CI can run `python -m unittest discover -s packages/wechat-desktop-tool/tests`
+  from source without relying on editable installs;
 - `wechat_desktop_tool` entrypoints can import
   `computer_use_macos.selectors` during preflight because all workspace package
   source roots are injected consistently;
@@ -2606,10 +2612,18 @@ uv run pytest tests/test_release_preflight.py \
 Result: 3 tests passed.
 
 ```bash
+uv run pytest tests/test_release_preflight.py \
+  -k "workflow_check_requires_wechat_test_dependency_path or default_preflight_passes_local_checks"
+```
+
+Result: 2 tests passed.
+
+```bash
 env -u PYTHONPATH python scripts/release_preflight.py
 ```
 
-Result: passed; WeChat module-entrypoint and dry-run smoke checks were `OK`.
+Result: passed; WeChat module-entrypoint, dry-run smoke, and workflow source
+path checks were `OK`.
 
 ```bash
 python -m py_compile \

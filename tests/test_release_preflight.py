@@ -74,6 +74,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("dry-run-smoke:wechat-example-module-focus-draft", names)
         self.assertIn("local-service-smoke:computer-use-macos", names)
         self.assertIn("workflow:ci-verifies-sdist-contents", names)
+        self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", names)
         self.assertIn("workflow:release-verifies-sdist-contents", names)
         self.assertIn("workflow:release-verifies-tag-version", names)
         self.assertIn("path:docs/quickstart.md", names)
@@ -444,6 +445,38 @@ class ReleasePreflightTests(unittest.TestCase):
 
         failures = [result.name for result in results if result.status == "fail"]
         self.assertIn("workflow:release-verifies-tag-version", failures)
+
+    def test_workflow_check_requires_wechat_test_dependency_path(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "ci.yml").write_text(
+                ci.replace(
+                    preflight.WECHAT_PACKAGE_TEST_PYTHONPATH,
+                    (
+                        "PYTHONPATH=packages/app-control-protocol/src:"
+                        "packages/wechat-desktop-tool/src"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            (workflow_dir / "release.yml").write_text(
+                (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", failures)
 
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()

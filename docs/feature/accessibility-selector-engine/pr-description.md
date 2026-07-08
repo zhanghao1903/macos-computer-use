@@ -72,6 +72,7 @@ and is not hidden behind selector resolution.
 Latest targeted checks recorded in `verification.md`:
 
 - release-preflight source-path recovery: 3 targeted tests passed
+- CI workflow WeChat dependency-path recovery: 2 targeted tests passed
 - CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`: passed
 - `computer-use-macos` targeted package tests: 108 tests passed, 1 skipped
 - WeChat tool/profile tests: 91 tests passed

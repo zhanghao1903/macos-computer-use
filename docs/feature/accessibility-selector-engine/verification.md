@@ -841,7 +841,7 @@ New coverage:
   `list_contacts`, `list_conversations`, profile override checks, and expired
   actionRef rejection on a real WeChat desktop.
 
-## Additional Verification: Release Preflight Source Path Recovery
+## Additional Verification: Release Preflight And CI Source Path Recovery
 
 Date: 2026-07-09.
 
@@ -849,14 +849,17 @@ This verification covers the CI failure where `python
 scripts/release_preflight.py` ran from a clean checkout without `PYTHONPATH`.
 The WeChat source entrypoints imported `computer_use_macos.selectors`, but the
 preflight subprocess environment only included the protocol and WeChat source
-roots.
+roots. The next CI run also showed the workflow's WeChat package-test step had
+the same missing dependency path, so the workflow now uses the complete
+workspace source path and release preflight checks that contract.
 
 | Area | Command | Result |
 | --- | --- | --- |
 | Targeted release-preflight tests | `uv run pytest tests/test_release_preflight.py -k "wechat_module_entrypoint or wechat_dry_run_smokes or default_preflight_passes_local_checks"` | Passed: 3 tests |
-| CI-equivalent release preflight | `env -u PYTHONPATH python scripts/release_preflight.py` | Passed; WeChat module-entrypoint and dry-run smoke checks were `OK` |
+| Workflow dependency-path tests | `uv run pytest tests/test_release_preflight.py -k "workflow_check_requires_wechat_test_dependency_path or default_preflight_passes_local_checks"` | Passed: 2 tests |
+| CI-equivalent release preflight | `env -u PYTHONPATH python scripts/release_preflight.py` | Passed; WeChat module-entrypoint, dry-run smoke, and workflow source-path checks were `OK` |
 | Python compile check | `python -m py_compile scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
-| Whitespace/conflict check | `git diff --check -- scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
+| Whitespace/conflict check | `git diff --check -- .github/workflows/ci.yml scripts/release_preflight.py tests/test_release_preflight.py` | Passed |
 
 `uv run ruff check scripts/release_preflight.py tests/test_release_preflight.py`
 could not run in the local environment because `ruff` is not installed.
@@ -868,6 +871,8 @@ New coverage:
   `computer-use-macos/src`, and `wechat-desktop-tool/src`;
 - both WeChat dry-run smoke checks assert the same workspace source-path
   contract;
+- the GitHub Actions WeChat package-test step now uses the same three package
+  source roots, and release preflight fails if that path regresses;
 - full release preflight now passes with `PYTHONPATH` explicitly removed from
   the environment, matching the failing GitHub Actions mode.
 

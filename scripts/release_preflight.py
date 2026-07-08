@@ -137,6 +137,12 @@ WORKSPACE_SOURCE_PATHS = (
     "packages/wechat-desktop-tool/src",
 )
 
+WECHAT_PACKAGE_TEST_PYTHONPATH = (
+    "PYTHONPATH=packages/app-control-protocol/src:"
+    "packages/computer-use-macos/src:"
+    "packages/wechat-desktop-tool/src"
+)
+
 PACKAGE_MODULE_FILES = (
     "packages/computer-use-macos/src/computer_use_macos/commands.py",
     "packages/computer-use-macos/src/computer_use_macos/observations.py",
@@ -1855,6 +1861,10 @@ def _check_workflows(root: Path) -> list[CheckResult]:
         "ci-runs-protocol-tests": "packages/app-control-protocol/tests" in ci,
         "ci-runs-computer-use-tests": "packages/computer-use-macos/tests" in ci,
         "ci-runs-wechat-tests": "packages/wechat-desktop-tool/tests" in ci,
+        "ci-wechat-tests-include-workspace-deps": (
+            WECHAT_PACKAGE_TEST_PYTHONPATH in ci
+            and "packages/wechat-desktop-tool/tests" in ci
+        ),
         "ci-builds-all-packages": all(
             item in ci
             for item in (
