@@ -234,3 +234,78 @@ risk = "changes_focus"
 [[actions.navigation.chats.press.preconditions]]
 kind = "appFrontmost"
 value = true
+
+[control_map]
+schema_version = "wechat.control-map.v1"
+map_id = "wechat.macos.default"
+map_version = "2026.07"
+
+[control_map.navigation.chats]
+ax_paths = ["0/1"]
+role = "AXRadioButton"
+labels = ["聊天", "__EN_CHATS_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.navigation.contacts]
+ax_paths = ["0/2"]
+role = "AXRadioButton"
+labels = ["通讯录", "__EN_CONTACTS_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.navigation.favorites]
+ax_paths = ["0/3"]
+role = "AXRadioButton"
+labels = ["收藏", "__EN_FAVORITES_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.regions.mainContent]
+ax_paths = ["0/12", "0/11"]
+role = "AXSplitGroup"
+labels = ["main-content"]
+kind = "region.main_content"
+risk = "read_only"
+
+[control_map.regions.searchBox]
+ax_paths = ["0/12/0", "0/11/0"]
+role = "AXTextArea"
+labels = ["搜索", "search", "__EN_SEARCH_PLACEHOLDER__"]
+action = "AXSetFocus"
+kind = "search.focus"
+risk = "changes_focus"
+
+[control_map.regions.chatPanel]
+ax_paths = ["0/11/4"]
+role = "AXSplitGroup"
+labels = ["chat-panel"]
+kind = "region.chat_panel"
+risk = "read_only"
+
+[control_map.collections.contacts]
+root_ax_paths = ["0/12/2/0", "0/11/2/0"]
+roles = ["AXRow", "AXCell", "AXStaticText"]
+max_depth = 3
+minimum_limit = 140
+limit_multiplier = 6
+time_budget_ms = 2200
+
+[control_map.collections.conversations]
+root_ax_paths = ["0/11/1/0"]
+roles = ["AXRow", "AXCell", "AXStaticText"]
+max_depth = 2
+minimum_limit = 100
+limit_multiplier = 4
+time_budget_ms = 2200
+
+[control_map.collections.visibleMessages]
+root_ax_paths = ["0/11/4/0/0"]
+roles = ["AXRow", "AXCell", "AXStaticText"]
+max_depth = 3
+minimum_limit = 100
+limit_multiplier = 4
+time_budget_ms = 2200

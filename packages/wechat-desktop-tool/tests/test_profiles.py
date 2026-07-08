@@ -10,6 +10,8 @@ from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE,
     build_packaged_collection_extractor,
     build_packaged_selector_resolver,
+    load_control_map,
+    load_packaged_control_map,
     load_packaged_selector_profile,
     load_selector_profile,
 )
@@ -51,6 +53,21 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         self.assertEqual(
             profile.collections["conversations"].fields["element"].attribute,
             "elementRef",
+        )
+
+    def test_packaged_control_map_loads_known_wechat_paths(self) -> None:
+        control_map = load_packaged_control_map()
+
+        self.assertEqual(control_map.schema_version, "wechat.control-map.v1")
+        self.assertEqual(control_map.map_id, "wechat.macos.default")
+        self.assertEqual(control_map.navigation["contacts"].ax_paths, ("0/2",))
+        self.assertEqual(
+            control_map.collections["contacts"].root_ax_paths[0],
+            "0/12/2/0",
+        )
+        self.assertEqual(
+            control_map.collections["conversations"].root_ax_paths,
+            ("0/11/1/0",),
         )
 
     def test_packaged_selector_resolver_uses_default_profile(self) -> None:
@@ -130,6 +147,28 @@ class WeChatSelectorProfileTests(unittest.TestCase):
 
         self.assertEqual(profile.profile_id, "wechat.override")
         self.assertIn("navigation.contacts", profile.selectors)
+
+    def test_control_map_override_loads_from_selector_profile_path(self) -> None:
+        packaged_text = (
+            resources.files("wechat_desktop_tool")
+            .joinpath(DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+        override_text = packaged_text.replace(
+            'root_ax_paths = ["0/12/2/0", "0/11/2/0"]',
+            'root_ax_paths = ["0/99/2/0"]',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-override.toml"
+            profile_path.write_text(override_text, encoding="utf-8")
+
+            control_map = load_control_map(profile_path)
+
+        self.assertEqual(
+            control_map.collections["contacts"].root_ax_paths,
+            ("0/99/2/0",),
+        )
 
     def test_invalid_selector_profile_override_falls_back_to_packaged(
         self,

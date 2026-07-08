@@ -73,6 +73,9 @@
 - Batch selector collection descendant field extraction and trim unused
   selector query attributes so WeChat contact listing no longer performs one
   Accessibility query per visible row.
+- Add a WeChat control-map fast path for mapped navigation/list/message table
+  AX paths so normal semantic reads avoid broad selector discovery and nested
+  per-row searches.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

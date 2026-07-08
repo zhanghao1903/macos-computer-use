@@ -2692,3 +2692,56 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 96 tests passed.
+
+## WeChat Control Map Fast Path
+
+Status: implemented for list-style reads and visible-row contact opening.
+
+Commit scope:
+
+- add a WeChat-private control map loader under `wechat_desktop_tool`;
+- extend the packaged `wechat-macos.toml` profile with `[control_map]`
+  entries derived from `examples/window.json.bak` and
+  `examples/window-contact.json`;
+- route `list_contacts`, `list_conversations`, and `read_visible_messages`
+  through mapped AX paths before falling back to selector search;
+- let `open_contact` use the mapped conversations table for already visible
+  conversation rows before falling back to the existing search workflow;
+- fix row label extraction so `row/cell/staticText` contact names are mapped
+  back to their nearest `AXRow`.
+
+Public surface:
+
+- no protocol schema, command builder, or top-level package API change;
+- existing WeChat semantic response shapes remain compatible;
+- list/message responses now include an additive `source.mode = "control_map"`
+  payload when the fast path succeeds;
+- applications can override the map by passing a `selector_profile_path` TOML
+  that contains a `[control_map]` section, without rebuilding the package.
+
+Implemented behavior:
+
+- navigation actions use direct paths `0/1`, `0/2`, and `0/3` with role/action
+  and label preconditions;
+- contacts query the mapped table roots `0/12/2/0` and fallback candidate
+  `0/11/2/0` instead of scanning the whole window or main split group;
+- conversations query `0/11/1/0`;
+- visible messages query `0/11/4/0/0`;
+- mapped collection queries use bounded role filters and a 2200 ms query budget;
+- selector-backed behavior remains the fallback when a mapped path fails or
+  returns unusable nodes.
+
+Performance intent:
+
+- normal list-style API paths should require only `open_app`, `observe`, one
+  mapped `accessibility_action` where navigation is needed, and one mapped
+  `accessibility_query`;
+- this replaces the previous selector-discovery and per-row field-query shape,
+  which could take tens of seconds on large WeChat contact tables.
+
+Remaining work:
+
+- live macOS smoke must confirm wall-clock API times on the user's WeChat
+  client;
+- non-visible `open_contact` search still uses the existing selector/search
+  fallback path and should get a separate mapped search-result slice.

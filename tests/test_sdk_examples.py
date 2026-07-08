@@ -74,14 +74,6 @@ class FakeFileTransferSendServiceClient:
         self._queries = [
             _wechat_query(
                 [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
                     _query_node("0/11/1/0/0", "AXRow", description="文件传输助手")
                 ]
             ),
@@ -136,38 +128,28 @@ class FakeContactsListServiceClient:
         self._queries = [
             _wechat_query(
                 [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
                     _query_node(
-                        "0/11/1/0/0",
+                        "0/12/2/0/0",
                         "AXRow",
-                        description="Ada",
                         height=68,
                     ),
                     _query_node(
-                        "0/11/1/0/1",
+                        "0/12/2/0/0/0/1",
+                        "AXStaticText",
+                        value="Ada",
+                    ),
+                    _query_node(
+                        "0/12/2/0/1",
                         "AXRow",
-                        description="Bob",
                         height=68,
+                    ),
+                    _query_node(
+                        "0/12/2/0/1/0/1",
+                        "AXStaticText",
+                        value="Bob",
                     ),
                 ]
             ),
-            _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
-            _wechat_query([_query_node("0/11/1/0/1/0", "AXStaticText", value="Bob")]),
         ]
 
     def run_command(
@@ -210,42 +192,16 @@ class FakeContactsRecentMessagesServiceClient:
         self._queries = [
             _wechat_query(
                 [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=0),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=1),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
                     _query_node(
-                        "0/11/1/0/0",
+                        "0/12/2/0/0",
                         "AXRow",
-                        description="Ada",
                         height=68,
                     ),
-                ]
-            ),
-            _wechat_query([_query_node("0/11/1/0/0/0", "AXStaticText", value="Ada")]),
-            _wechat_query(
-                [
-                    _query_node("0/1", "AXRadioButton", description="聊天", value=1),
-                    _query_node("0/2", "AXRadioButton", description="通讯录", value=0),
-                    _query_node("0/3", "AXRadioButton", description="收藏", value=0),
-                    _query_node("0/11", "AXSplitGroup", description="main"),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/4", "AXSplitGroup", description="chat-panel"),
+                    _query_node(
+                        "0/12/2/0/0/0/1",
+                        "AXStaticText",
+                        value="Ada",
+                    ),
                 ]
             ),
             _wechat_query(
@@ -356,6 +312,12 @@ class FakeSelectorEngineSmokeServiceClient:
 
         if role_in == ["AXRadioButton"]:
             return _wechat_query(self._navigation_nodes())
+        if (
+            root_path in {"0/11/1/0", "0/12/2/0"}
+            and isinstance(role_in, list)
+            and "AXRow" in role_in
+        ):
+            return _wechat_query(self._row_nodes(root_path))
         if role_in == ["AXSplitGroup"] and root_path == "0/11":
             return _wechat_query(
                 [_query_node("0/11/4", "AXSplitGroup", description="chat-panel")]
@@ -365,11 +327,11 @@ class FakeSelectorEngineSmokeServiceClient:
                 [_query_node("0/11", "AXSplitGroup", description="main")]
             )
         if root_path == "0/11" and role_in == ["AXRow"]:
-            return _wechat_query(self._row_nodes())
+            return _wechat_query(self._row_nodes(root_path))
         if root_path in {"0/11/1/0/0", "0/11/1/0/1"}:
             return _wechat_query(self._field_nodes(root_path))
         if (
-            root_path == "0/11/4"
+            root_path in {"0/11/4", "0/11/4/0/0"}
             and isinstance(role_in, list)
             and "AXRow" in role_in
         ):
@@ -414,15 +376,17 @@ class FakeSelectorEngineSmokeServiceClient:
             _query_node("0/3", "AXRadioButton", description="收藏", value=0),
         ]
 
-    def _row_nodes(self) -> list[dict[str, Any]]:
-        if self.section == "contacts":
+    def _row_nodes(self, root_path: str = "0/11/1/0") -> list[dict[str, Any]]:
+        if root_path == "0/12/2/0":
             return [
-                _query_node("0/11/1/0/0", "AXRow", description="Ada", height=68),
-                _query_node("0/11/1/0/1", "AXRow", description="Bob", height=68),
+                _query_node(f"{root_path}/0", "AXRow", height=68),
+                _query_node(f"{root_path}/0/0/1", "AXStaticText", value="Ada"),
+                _query_node(f"{root_path}/1", "AXRow", height=68),
+                _query_node(f"{root_path}/1/0/1", "AXStaticText", value="Bob"),
             ]
         return [
             _query_node(
-                "0/11/1/0/0",
+                f"{root_path}/0",
                 "AXRow",
                 description="文件传输助手,hello,09:00,置顶",
                 height=68,
@@ -578,7 +542,6 @@ class SdkExampleTests(unittest.TestCase):
                 "open_app",
                 "observe",
                 "accessibility_query",
-                "accessibility_query",
                 "accessibility_action",
                 "accessibility_query",
                 "type_text",
@@ -593,7 +556,7 @@ class SdkExampleTests(unittest.TestCase):
             "hotkey",
             [command["operation"] for command in service_client.commands],
         )
-        self.assertEqual(service_client.commands[9]["input"]["text"], "hello")
+        self.assertEqual(service_client.commands[8]["input"]["text"], "hello")
         self.assertEqual(persisted["submitDraft"]["operation"], "submit_draft")
 
     def test_wechat_contacts_list_test_lists_contacts(self) -> None:
@@ -634,11 +597,7 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "accessibility_action",
-                "accessibility_query",
-                "accessibility_query",
-                "accessibility_query",
                 "accessibility_query",
             ],
         )
@@ -691,16 +650,11 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "accessibility_action",
-                "accessibility_query",
-                "accessibility_query",
                 "accessibility_query",
                 "accessibility_action",
                 "open_app",
                 "observe",
-                "accessibility_query",
-                "accessibility_query",
                 "accessibility_query",
             ],
         )
@@ -775,7 +729,7 @@ class SdkExampleTests(unittest.TestCase):
         )
         self.assertEqual(
             payload["openContact"]["observation"]["openMethod"],
-            "visible_action_ref",
+            "control_map_visible_action_ref",
         )
         self.assertEqual(payload["profileOverrides"]["validOverride"]["success"], True)
         self.assertEqual(payload["profileOverrides"]["invalidFallback"]["success"], True)
@@ -790,8 +744,8 @@ class SdkExampleTests(unittest.TestCase):
         self.assertNotIn("press_key", operations)
         self.assertEqual(
             operations.count("accessibility_action"),
-            2,
-            "expired actionRef check must not add a third backend action",
+            3,
+            "expired actionRef check must not add a fourth backend action",
         )
 
     def test_wechat_live_prereq_probe_reports_ready_state(self) -> None:

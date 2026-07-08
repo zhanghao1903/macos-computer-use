@@ -980,3 +980,45 @@ Result: 104 tests passed.
 This does not replace the real live WeChat smoke requirement. It makes the
 future live smoke output structurally enforceable by release preflight once the
 report is produced from a real desktop run.
+
+## Additional Verification: WeChat Control Map Fast Path
+
+Date: 2026-07-09.
+
+This verification covers the control-map optimization for WeChat semantic APIs.
+The prior batch extraction slice reduced per-row field queries, but still
+depended on selector discovery from broad regions. The new fast path uses
+packaged AX path maps derived from `examples/window.json.bak` and
+`examples/window-contact.json`.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| `app-control-protocol` tests | `PYTHONPATH=packages/app-control-protocol/src python -m unittest discover -s packages/app-control-protocol/tests` | Passed: 54 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 108 tests, 1 skipped |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 98 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| Python compile check | `python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/control_map.py packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_profiles.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py` | Passed |
+| Whitespace/conflict check | `git diff --check` | Passed |
+| Ruff check | `uv run ruff check packages/wechat-desktop-tool/src/wechat_desktop_tool/control_map.py packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_profiles.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py` | Not run: local environment could not spawn `ruff` |
+
+New coverage:
+
+- packaged control map loading and override loading from
+  `selector_profile_path`;
+- `list_contacts` normal path uses `0/2` navigation and `0/12/2/0` contact
+  table root;
+- contact rows map nested `AXStaticText` values back to the nearest `AXRow`
+  and skip special/status rows before applying the caller limit;
+- `list_conversations` normal path uses `0/1` navigation and `0/11/1/0`;
+- `read_visible_messages` normal path uses `0/11/4/0/0`;
+- visible `open_contact` rows use the mapped conversations root before the
+  selector/search fallback path;
+- selector fallback tests still cover missing navigation/search/message regions.
+
+Manual proof still required:
+
+- run the SDK examples against a real WeChat client and record wall-clock
+  `durationMs` for each semantic API;
+- confirm each normal API path returns within 3 seconds on the target machine;
+- update the control map if a future WeChat client changes the stable AX paths.

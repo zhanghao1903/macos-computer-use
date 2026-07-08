@@ -22,6 +22,8 @@ from app_control_protocol import (
 from app_control_protocol.json_types import JsonValue
 
 from .commands import WECHAT_TOOL, wechat_command
+from .control_map import WeChatMappedCollection
+from .control_map import WeChatMappedControl
 from .models import (
     WECHAT_WINDOW_SCHEMA,
     WeChatDesktopConfig,
@@ -31,6 +33,7 @@ from .models import (
 )
 from .profiles import build_packaged_collection_extractor
 from .profiles import build_packaged_selector_resolver
+from .profiles import load_control_map
 from .window_model import build_wechat_window_model
 
 if TYPE_CHECKING:
@@ -109,6 +112,7 @@ class WeChatDesktopTool:
     ) -> None:
         self._app_control = app_control
         self._config = config or WeChatDesktopConfig()
+        self._control_map = load_control_map(self._config.selector_profile_path)
 
     @classmethod
     def from_config(
@@ -602,6 +606,20 @@ class WeChatDesktopTool:
         if not opened.success:
             return _open_wechat_phase_failure(command, opened, evidence)
 
+        fast_result = self._list_row_items_with_control_map(
+            command,
+            section=section,
+            schema=schema,
+            collection_id=collection_id,
+            summary=summary,
+            limit=limit,
+            page_token=page_token,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if fast_result is not None:
+            return fast_result
+
         selector_runner = _WeChatSelectorQueryRunner(
             self,
             command,
@@ -691,6 +709,189 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
+    def _list_row_items_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        section: str,
+        schema: str,
+        collection_id: str,
+        summary: str,
+        limit: int,
+        page_token: str | None,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        navigation_key = "contacts" if section == "contacts" else "chats"
+        switched = self._press_mapped_navigation(
+            command,
+            navigation_key,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if switched is None or not switched.success:
+            return None
+        collection_query = self._query_mapped_collection(
+            command,
+            collection_id,
+            semantic_limit=limit + 1,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, collection, nodes = collection_query
+        page_rows = _row_items_from_nodes(
+            nodes,
+            section=section,
+            limit=limit + 1,
+            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+        )
+        if not page_rows and nodes:
+            return None
+        rows = page_rows[:limit]
+        semantic_has_more = len(page_rows) > limit
+        next_page_token = None
+        if semantic_has_more or _query_truncated(query_result):
+            cursor = _query_snapshot_id(_query_payload(query_result)) or "snapshot"
+            next_page_token = f"{section}:next:{cursor}"
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary=summary,
+            observation={
+                "schema": schema,
+                "section": section,
+                "items": rows,
+                "pagination": {
+                    "limit": limit,
+                    "pageToken": page_token,
+                    "hasMore": semantic_has_more or _query_truncated(query_result),
+                    "nextPageToken": next_page_token,
+                },
+                "source": {
+                    "mode": "control_map",
+                    "mapId": self._control_map.map_id,
+                    "mapVersion": self._control_map.map_version,
+                    "collection": collection.collection_id,
+                },
+                "availableActions": [
+                    {
+                        "id": "wechat.open_contact",
+                        "status": "needs_input",
+                        "operation": "open_contact",
+                    }
+                ],
+            },
+            evidence=evidence,
+        )
+
+    def _press_mapped_navigation(
+        self,
+        command: ToolCommand,
+        navigation_key: str,
+        *,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        control = self._control_map.navigation.get(navigation_key)
+        if control is None:
+            return None
+        return self._execute_mapped_control(
+            command,
+            control,
+            action_id=f"nav.{navigation_key}.press",
+            target_summary=f"Switch to {navigation_key}",
+            phase=f"control_map_switch_{navigation_key}",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _execute_mapped_control(
+        self,
+        command: ToolCommand,
+        control: WeChatMappedControl,
+        *,
+        action_id: str,
+        target_summary: str,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        last_result: ToolObservation | None = None
+        for index, ax_path in enumerate(control.ax_paths):
+            action_ref = _action_ref_from_mapped_control(
+                control,
+                ax_path=ax_path,
+                action_id=action_id,
+                target_summary=target_summary,
+            )
+            result = self._execute_action_ref(
+                command,
+                action_ref,
+                phase=f"{phase}_{index}",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            last_result = result
+            if result.success:
+                return result
+        return last_result
+
+    def _query_mapped_collection(
+        self,
+        command: ToolCommand,
+        collection_id: str,
+        *,
+        semantic_limit: int,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
+        collection = self._control_map.collections.get(collection_id)
+        if collection is None:
+            return None
+        query_limit = max(
+            collection.minimum_limit,
+            semantic_limit * collection.limit_multiplier,
+        )
+        last_nodes: list[dict[str, Any]] = []
+        for index, root_ax_path in enumerate(collection.root_ax_paths):
+            result = self._query_accessibility_nodes(
+                command,
+                root_node={"axPath": root_ax_path},
+                phase=f"control_map_{collection_id}_{index}",
+                scope="descendants",
+                max_depth=collection.max_depth,
+                role_in=list(collection.roles),
+                limit=query_limit,
+                time_budget_ms=collection.time_budget_ms,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if not result.success:
+                continue
+            nodes = _query_nodes(result)
+            last_nodes = nodes
+            if nodes:
+                return result, collection, nodes
+        if last_nodes:
+            return result, collection, last_nodes
+        return None
+
+    def _mapped_region_node(self, region_id: str) -> dict[str, Any] | None:
+        region = self._control_map.regions.get(region_id)
+        if region is None or not region.ax_paths:
+            return None
+        node: dict[str, Any] = {
+            "axPath": region.ax_paths[0],
+            "role": region.role,
+        }
+        label = _first_concrete_label(region.labels)
+        if label is not None:
+            node["label"] = label
+        return node
+
     def _open_contact(
         self,
         command: ToolCommand,
@@ -702,6 +903,14 @@ class WeChatDesktopTool:
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
             return _open_wechat_phase_failure(command, opened, evidence)
+        visible_opened = self._open_visible_contact_with_control_map(
+            command,
+            contact=contact,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if visible_opened is not None:
+            return visible_opened
         selector_runner = _WeChatSelectorQueryRunner(
             self,
             command,
@@ -924,6 +1133,71 @@ class WeChatDesktopTool:
             contact=contact,
             main_content=main_content,
             open_method="visible_action_ref",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _open_visible_contact_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        collection_query = self._query_mapped_collection(
+            command,
+            "conversations",
+            semantic_limit=40,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, _collection, nodes = collection_query
+        candidates = _visible_contact_candidates_from_nodes(
+            nodes,
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+        )
+        if len(candidates) > 1:
+            return ToolObservation.ok(
+                command_id=command.command_id,
+                tool=WECHAT_TOOL,
+                operation=command.operation,
+                summary="Multiple visible WeChat rows matched the requested contact.",
+                observation={
+                    "schema": "wechat.open_contact.v1",
+                    "target": contact,
+                    "status": "needs_disambiguation",
+                    "candidates": candidates,
+                    "source": {
+                        "mode": "control_map",
+                        "mapId": self._control_map.map_id,
+                        "mapVersion": self._control_map.map_version,
+                    },
+                },
+                evidence=evidence,
+            )
+        if not candidates:
+            return None
+        action_ref = candidates[0].get("actionRef")
+        if not isinstance(action_ref, Mapping):
+            return None
+        opened = self._execute_action_ref(
+            command,
+            action_ref,
+            phase="control_map_open_visible_contact",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not opened.success:
+            return None
+        return self._opened_contact_observation(
+            command,
+            contact=contact,
+            main_content=self._mapped_region_node("chatPanel") or {"axPath": "0/11/4"},
+            open_method="control_map_visible_action_ref",
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -1572,6 +1846,14 @@ class WeChatDesktopTool:
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
             return _open_wechat_phase_failure(command, opened, evidence)
+        fast_messages = self._read_visible_messages_with_control_map(
+            command,
+            limit=limit,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if fast_messages is not None:
+            return fast_messages
         selector_runner = _WeChatSelectorQueryRunner(
             self,
             command,
@@ -1631,6 +1913,57 @@ class WeChatDesktopTool:
                     ),
                 },
                 "truncated": _query_truncated(messages_result),
+            },
+            evidence=evidence,
+        )
+
+    def _read_visible_messages_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        limit: int,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        collection_query = self._query_mapped_collection(
+            command,
+            "visibleMessages",
+            semantic_limit=limit,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, collection, nodes = collection_query
+        messages = _messages_from_query_nodes(nodes, limit=limit)
+        if not messages and nodes:
+            return None
+        chat_title = _chat_title_from_query_nodes(nodes)
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Read visible WeChat messages.",
+            observation={
+                "schema": "wechat.messages.v1",
+                "chat": {"title": chat_title},
+                "messages": messages,
+                "pagination": {
+                    "limit": limit,
+                    "canReadOlder": _query_truncated(query_result),
+                    "olderPageToken": _next_page_token(
+                        "messages",
+                        query_result,
+                        direction="older",
+                    ),
+                },
+                "source": {
+                    "mode": "control_map",
+                    "mapId": self._control_map.map_id,
+                    "mapVersion": self._control_map.map_version,
+                    "collection": collection.collection_id,
+                },
+                "truncated": _query_truncated(query_result),
             },
             evidence=evidence,
         )
@@ -2053,6 +2386,7 @@ class WeChatDesktopTool:
         role_in: list[str],
         limit: int,
         evidence: dict[str, JsonValue],
+        time_budget_ms: int | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         ax_path = _node_ax_path(root_node)
@@ -2075,7 +2409,9 @@ class WeChatDesktopTool:
                     "scope": scope,
                     "maxDepth": max_depth,
                     "limit": limit,
-                    "timeBudgetMs": 8_000 if scope == "descendants" else 5_000,
+                    "timeBudgetMs": time_budget_ms
+                    if time_budget_ms is not None
+                    else (8_000 if scope == "descendants" else 5_000),
                     "attributes": _QUERY_ATTRIBUTES,
                     "actions": True,
                     "includeChildrenCount": False,
@@ -2780,6 +3116,55 @@ def _action_ref_from_node(
     return action_ref
 
 
+def _action_ref_from_mapped_control(
+    control: WeChatMappedControl,
+    *,
+    ax_path: str,
+    action_id: str,
+    target_summary: str,
+) -> dict[str, JsonValue]:
+    label = _first_concrete_label(control.labels)
+    target: dict[str, JsonValue] = {
+        "axPath": ax_path,
+        "role": control.role,
+        "actions": [control.action],
+    }
+    if label is not None:
+        target["label"] = label
+    preconditions: dict[str, JsonValue] = {
+        "roleIn": [control.role],
+        "actionIn": [control.action],
+    }
+    concrete_labels = [
+        label_value
+        for label_value in control.labels
+        if label_value and not label_value.startswith("__")
+    ]
+    if concrete_labels:
+        preconditions["labelIn"] = list(dict.fromkeys(concrete_labels))
+    created_at, expires_at = _action_ref_time_bounds()
+    return {
+        "schema": "wechat.action_ref.v1",
+        "id": action_id,
+        "kind": control.kind,
+        "preferredMethod": "accessibility_action",
+        "target": target,
+        "action": control.action,
+        "preconditions": preconditions,
+        "risk": control.risk,
+        "targetSummary": target_summary,
+        "createdAt": created_at,
+        "expiresAt": expires_at,
+    }
+
+
+def _first_concrete_label(labels: tuple[str, ...]) -> str | None:
+    for label in labels:
+        if label and not label.startswith("__"):
+            return label
+    return None
+
+
 def _selector_from_node(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
     label = _node_label(node)
     role = str(node.get("role") or "")
@@ -3057,14 +3442,26 @@ def _row_items_from_nodes(
     snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
     labels_by_row = _row_labels_by_path(nodes)
+    contact_labels_by_row = (
+        _contact_row_labels_by_path(nodes) if section == "contacts" else {}
+    )
     items: list[dict[str, JsonValue]] = []
     for index, row in enumerate(node for node in nodes if node.get("role") == "AXRow"):
         if len(items) >= limit:
             break
-        label = labels_by_row.get(str(row.get("axPath"))) or _node_label(row)
-        if not label:
-            continue
-        parsed = _parse_row_label(label)
+        row_path = str(row.get("axPath") or "")
+        label = contact_labels_by_row.get(row_path) or labels_by_row.get(row_path)
+        label = label or _node_label(row)
+        if section == "contacts":
+            if not _is_contact_row_node(row):
+                continue
+            if not label or _is_contact_non_name_label(label):
+                continue
+            parsed = {"displayName": label, "badges": []}
+        else:
+            if not label:
+                continue
+            parsed = _parse_row_label(label)
         item_id = f"{section}.visible.{len(items)}"
         payload: dict[str, JsonValue] = {
             "id": item_id,
@@ -3101,6 +3498,7 @@ def _row_items_from_nodes(
 
 def _row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
     labels: dict[str, str] = {}
+    row_paths = _row_path_set(nodes)
     for node in nodes:
         path = str(node.get("axPath") or "")
         label = _node_label(node)
@@ -3109,9 +3507,98 @@ def _row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
         if node.get("role") == "AXRow":
             labels[path] = label
         else:
-            parent_path = path.rsplit("/", 1)[0]
-            labels.setdefault(parent_path, label)
+            row_path = _nearest_row_path(path, row_paths) or path.rsplit("/", 1)[0]
+            labels.setdefault(row_path, label)
     return labels
+
+
+def _contact_row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
+    row_paths = _row_path_set(nodes)
+    candidates: dict[str, list[tuple[float, float, str]]] = {}
+    for node in nodes:
+        if node.get("role") != "AXStaticText":
+            continue
+        path = str(node.get("axPath") or "")
+        row_path = _nearest_row_path(path, row_paths)
+        if row_path is None:
+            continue
+        label = _node_label(node)
+        if not label or _is_contact_non_name_label(label):
+            continue
+        frame = node.get("frame")
+        y = _number_value(frame.get("y")) if isinstance(frame, Mapping) else None
+        x = _number_value(frame.get("x")) if isinstance(frame, Mapping) else None
+        candidates.setdefault(row_path, []).append((y or 0.0, x or 0.0, label))
+    return {
+        row_path: sorted(values, key=lambda item: (item[0], item[1]))[0][2]
+        for row_path, values in candidates.items()
+        if values
+    }
+
+
+def _row_path_set(nodes: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(node.get("axPath"))
+        for node in nodes
+        if node.get("role") == "AXRow" and isinstance(node.get("axPath"), str)
+    }
+
+
+def _nearest_row_path(path: str, row_paths: set[str]) -> str | None:
+    current = path
+    while "/" in current:
+        current = current.rsplit("/", 1)[0]
+        if current in row_paths:
+            return current
+    return None
+
+
+def _is_contact_row_node(row: Mapping[str, Any]) -> bool:
+    frame = row.get("frame")
+    if not isinstance(frame, Mapping):
+        return True
+    height = _number_value(frame.get("height"))
+    return height is None or height >= 50
+
+
+def _is_contact_non_name_label(label: str) -> bool:
+    normalized = label.strip().casefold()
+    return normalized in {
+        "",
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h",
+        "i",
+        "j",
+        "k",
+        "l",
+        "m",
+        "n",
+        "o",
+        "p",
+        "q",
+        "r",
+        "s",
+        "t",
+        "u",
+        "v",
+        "w",
+        "x",
+        "y",
+        "z",
+        "#",
+        "新的朋友",
+        "new friends",
+        "通讯录管理",
+        "contacts management",
+        "已添加",
+        "added",
+    }
 
 
 def _parse_row_label(label: str) -> dict[str, Any]:

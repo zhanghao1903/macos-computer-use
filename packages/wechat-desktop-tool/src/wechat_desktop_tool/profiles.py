@@ -13,6 +13,9 @@ from computer_use_macos.selectors import (
     parse_selector_profile,
 )
 
+from .control_map import load_control_map
+from .control_map import load_packaged_control_map
+
 
 DEFAULT_WECHAT_SELECTOR_PROFILE_ID = "wechat.macos"
 DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE = "profiles/wechat-macos.toml"
@@ -75,6 +78,8 @@ __all__ = [
     "build_packaged_selector_resolver",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_ID",
     "DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE",
+    "load_control_map",
+    "load_packaged_control_map",
     "load_packaged_selector_profile",
     "load_selector_profile",
 ]
