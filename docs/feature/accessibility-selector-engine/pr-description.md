@@ -19,7 +19,10 @@ It also hardens WeChat live operation paths by validating focused windows,
 resolving chained selectors under prior step results, filtering noisy contact
 rows before filling caller limits, opening visible rows through selector-derived
 actionRefs, and verifying focus after safe selector click, `AXSetFocus`,
-hotkey, or configured coordinate fallback attempts.
+hotkey, or configured coordinate fallback attempts. It also handles live WeChat
+`AXRow` targets that omit action names or reject `AXPress` by using bounded
+actionRefs and a selected-search-result `Return` fallback instead of raw
+coordinates.
 
 ## Consumer Impact
 
@@ -66,14 +69,13 @@ and is not hidden behind selector resolution.
 
 ## Verification
 
-Latest targeted automated checks recorded in `verification.md`:
+Latest targeted checks recorded in `verification.md`:
 
-- selector tests: 26 tests passed
-- `computer-use-macos`: 80 tests passed, 1 skipped
-- WeChat tool/profile tests: 87 tests passed
-- SDK example tests: 6 tests passed
+- `computer-use-macos` targeted package tests: 108 tests passed, 1 skipped
+- WeChat tool/profile tests: 91 tests passed
 - Python compile check: passed
-- `git diff --check`: passed
+- live WeChat selector-engine smoke: passed
+- release preflight with the live smoke report: passed
 
 Broader earlier F5 checks are also recorded there:
 
@@ -82,34 +84,29 @@ Broader earlier F5 checks are also recorded there:
   passed
 - WeChat package-boundary tests: 5 tests passed
 
-The broader root/package suite should be refreshed once the remaining live
-smoke blocker is resolved.
-
 ## Manual Proof Status
 
-Partial real macOS/WeChat smoke evidence is recorded in `verification.md`:
+The consolidated real macOS/WeChat smoke checklist passed on 2026-07-08 through
+the trusted local socket service:
 
-- `inspect_window` returned a normalized WeChat window model
-- `list_contacts(limit=30)` returned 29 visible contacts
-- a later recent-messages smoke listed one semantic contact, then failed at
-  `readContactMessages` with `search_not_focused`
+- report path:
+  `/private/tmp/selector-live-selector-engine-smoke-return-20260708.json`
+- `inspect_window`: passed
+- `list_conversations(limit=30)`: passed with 30 rows and action refs
+- `open_contact("文件传输助手")`: passed
+- `read_visible_messages(limit=30)`: passed with 30 message rows
+- `list_contacts(limit=30)`: passed with 30 contacts
+- valid `selector_profile_path` override: passed
+- invalid selector profile fallback: passed
+- expired actionRef rejection: passed with `wechat_action_ref_expired`
 
-This PR must remain blocked until the remaining real smoke evidence is attached
-or linked from `verification.md`:
+`scripts/release_preflight.py --wechat-smoke-report
+/private/tmp/selector-live-selector-engine-smoke-return-20260708.json` accepted
+the report and verified `external-proof:wechat_selector_engine_smoke`.
 
-- `list_conversations(limit=30)` returns visible conversations and action refs
-- `open_contact("文件传输助手")` switches the active chat, preferably through
-  `openMethod=visible_action_ref` when File Transfer is visible
-- `read_visible_messages(limit=30)` returns visible message rows
-- valid `selector_profile_path` override loads without rebuilding the package
-- invalid `selector_profile_path` falls back to the packaged profile
-- stale or invalid action refs fail preconditions instead of raw-coordinate
-  clicking
-
-The current desktop blockers and rerun commands are documented in
-`live-smoke-recovery.md`: the desktop must expose a focused WeChat `AXWindow`,
-and the WeChat search input must actually accept focus for non-visible contact
-switching scenarios.
+Earlier desktop blockers and rerun commands remain documented in
+`live-smoke-recovery.md` for troubleshooting. They are no longer merge blockers
+for this branch because the consolidated smoke proof has passed.
 
 ## Release Note
 

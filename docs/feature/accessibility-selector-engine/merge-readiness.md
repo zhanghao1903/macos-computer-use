@@ -1,26 +1,24 @@
 # Accessibility Selector Engine Merge Readiness
 
-- Review date: 2026-07-07
+- Review date: 2026-07-09
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Feature directory: `docs/feature/accessibility-selector-engine/`
-- Status: not merge-ready
+- Status: merge-ready for PR review after branch CI is green
 
 ## Decision
 
-Do not merge or release this feature yet.
+The feature is ready for PR review after the branch CI checks pass.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
 multi-step selector resolution, noisy contact-row filtering, and the
 smoke-driven focus hardening. The SDK examples and `open_contact` now also use
-visible row actionRefs before falling back to search. Real macOS/WeChat smoke
-has partially passed: `inspect_window` and `list_contacts(limit=30)` worked on a
-live client, and a later smoke run listed one semantic contact before failing to
-focus WeChat's search input for message reading. The remaining release gate is
-live proof for conversations, contact switching, message reading, override
-behavior, and stale actionRef handling. The feature changes desktop automation
-behavior and cannot be considered complete from unit tests alone.
+visible row actionRefs before falling back to search. The consolidated live
+macOS/WeChat selector-engine smoke passed on 2026-07-08 through the trusted
+local service, covering conversations, contact switching, message reading,
+override behavior, and stale actionRef handling. The feature changes desktop
+automation behavior, so the live smoke report remains part of the merge proof.
 
 ## Scenario Coverage
 
@@ -53,66 +51,29 @@ Passed on a live WeChat desktop:
 
 - normalized WeChat window inspection on a live client;
 - visible WeChat contact list extraction on a live client;
+- visible WeChat conversation list extraction with 30 rows and action refs;
+- switching to `文件传输助手` through `open_contact`;
+- active chat message extraction with 30 visible messages after opening the
+  target chat;
+- valid local selector profile override loading;
+- invalid selector profile fallback to the packaged profile;
+- expired actionRef rejection before backend execution.
 
-Still requiring real desktop proof:
+Final live proof:
 
-- visible WeChat conversation list extraction on a live client;
-- active chat message extraction on a live client;
-- switching to `文件传输助手` through `open_contact`, preferably through
-  `openMethod=visible_action_ref` when the row is visible;
-- valid local selector profile override;
-- invalid selector profile fallback;
-- stale action reference precondition failure.
+- report path:
+  `/private/tmp/selector-live-selector-engine-smoke-return-20260708.json`;
+- command: `examples/wechat_selector_engine_smoke_test.py --contact
+  "文件传输助手" --conversation-limit 30 --contact-limit 30 --message-limit 30`;
+- result: `success=true`, `conversationCount=30`, `contactCount=30`,
+  `messageCount=30`, and `failedStep=null`;
+- release preflight accepted the report with
+  `external-proof:wechat_selector_engine_smoke` verified.
 
-Blocked smoke conditions observed on 2026-07-07:
-
-- after one successful `inspect_window` and one successful `list_contacts`
-  smoke run, subsequent smoke attempts saw WeChat frontmost but with an empty
-  window title and no focused AX window, even after `focus_app`;
-- a later direct PyObjC probe still showed frontmost `loginwindow`, WeChat
-  running but inactive, and WeChat `AXWindows` whose roles were `AXApplication`
-  rather than `AXWindow`;
-- lower-level diagnostics showed WeChat's `AXWindows` contained application and
-  menu-bar elements, not a chat-window UI tree;
-- selector-backed WeChat operations now return `wechat_not_ready` from the open
-  phase instead of continuing into `accessibility_query` or returning a
-  false-positive application-root result;
-- after `AXSetFocus` support was added, a later live run listed one semantic
-  contact but failed at `readContactMessages` with `search_not_focused`:
-  safe selector click, `AXSetFocus`, `Command+F`, `Command+K`, and several
-  coordinate clicks inside the resolved search-box frame all left the search
-  box with `AXFocused=false`;
-- after the listed-contact actionRef and visible-row `open_contact` updates,
-  `/private/tmp/selector-live-recent-messages-actionref.json` failed earlier at
-  `openWeChat`, with readiness passing but
-  `verify_wechat_accessibility_window` returning
-  `accessibility_query_no_focused_window`.
-- the consolidated selector-engine smoke was rerun on 2026-07-08 with and
-  without local system-open activation. Both
-  `/private/tmp/selector-live-selector-engine-smoke-20260708.json` and
-  `/private/tmp/selector-live-selector-engine-smoke-system-open-20260708.json`
-  reached the local service, passed readiness and profile override checks, but
-  failed at `openWeChat` because `observe` still reported
-  `frontmostBundleId=com.openai.codex` after WeChat `open_app`,
-  `focus_app`, and AppleScript activation returned success.
-- a continuation probe on 2026-07-08 wrote
-  `/private/tmp/selector-live-prereq-probe-continuation-20260708.json` and
-  showed that the Codex-spawned Python process itself is not
-  Accessibility-trusted. The trusted local service was then used for the
-  authoritative smoke retry.
-- `/private/tmp/selector-live-selector-engine-smoke-continuation-20260708.json`
-  reran the consolidated smoke through the local service. Readiness passed
-  with `accessibility_trusted=true`, system open and AppleScript activation
-  returned success, and profile override/fallback checks passed, but
-  `openWeChat` still failed because Codex remained the frontmost bundle before
-  and after `focus_app`.
-
-Recovery steps and the remaining smoke command sequence are recorded in
-`live-smoke-recovery.md`. The preferred rerun entrypoint is now
-`examples/wechat_selector_engine_smoke_test.py`, which writes one JSON report
-covering the remaining conversation, contact-opening, visible-message,
-profile-override, fallback, and expired-actionRef checks without drafting or
-submitting a message.
+Earlier blocked smoke conditions and recovery steps remain recorded in
+`live-smoke-recovery.md` for troubleshooting future desktop environments. The
+authoritative merge proof is the passing consolidated report recorded in
+`verification.md`.
 
 The release proof gate now recognizes that report as
 `wechat_selector_engine_smoke` when it is attached or passed as
@@ -161,12 +122,12 @@ Automated package-boundary tests passed during F5 verification.
 
 Latest targeted verification recorded in `verification.md`:
 
-- selector tests: 26 tests passed;
-- `computer-use-macos`: 80 tests passed, 1 skipped;
-- WeChat tool/profile tests: 87 tests passed;
-- SDK example tests: 6 tests passed;
+- `computer-use-macos` targeted package tests: 108 tests passed, 1 skipped;
+- WeChat tool/profile tests: 91 tests passed;
 - Python compile check: passed;
-- `git diff --check`: passed.
+- real WeChat selector-engine smoke: passed with 30 conversations, 30 contacts,
+  and 30 visible messages;
+- release preflight accepted the live smoke report.
 
 Broader earlier F5 verification also remains recorded in `verification.md`:
 
@@ -175,12 +136,12 @@ Broader earlier F5 verification also remains recorded in `verification.md`:
   passed;
 - WeChat package-boundary tests: 5 tests passed.
 
-Before merge, rerun the broader root/package suite once more after the
-remaining live-smoke blocker is resolved.
+Before merge, rely on GitHub CI for the full repository matrix and rerun local
+checks only if CI reports a failure.
 
 Unavailable:
 
-- `ruff` could not run because the local environment has no `ruff` executable.
+- no current local `ruff` run is recorded for this branch.
 
 ## Release Record
 
@@ -193,17 +154,15 @@ Present in `CHANGELOG.md` under `Unreleased`:
 
 ## PR/MR Description
 
-Prepared in `pr-description.md`. It should be used as the draft PR body and
-updated with links to real smoke reports before requesting merge.
+Prepared in `pr-description.md`. It now includes the passing live smoke proof
+and should be used as the PR body before requesting review.
 
 ## Merge Blockers
 
-1. Remaining real macOS/WeChat smoke evidence is missing for conversations,
-   opening `文件传输助手`, visible messages, override loading/fallback, and stale
-   actionRef preconditions.
-2. Current desktop smoke environment must expose a focused WeChat AX window.
-   Visible-row opening can avoid the search box when the target row is visible,
-   but non-visible contact switching still needs search-focus proof.
+1. Branch CI must pass on GitHub before merge.
+2. The draft PR body should be refreshed from `pr-description.md`.
+3. Do not add public `resolve_selector` or `extract_collection` protocol
+   commands in this PR; those remain deferred to a future reviewed API proposal.
 
 ## Recommended PR Summary
 
@@ -220,8 +179,8 @@ and application-configurable profile overrides.
 
 Tests:
 
-Use the automated verification listed in `verification.md`, then attach real
-WeChat smoke reports before requesting merge.
+Use the automated verification and passing live WeChat smoke proof listed in
+`verification.md`.
 
 Release note:
 
