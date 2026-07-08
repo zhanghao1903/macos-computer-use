@@ -603,6 +603,27 @@ def _precondition_failed_accessibility_action_response() -> ToolObservation:
     )
 
 
+def _failed_accessibility_action_response() -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="accessibility_action_failed",
+            message="AXUIElementPerformAction returned error: -25206",
+            retryable=False,
+        ),
+        summary="AXUIElementPerformAction returned error: -25206",
+        observation={
+            "accessibilityAction": {
+                "failureKind": "accessibility_action_failed",
+                "message": "AXUIElementPerformAction returned error: -25206",
+            }
+        },
+    )
+
+
 def _normalized_node(
     ax_path: str,
     role: str,
@@ -1391,14 +1412,23 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response(
                     [
-                        _normalized_row(
+                        _normalized_node(
                             "0/11/1/0/0",
-                            "文件传输助手,hello,09:00,置顶",
+                            "AXRow",
+                            description="文件传输助手,hello,09:00,置顶",
+                            x=330,
+                            y=120,
+                            width=270,
+                            height=64,
                         ),
-                        _normalized_row(
+                        _normalized_node(
                             "0/11/1/0/1",
-                            "目标联系人,最近消息,10:00,消息免打扰",
+                            "AXRow",
+                            description="目标联系人,最近消息,10:00,消息免打扰",
+                            x=330,
                             y=184,
+                            width=270,
+                            height=64,
                         ),
                     ],
                 ),
@@ -1434,8 +1464,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(rows[0]["preview"], "hello")
         self.assertEqual(rows[0]["timestamp"], "09:00")
         self.assertEqual(rows[0]["pinned"], True)
+        self.assertEqual(rows[0]["actionRef"]["action"], "AXPress")
+        self.assertEqual(rows[0]["actionRef"]["target"]["role"], "AXRow")
+        self.assertEqual(rows[0]["actionRef"]["target"]["actions"], ["AXPress"])
+        self.assertIn("createdAt", rows[0]["actionRef"])
+        self.assertIn("expiresAt", rows[0]["actionRef"])
         self.assertEqual(rows[1]["displayName"], "目标联系人")
         self.assertEqual(rows[1]["muted"], True)
+        self.assertEqual(rows[1]["actionRef"]["action"], "AXPress")
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
@@ -1765,6 +1801,60 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(app_control.commands[8].input["text"], "Ada")
 
+    def test_open_contact_presses_return_when_search_row_action_fails(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _top_level_query_response(chats_selected=True),
+                _accessibility_query_response([]),
+                _top_level_query_response(chats_selected=True),
+                _main_children_query_response(),
+                {},
+                {},
+                {},
+                _accessibility_query_response(
+                    [_normalized_row("0/11/search/0", "Ada Lovelace")]
+                ),
+                _failed_accessibility_action_response(),
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="Ada Lovelace",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("Ada")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["status"], "opened")
+        self.assertEqual(result.observation["currentChat"]["title"], "Ada Lovelace")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
+                "accessibility_query",
+                "click",
+                "observe",
+                "type_text",
+                "accessibility_query",
+                "accessibility_action",
+                "press_key",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(app_control.commands[11].input["key"], "Return")
+
     def test_open_contact_uses_visible_row_action_ref_before_search(self) -> None:
         app_control = FakeAppControl(
             [
@@ -1816,6 +1906,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(app_control.commands[4].input["action"], "AXPress")
+        self.assertNotIn("labelIn", app_control.commands[4].input["preconditions"])
         self.assertNotIn(
             "type_text",
             [command.operation for command in app_control.commands],

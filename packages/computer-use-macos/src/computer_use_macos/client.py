@@ -163,6 +163,8 @@ _ACCESSIBILITY_ROLES = {
     "axradiobutton": "radio button",
     "radio_button": "radio button",
     "radiobutton": "radio button",
+    "axrow": "row",
+    "row": "row",
     "axpopupbutton": "pop up button",
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
@@ -179,6 +181,7 @@ _ACCESSIBILITY_ROLE_COLLECTIONS = {
     "checkbox": "checkboxes",
     "menu item": "menu items",
     "radio button": "radio buttons",
+    "row": "rows",
     "text field": "text fields",
     "text area": "text areas",
 }
@@ -2134,6 +2137,7 @@ _ACCESSIBILITY_QUERY_SAFE_ATTRIBUTES = {
     "AXEnabled",
     "AXFocused",
     "AXSelected",
+    "AXHidden",
     "AXPosition",
     "AXSize",
     "AXFrame",
@@ -2198,6 +2202,7 @@ def _normalize_accessibility_query_request(
             "AXEnabled",
             "AXFocused",
             "AXSelected",
+            "AXHidden",
             "AXPosition",
             "AXSize",
             "AXFrame",
@@ -3376,6 +3381,9 @@ def validate_preconditions(facts: dict[str, Any], action: str) -> str | None:
         return "action did not match preconditions.actionIn"
     action_names = {str(item).casefold() for item in facts.get("actions") or []}
     if action != "AXSetFocus" and action.casefold() not in action_names:
+        role = str(facts.get("role") or "")
+        if action == "AXPress" and role == "AXRow":
+            return None
         return f"target does not expose action: {action}"
     return None
 
@@ -3500,6 +3508,7 @@ SAFE_ATTRIBUTES = (
     "AXEnabled",
     "AXFocused",
     "AXSelected",
+    "AXHidden",
     "AXPosition",
     "AXSize",
     "AXFrame",

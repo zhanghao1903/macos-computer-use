@@ -806,6 +806,21 @@ class WeChatDesktopTool:
                 snapshot_id=_query_snapshot_id(_query_payload(results)),
                 phase_events=phase_events,
             )
+            if not selected.success and _should_press_return_for_search_result(
+                selected
+            ):
+                return_selected = self._app_control_command(
+                    command,
+                    phase="open_search_result:return_fallback",
+                    operation="press_key",
+                    input=self._target_app_input(key=self._config.submit_key),
+                    phase_events=phase_events,
+                )
+                evidence["open_search_result:return_fallback"] = (
+                    _safe_app_control_observation(return_selected)
+                )
+                if return_selected.success:
+                    selected = return_selected
         else:
             selected = self._app_control_command(
                 command,
@@ -2720,10 +2735,12 @@ def _action_ref_from_node(
     snapshot_id: str | None = None,
 ) -> dict[str, JsonValue] | None:
     ax_path = _node_ax_path(node)
-    if ax_path is None or "AXPress" not in _node_actions(node):
+    role = str(node.get("role") or "AXUnknown")
+    if ax_path is None:
+        return None
+    if "AXPress" not in _node_actions(node) and role != "AXRow":
         return None
     label = _node_label(node)
-    role = str(node.get("role") or "AXUnknown")
     target: dict[str, JsonValue] = {
         "axPath": ax_path,
         "role": role,
@@ -2735,7 +2752,7 @@ def _action_ref_from_node(
         "roleIn": [role],
         "actionIn": ["AXPress"],
     }
-    if label is not None:
+    if label is not None and role != "AXRow":
         preconditions["labelIn"] = _label_precondition_values(label)
     if isinstance(node.get("enabled"), bool):
         preconditions["enabled"] = bool(node["enabled"])
@@ -2812,6 +2829,18 @@ def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
                 "unsupported_accessibility_action",
             }
     return False
+
+
+def _should_press_return_for_search_result(result: ToolObservation) -> bool:
+    if result.success:
+        return False
+    failure_kind = _accessibility_action_failure_kind(result)
+    return failure_kind in {
+        "accessibility_action_failed",
+        "needs_user",
+        "unsupported_operation",
+        "unsupported_accessibility_action",
+    }
 
 
 def _execute_action_failure_kind(result: ToolObservation) -> str:

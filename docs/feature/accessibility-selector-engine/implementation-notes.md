@@ -2473,3 +2473,93 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 104 tests passed.
+
+## Slice 5D: AXRow ActionRef And Search Result Recovery
+
+Status: implemented; live WeChat selector-engine smoke passed.
+
+Commit scope:
+
+- allow scoped Accessibility queries to request `AXHidden` so selector
+  visibility checks work against the local service;
+- accept `AXRow` as a normalized Accessibility selector/action role in
+  `computer-use-macos`;
+- allow WeChat row actionRefs to be created when live `AXRow` nodes do not
+  expose `AXPress` in `AXActionNames`;
+- keep fixed controls such as navigation radio buttons label-validated, but do
+  not add `labelIn` preconditions to `AXRow` actionRefs because WeChat often
+  stores visible row text on child cells instead of the row target itself;
+- when a unique WeChat search result row is found but `AXUIElementPerformAction`
+  returns `accessibility_action_failed`, press the configured submit key
+  (`Return` by default) to open the selected search result instead of falling
+  back to raw coordinates.
+
+Public surface:
+
+- no public selector protocol command is added;
+- no JSON Schema or stable `computer_use_macos` export is added;
+- existing WeChat semantic operations keep their response shapes;
+- actionRefs remain bounded and expire; risky message submission is not
+  introduced.
+
+Implemented behavior:
+
+- `list_conversations` and `list_contacts` return row actionRefs even when
+  live row nodes do not expose actions;
+- expired actionRefs fail closed before backend execution;
+- `open_contact("文件传输助手")` can open the target chat through the current
+  visible/search result flow without requiring coordinate click;
+- `read_visible_messages(limit=30)` works after the contact is opened by the
+  selector-engine flow;
+- the consolidated selector-engine smoke report now satisfies strict release
+  preflight proof recognition.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_package.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 108 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_tool.py \
+  packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 91 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/client.py \
+  packages/computer-use-macos/tests/test_package.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --socket-path /private/tmp/app-control-selector-return-20260708.sock \
+  --token-file ./app-control.token \
+  --output /private/tmp/selector-live-selector-engine-smoke-return-20260708.json \
+  --contact "文件传输助手" \
+  --conversation-limit 30 \
+  --contact-limit 30 \
+  --message-limit 30
+```
+
+Result: passed with `conversationCount=30`, `contactCount=30`,
+`messageCount=30`, and all checklist items true.
+
+```bash
+python scripts/release_preflight.py \
+  --wechat-smoke-report /private/tmp/selector-live-selector-engine-smoke-return-20260708.json
+```
+
+Result: passed; `external-proof:wechat_selector_engine_smoke` verified.

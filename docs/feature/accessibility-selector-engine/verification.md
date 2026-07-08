@@ -2,9 +2,9 @@
 
 - Verification date: 2026-07-07
 - Branch: `codex/accessibility-selector-engine`
-- Scope: automated F5 verification snapshot after Slice 5C
-- Status: automated checks passed; real WeChat smoke partially passed and
-  remains incomplete
+- Scope: automated F5 verification snapshot after Slice 5D
+- Status: automated checks passed; real WeChat selector-engine smoke passed on
+  2026-07-08; public selector protocol remains deferred
 
 ## Automated Checks
 
@@ -809,12 +809,45 @@ New coverage:
   `frontmost`, `wechat.apps[*].focusedWindow`, `wechat.apps[*].windows`, and
   summary checks.
 
+## Additional Verification: AXRow ActionRef And Live Smoke Pass
+
+Date: 2026-07-08.
+
+This verification covers the corrective slice for live WeChat rows that do not
+expose `AXPress` in `AXActionNames` and for `AXRow` targets where visible row
+text lives on child cells instead of the row itself.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py packages/computer-use-macos/tests/test_selectors.py` | Passed: 108 tests, 1 skipped |
+| WeChat tool/profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 91 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/computer-use-macos/tests/test_package.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| Live WeChat selector-engine smoke | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python examples/wechat_selector_engine_smoke_test.py --socket-path /private/tmp/app-control-selector-return-20260708.sock --token-file ./app-control.token --output /private/tmp/selector-live-selector-engine-smoke-return-20260708.json --contact "文件传输助手" --conversation-limit 30 --contact-limit 30 --message-limit 30` | Passed: `conversationCount=30`, `contactCount=30`, `messageCount=30`, `failedStep=null` |
+| Release preflight with smoke proof | `python scripts/release_preflight.py --wechat-smoke-report /private/tmp/selector-live-selector-engine-smoke-return-20260708.json` | Passed; `external-proof:wechat_selector_engine_smoke` verified |
+
+New coverage:
+
+- `accessibility_query` safe attributes include `AXHidden`, preserving
+  selector visible filtering through the local service;
+- `AXRow` is accepted by selector normalization and action precondition
+  handling;
+- WeChat conversation rows produce `AXPress` actionRefs even when live rows do
+  not expose actions;
+- `AXRow` actionRefs avoid row label preconditions because WeChat row labels can
+  be derived from child cells rather than the action target;
+- `open_contact` presses the configured submit key when a unique search result
+  row is found but `AXUIElementPerformAction` fails on the row target;
+- the consolidated live smoke proves `open_contact`, `read_visible_messages`,
+  `list_contacts`, `list_conversations`, profile override checks, and expired
+  actionRef rejection on a real WeChat desktop.
+
 ## Release Readiness Gate
 
-The feature is not release-ready until the remaining real WeChat smoke evidence
-is added to this file or linked from it. Public selector protocol commands
-remain deferred; this feature currently ships only the internal selector
-engine, WeChat packaged profile migration, and profile override configuration.
+The consolidated real WeChat selector-engine smoke evidence has been recorded
+above and is recognized by strict release preflight. Public selector protocol
+commands remain deferred; this feature currently ships only the internal
+selector engine, WeChat packaged profile migration, profile override
+configuration, and semantic WeChat API behavior.
 
 ## Release Proof Preflight Recognition
 

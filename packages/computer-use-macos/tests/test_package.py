@@ -358,6 +358,13 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
 
         self.assertEqual(selector, {"role": "text area", "name": "搜索"})
 
+    def test_accessibility_selector_accepts_row_role(self) -> None:
+        selector = _normalize_accessibility_selector(
+            {"role": "AXRow", "label": "文件传输助手"}
+        )
+
+        self.assertEqual(selector, {"role": "row", "name": "文件传输助手"})
+
     def test_accessibility_click_script_matches_text_area_by_description(self) -> None:
         script = _accessibility_click_script(
             "WeChat",
@@ -820,7 +827,12 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
                 query={
                     "scope": "children",
                     "limit": 10,
-                    "attributes": ["AXRole", "AXDescription", "AXValue"],
+                    "attributes": [
+                        "AXRole",
+                        "AXDescription",
+                        "AXValue",
+                        "AXHidden",
+                    ],
                     "actions": True,
                     "includeChildRoles": True,
                     "includeDescendantRoles": True,
@@ -840,6 +852,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(request["bundleId"], "com.apple.TextEdit")
         self.assertEqual(request["query"]["scope"], "children")
         self.assertEqual(request["query"]["match"]["roleIn"], ["AXRadioButton"])
+        self.assertIn("AXHidden", request["query"]["attributes"])
         self.assertEqual(request["query"]["includeChildRoles"], True)
         self.assertEqual(request["query"]["includeDescendantRoles"], True)
         self.assertEqual(query["nodes"][0]["axPath"], "0/1")
@@ -1023,6 +1036,68 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(action["target"]["role"], "AXButton")
         self.assertEqual(action["method"], "AXUIElementPerformAction")
 
+    def test_package_local_client_supports_accessibility_action_axrow_target(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": True,
+                    "status": "ok",
+                    "operation": "accessibility_action",
+                    "method": "AXUIElementPerformAction",
+                    "snapshotId": "frontmost:WeChat:Current",
+                    "action": "AXPress",
+                    "actionAttempted": True,
+                    "target": {
+                        "axPath": "0/11/1/0/0",
+                        "role": "AXRow",
+                        "label": "文件传输助手",
+                        "actions": [],
+                    },
+                    "diagnostics": {
+                        "durationMs": 12,
+                        "verifiedPreconditions": True,
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["WeChat"],
+                    "allowed_app_bundle_ids": {"WeChat": "com.tencent.xinWeChat"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="WeChat",
+                bundle_id="com.tencent.xinWeChat",
+                snapshot_id="frontmost:WeChat:Current",
+                ax_path="0/11/1/0/0",
+                action="AXPress",
+                preconditions={
+                    "roleIn": ["AXRow"],
+                    "labelIn": ["文件传输助手"],
+                    "actionIn": ["AXPress"],
+                },
+                command_id="cmd_row_action",
+            )
+        )
+
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(request["target"]["axPath"], "0/11/1/0/0")
+        self.assertEqual(request["preconditions"]["roleIn"], ["AXRow"])
+        self.assertEqual(request["preconditions"]["actionIn"], ["AXPress"])
+
     def test_package_local_client_supports_accessibility_set_focus_action(
         self,
     ) -> None:
@@ -1124,6 +1199,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn('"precondition_failed"', source)
         self.assertIn('"AXPress"', source)
         self.assertIn('"AXSetFocus"', source)
+        self.assertIn('action == "AXPress" and role == "AXRow"', source)
         self.assertIn("resolve_ax_path", source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
         self.assertIn("bool(candidate.isActive())", source)

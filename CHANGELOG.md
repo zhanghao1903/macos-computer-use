@@ -61,6 +61,9 @@
   pass in clean checkouts.
 - Install CI build tooling before no-isolation wheel builds so package
   verification can import the configured `setuptools.build_meta` backend.
+- Allow selector-backed WeChat row actionRefs and `open_contact` to work when
+  live `AXRow` targets omit action names or reject `AXPress`, falling back to
+  the selected search result instead of raw coordinates.
 - Allow scoped Accessibility queries to use a longer bounded timeout and give
   WeChat contact/conversation row queries larger time budgets, avoiding
   `list_contacts` failures on slower real WeChat windows.
