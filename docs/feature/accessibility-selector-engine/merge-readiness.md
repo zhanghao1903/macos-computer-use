@@ -89,7 +89,11 @@ Blocked smoke conditions observed on 2026-07-07:
   `accessibility_query_no_focused_window`.
 
 Recovery steps and the remaining smoke command sequence are recorded in
-`live-smoke-recovery.md`.
+`live-smoke-recovery.md`. The preferred rerun entrypoint is now
+`examples/wechat_selector_engine_smoke_test.py`, which writes one JSON report
+covering the remaining conversation, contact-opening, visible-message,
+profile-override, fallback, and expired-actionRef checks without drafting or
+submitting a message.
 
 ## Public Surface Impact
 

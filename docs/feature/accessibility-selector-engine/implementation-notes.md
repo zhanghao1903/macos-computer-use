@@ -2347,3 +2347,59 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Example Corrective Slice: Selector Engine Smoke Checklist
+
+Status: implemented; fake-service verification passed; real WeChat checklist
+still requires a focused live WeChat `AXWindow`.
+
+Commit scope:
+
+- add `examples/wechat_selector_engine_smoke_test.py` as a consolidated live
+  smoke checklist for the remaining selector-engine merge gate;
+- cover `open_wechat`, `inspect_window`, `list_conversations`,
+  `open_contact("文件传输助手")`, `read_visible_messages`, `list_contacts`,
+  valid selector-profile override loading, invalid override fallback, and
+  expired actionRef rejection in one JSON report;
+- keep the checklist non-submitting: it does not draft text or call
+  `submit_draft`;
+- add SDK fake-service coverage proving the checklist follows selector-backed
+  actionRef paths and does not type text or submit messages.
+
+Public surface:
+
+- no package API, protocol schema, or command builder change;
+- the new root-level example is a developer smoke/proof helper for F5/F6;
+- live merge readiness still depends on running the script against a real
+  Accessibility-trusted WeChat desktop.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_sdk_examples -k selector_engine
+```
+
+Result: 1 test passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_sdk_examples
+```
+
+Result: 7 tests passed.
+
+```bash
+python -m py_compile \
+  examples/wechat_selector_engine_smoke_test.py \
+  tests/test_sdk_examples.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s tests
+```
+
+Result: 102 tests passed.

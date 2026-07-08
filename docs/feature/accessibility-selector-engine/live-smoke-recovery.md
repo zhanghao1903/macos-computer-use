@@ -179,7 +179,26 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
   --token-file ./app-control.token
 ```
 
-Run the smoke probes:
+Run the consolidated selector-engine smoke checklist first:
+
+```bash
+.venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --socket-path /private/tmp/app-control-selector-live.sock \
+  --token-file ./app-control.token \
+  --output /private/tmp/selector-live-selector-engine-smoke.json \
+  --contact "文件传输助手" \
+  --conversation-limit 30 \
+  --contact-limit 30 \
+  --message-limit 30
+```
+
+That report covers the remaining merge-gate scenarios in one artifact:
+conversation listing, opening `文件传输助手`, visible message reading, valid
+profile override loading, invalid override fallback, and expired actionRef
+fail-closed behavior. It does not draft or submit a message.
+
+If the consolidated checklist fails, run the narrower probes below to isolate
+the failing phase:
 
 ```bash
 .venv/bin/python examples/wechat_window_sdk_test.py \

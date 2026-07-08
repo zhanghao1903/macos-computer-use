@@ -399,6 +399,35 @@ New coverage:
 - legacy actionRefs without `expiresAt` continue to use the existing execution
   path for compatibility.
 
+## Additional Verification: Selector Engine Smoke Checklist Example
+
+Date: 2026-07-08.
+
+This verification covers the consolidated SDK example that turns the remaining
+real WeChat merge gate into one repeatable smoke report. The automated proof
+uses a fake local-service client; it does not replace the real WeChat smoke.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Focused SDK example test | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples -k selector_engine` | Passed: 1 test |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 7 tests |
+| Python compile check | `python -m py_compile examples/wechat_selector_engine_smoke_test.py tests/test_sdk_examples.py` | Passed |
+| Root tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 102 tests |
+| Release preflight | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python scripts/release_preflight.py` | Passed with existing external-proof warnings for real desktop, TestPyPI, and PyPI publisher checks |
+
+New coverage:
+
+- the example opens WeChat, inspects the normalized window model, lists
+  conversations, opens `文件传输助手`, reads visible messages, lists contacts,
+  checks valid profile override loading, checks invalid override fallback, and
+  verifies expired actionRefs fail as `wechat_action_ref_expired`;
+- the fake-service test proves the checklist uses selector-backed
+  `accessibility_action` paths, does not type text, and does not submit a
+  message;
+- the report schema
+  `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1` gives release
+  review one artifact for the remaining live WeChat proof.
+
 ## Additional Verification: Enabled Match Filter
 
 Date: 2026-07-07.
@@ -658,7 +687,13 @@ window model and contacts collection work on a live client, and it also proves
 that the backend and WeChat semantic layer now fail closed when no focused AX
 window is available.
 
-After manually restoring a real WeChat `AXWindow`, rerun
+After manually restoring a real WeChat `AXWindow`, first run
+`examples/wechat_selector_engine_smoke_test.py`. The script writes one report
+that covers conversation listing, opening `文件传输助手`, visible message
+reading, valid override loading, invalid override fallback, and expired
+actionRef fail-closed behavior.
+
+If the consolidated checklist fails, rerun
 `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` on the live
 desktop. That rerun should prove whether the already-listed contact row can be
 opened through `execute_action(actionRef)` and read through
@@ -697,9 +732,20 @@ computer-use-macos serve \
   --token-file ./app-control.token
 ```
 
-Then run the existing SDK/example scripts against that service. For release
-review, save JSON reports under a reviewed location or link the local proof
-paths from this file.
+Then run the consolidated SDK smoke checklist against that service:
+
+```bash
+.venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --socket-path /tmp/app-control.sock \
+  --token-file ./app-control.token \
+  --output /private/tmp/selector-live-selector-engine-smoke.json \
+  --contact "文件传输助手"
+```
+
+For release review, save JSON reports under a reviewed location or link the
+local proof paths from this file. If the consolidated checklist fails, run the
+narrower existing SDK/example scripts against the same service to isolate the
+failing step.
 
 ## Release Readiness Gate
 

@@ -11,6 +11,9 @@
   WeChat selector profile without rebuilding `wechat-desktop-tool`.
 - Add `frontmostApp` root support to scoped `accessibility_query` so selector
   profiles can inspect app-level Accessibility nodes without a focused window.
+- Add an SDK-style WeChat selector-engine smoke checklist example that writes
+  one JSON report for conversations, contact opening, visible messages, profile
+  override checks, and expired actionRef rejection.
 
 ### Internal
 

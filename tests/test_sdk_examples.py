@@ -291,6 +291,167 @@ class FakeContactsRecentMessagesServiceClient:
         ]
 
 
+class FakeSelectorEngineSmokeServiceClient:
+    def __init__(self) -> None:
+        self.commands: list[dict[str, Any]] = []
+        self.section = "chats"
+        self.current_chat = "文件传输助手"
+
+    def run_command(
+        self,
+        command: dict[str, Any],
+        *,
+        action: str = "run",
+        request_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del action
+        self.commands.append(command)
+        operation = command["operation"]
+        observation_payload: dict[str, Any] = {}
+        if operation == "observe":
+            observation_payload = {
+                "frontmostApp": "WeChat",
+                "frontmostBundleId": "com.tencent.xinWeChat",
+                "windowTitle": f"{self.current_chat} - 微信",
+            }
+        elif operation == "accessibility_query":
+            observation_payload = {"accessibilityQuery": self._query(command)}
+        elif operation == "accessibility_action":
+            target = command.get("input", {}).get("target", {})
+            ax_path = target.get("axPath") if isinstance(target, dict) else None
+            if ax_path == "0/1":
+                self.section = "chats"
+            elif ax_path == "0/2":
+                self.section = "contacts"
+            elif ax_path == "0/11/1/0/0":
+                self.current_chat = "文件传输助手"
+                self.section = "chats"
+            observation_payload = {"executed": True}
+        observation = ToolObservation.ok(
+            command_id=command["commandId"],
+            tool=command["tool"],
+            operation=operation,
+            summary=f"fake {operation}",
+            observation=observation_payload,
+        )
+        return [
+            ServiceResponse.complete(
+                observation,
+                request_id=request_id or "fake_request",
+            ).to_dict()
+        ]
+
+    def _query(self, command: dict[str, Any]) -> dict[str, Any]:
+        input_payload = command.get("input", {})
+        query = input_payload.get("query", {})
+        root = input_payload.get("root", {})
+        role_in = (
+            query.get("match", {}).get("roleIn")
+            if isinstance(query, dict)
+            else None
+        )
+        root_path = root.get("axPath") if isinstance(root, dict) else None
+        max_depth = query.get("maxDepth") if isinstance(query, dict) else None
+        scope = query.get("scope") if isinstance(query, dict) else None
+
+        if role_in == ["AXRadioButton"]:
+            return _wechat_query(self._navigation_nodes())
+        if role_in == ["AXSplitGroup"] and root_path == "0/11":
+            return _wechat_query(
+                [_query_node("0/11/4", "AXSplitGroup", description="chat-panel")]
+            )
+        if role_in == ["AXSplitGroup"]:
+            return _wechat_query(
+                [_query_node("0/11", "AXSplitGroup", description="main")]
+            )
+        if root_path == "0/11" and role_in == ["AXRow"]:
+            return _wechat_query(self._row_nodes())
+        if root_path in {"0/11/1/0/0", "0/11/1/0/1"}:
+            return _wechat_query(self._field_nodes(root_path))
+        if (
+            root_path == "0/11/4"
+            and isinstance(role_in, list)
+            and "AXRow" in role_in
+        ):
+            return _wechat_query(
+                [
+                    _query_node("0/11/4/0/0/0", "AXRow", description="hello"),
+                    _query_node("0/11/4/0/0/1", "AXRow", description="reply"),
+                ]
+            )
+        if root_path in {"0/11/4/0/0/0", "0/11/4/0/0/1"}:
+            text = "hello" if root_path.endswith("/0") else "reply"
+            return _wechat_query([_query_node(f"{root_path}/0", "AXStaticText", value=text)])
+        if root_path == "0/11" and role_in == ["AXStaticText"]:
+            return _wechat_query(
+                [_query_node("0/11/4/2", "AXStaticText", value=self.current_chat)]
+            )
+        if root_path == "0/11" and role_in == ["AXRow", "AXCell", "AXStaticText"]:
+            return _wechat_query(self._visible_contact_nodes())
+        if scope == "children" and max_depth == 1:
+            return _wechat_query(
+                [
+                    *self._navigation_nodes(),
+                    _query_node("0/11", "AXSplitGroup", description="main"),
+                ]
+            )
+        return _wechat_query([])
+
+    def _navigation_nodes(self) -> list[dict[str, Any]]:
+        return [
+            _query_node(
+                "0/1",
+                "AXRadioButton",
+                description="聊天",
+                value=1 if self.section == "chats" else 0,
+            ),
+            _query_node(
+                "0/2",
+                "AXRadioButton",
+                description="通讯录",
+                value=1 if self.section == "contacts" else 0,
+            ),
+            _query_node("0/3", "AXRadioButton", description="收藏", value=0),
+        ]
+
+    def _row_nodes(self) -> list[dict[str, Any]]:
+        if self.section == "contacts":
+            return [
+                _query_node("0/11/1/0/0", "AXRow", description="Ada", height=68),
+                _query_node("0/11/1/0/1", "AXRow", description="Bob", height=68),
+            ]
+        return [
+            _query_node(
+                "0/11/1/0/0",
+                "AXRow",
+                description="文件传输助手,hello,09:00,置顶",
+                height=68,
+            )
+        ]
+
+    def _field_nodes(self, root_path: str) -> list[dict[str, Any]]:
+        if self.section == "contacts":
+            value = "Ada" if root_path.endswith("/0") else "Bob"
+            return [_query_node(f"{root_path}/0", "AXStaticText", value=value)]
+        return [
+            _query_node(
+                f"{root_path}/0",
+                "AXCell",
+                description="文件传输助手,hello,09:00,置顶",
+            )
+        ]
+
+    def _visible_contact_nodes(self) -> list[dict[str, Any]]:
+        return [
+            _query_node(
+                "0/11/1/0/0",
+                "AXRow",
+                description="文件传输助手",
+                height=68,
+            )
+        ]
+
+
 class FakeContactsOpenFailureServiceClient:
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
@@ -573,6 +734,58 @@ class SdkExampleTests(unittest.TestCase):
             ],
         )
 
+    def test_wechat_selector_engine_smoke_test_runs_checklist(self) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+        service_client = FakeSelectorEngineSmokeServiceClient()
+        system_open = FakeSystemOpenRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "selector-engine-smoke-output.json"
+            payload = module.run_selector_engine_smoke_test(
+                config_path=None,
+                output_path=output_path,
+                socket_path="/tmp/app-control.sock",
+                service_client=service_client,
+                system_open_runner=system_open,
+                contact="文件传输助手",
+                conversation_limit=1,
+                contact_limit=2,
+                message_limit=2,
+            )
+
+            persisted = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["summary"]["success"], True)
+        self.assertEqual(payload["summary"]["conversationCount"], 1)
+        self.assertEqual(payload["summary"]["contactCount"], 2)
+        self.assertEqual(payload["summary"]["messageCount"], 2)
+        self.assertEqual(payload["summary"]["failedStep"], None)
+        self.assertEqual(payload["expiredActionRef"]["success"], True)
+        self.assertEqual(
+            payload["expiredActionRef"]["failureKind"],
+            "wechat_action_ref_expired",
+        )
+        self.assertEqual(
+            payload["openContact"]["observation"]["openMethod"],
+            "visible_action_ref",
+        )
+        self.assertEqual(payload["profileOverrides"]["validOverride"]["success"], True)
+        self.assertEqual(payload["profileOverrides"]["invalidFallback"]["success"], True)
+        self.assertEqual(
+            [command[:2] for command in system_open.commands],
+            [["open", "-b"], ["osascript", "-e"]],
+        )
+        operations = [command["operation"] for command in service_client.commands]
+        self.assertIn("listConversations", persisted["summary"]["checks"])
+        self.assertIn("accessibility_action", operations)
+        self.assertNotIn("type_text", operations)
+        self.assertNotIn("press_key", operations)
+        self.assertEqual(
+            operations.count("accessibility_action"),
+            2,
+            "expired actionRef check must not add a third backend action",
+        )
+
     def test_wechat_window_sdk_test_rejects_missing_token_file(self) -> None:
         module = _load_wechat_window_sdk_test_module()
 
@@ -613,6 +826,12 @@ def _load_wechat_contacts_recent_messages_test_module() -> Any:
     root = Path(__file__).resolve().parents[1]
     example_path = root / "examples" / "wechat_contacts_recent_messages_test.py"
     return _load_example_module(example_path, "wechat_contacts_recent_messages_test")
+
+
+def _load_wechat_selector_engine_smoke_test_module() -> Any:
+    root = Path(__file__).resolve().parents[1]
+    example_path = root / "examples" / "wechat_selector_engine_smoke_test.py"
+    return _load_example_module(example_path, "wechat_selector_engine_smoke_test")
 
 
 def _load_example_module(example_path: Path, name: str) -> Any:
