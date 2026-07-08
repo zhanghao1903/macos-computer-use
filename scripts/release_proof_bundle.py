@@ -20,6 +20,7 @@ PROOF_ASSET_NAMES = {
     "textedit_smoke_report": "textedit-smoke.json",
     "wechat_focus_draft_report": "wechat-focus-draft-smoke.json",
     "wechat_submit_report": "wechat-submit-smoke.json",
+    "wechat_selector_engine_report": "wechat-selector-engine-smoke.json",
     "testpypi_install_report": "testpypi-install.json",
     "trusted_publisher_report": "trusted-publisher.json",
     "release_proof": "release-proof.json",
@@ -33,6 +34,7 @@ def build_bundle(
     textedit_smoke_report: Path,
     wechat_focus_draft_report: Path,
     wechat_submit_report: Path,
+    wechat_selector_engine_report: Path,
     testpypi_install_report: Path,
     trusted_publisher_report: Path,
 ) -> dict[str, object]:
@@ -42,7 +44,11 @@ def build_bundle(
     proof.update(release_preflight._load_textedit_smoke_proof(textedit_smoke_report))
     proof.update(
         release_preflight._load_wechat_smoke_proofs(
-            (wechat_focus_draft_report, wechat_submit_report)
+            (
+                wechat_focus_draft_report,
+                wechat_submit_report,
+                wechat_selector_engine_report,
+            )
         )
     )
     proof.update(
@@ -64,6 +70,9 @@ def build_bundle(
         PROOF_ASSET_NAMES["textedit_smoke_report"]: textedit_smoke_report,
         PROOF_ASSET_NAMES["wechat_focus_draft_report"]: wechat_focus_draft_report,
         PROOF_ASSET_NAMES["wechat_submit_report"]: wechat_submit_report,
+        PROOF_ASSET_NAMES["wechat_selector_engine_report"]: (
+            wechat_selector_engine_report
+        ),
         PROOF_ASSET_NAMES["testpypi_install_report"]: testpypi_install_report,
         PROOF_ASSET_NAMES["trusted_publisher_report"]: trusted_publisher_report,
     }
@@ -101,6 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--textedit-smoke-report", type=Path, required=True)
     parser.add_argument("--wechat-focus-draft-report", type=Path, required=True)
     parser.add_argument("--wechat-submit-report", type=Path, required=True)
+    parser.add_argument("--wechat-selector-engine-report", type=Path, required=True)
     parser.add_argument("--testpypi-install-report", type=Path, required=True)
     parser.add_argument("--trusted-publisher-report", type=Path, required=True)
     parser.add_argument(
@@ -116,6 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         textedit_smoke_report=args.textedit_smoke_report,
         wechat_focus_draft_report=args.wechat_focus_draft_report,
         wechat_submit_report=args.wechat_submit_report,
+        wechat_selector_engine_report=args.wechat_selector_engine_report,
         testpypi_install_report=args.testpypi_install_report,
         trusted_publisher_report=args.trusted_publisher_report,
     )

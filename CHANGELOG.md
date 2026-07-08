@@ -20,6 +20,8 @@
 - Add the internal Accessibility selector engine, packaged WeChat selector
   profile, collection extraction, and selector-backed WeChat semantic operation
   migration while keeping public selector protocol commands deferred.
+- Recognize selector-engine WeChat smoke reports in strict release proof
+  preflight, release proof bundles, and the GitHub Release publishing gate.
 - Add a `feature-lifecycle` agent skill to manage features from requirements
   through design, implementation, review, merge, release readiness, and
   traceable release notes.

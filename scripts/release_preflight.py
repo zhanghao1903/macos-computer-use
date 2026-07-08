@@ -395,11 +395,31 @@ EXTERNAL_PROOFS = {
     "textedit_smoke": "real TextEdit smoke passed",
     "wechat_focus_draft_smoke": "real WeChat focus/draft smoke passed",
     "wechat_submit_smoke": "real opt-in WeChat submit smoke passed",
+    "wechat_selector_engine_smoke": (
+        "real WeChat selector-engine smoke checklist passed"
+    ),
     "testpypi_install": (
         "all packages installed from TestPyPI in a clean env and API smoke passed"
     ),
     "pypi_trusted_publisher": "PyPI Trusted Publisher is configured",
 }
+
+WECHAT_SELECTOR_ENGINE_SMOKE_SCHEMA = (
+    "macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1"
+)
+WECHAT_SELECTOR_ENGINE_REQUIRED_CHECKS = (
+    "systemOpenWeChat",
+    "readiness",
+    "openWeChat",
+    "inspectWindow",
+    "listConversations",
+    "expiredActionRef",
+    "openContact",
+    "readVisibleMessages",
+    "listContacts",
+    "validProfileOverride",
+    "invalidProfileFallback",
+)
 
 HELPER_RELEASE_REQUIRED_CHECKS = (
     "manifest",
@@ -1863,6 +1883,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "textedit-smoke.json",
                 "wechat-focus-draft-smoke.json",
                 "wechat-submit-smoke.json",
+                "wechat-selector-engine-smoke.json",
                 "testpypi-install.json",
                 "trusted-publisher.json",
                 "release-proof.json",
@@ -1870,6 +1891,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "test -f release-proof/textedit-smoke.json",
                 "test -f release-proof/wechat-focus-draft-smoke.json",
                 "test -f release-proof/wechat-submit-smoke.json",
+                "test -f release-proof/wechat-selector-engine-smoke.json",
                 "test -f release-proof/testpypi-install.json",
                 "test -f release-proof/trusted-publisher.json",
                 "test -f release-proof/release-proof.json",
@@ -2334,6 +2356,12 @@ def _load_wechat_smoke_proof(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("WeChat smoke report JSON must be an object")
+    if payload.get("schema") == WECHAT_SELECTOR_ENGINE_SMOKE_SCHEMA:
+        return {
+            "wechat_selector_engine_smoke": (
+                _wechat_selector_engine_smoke_success(payload)
+            )
+        }
     if "appControlCommands" in payload:
         return {}
 
@@ -2355,6 +2383,58 @@ def _load_wechat_smoke_proof(path: Path) -> dict[str, Any]:
         "wechat_focus_draft_smoke": focus_draft_passed or submit_passed,
         "wechat_submit_smoke": submit_passed,
     }
+
+
+def _wechat_selector_engine_smoke_success(payload: dict[str, Any]) -> bool:
+    summary = payload.get("summary")
+    if not isinstance(summary, dict) or summary.get("success") is not True:
+        return False
+    checks = summary.get("checks")
+    if not isinstance(checks, dict):
+        return False
+    if any(
+        checks.get(name) is not True
+        for name in WECHAT_SELECTOR_ENGINE_REQUIRED_CHECKS
+    ):
+        return False
+    if not _observation_success(
+        payload.get("readiness"),
+        expected_tool="macos.computer_use",
+        expected_operation="readiness",
+    ):
+        return False
+    expected_wechat_observations = {
+        "openWeChat": "open_wechat",
+        "inspectWindow": "inspect_window",
+        "listConversations": "list_conversations",
+        "openContact": "open_contact",
+        "readVisibleMessages": "read_visible_messages",
+        "listContacts": "list_contacts",
+    }
+    for key, operation in expected_wechat_observations.items():
+        if not _observation_success(
+            payload.get(key),
+            expected_tool="wechat.desktop",
+            expected_operation=operation,
+        ):
+            return False
+
+    expired = payload.get("expiredActionRef")
+    if not isinstance(expired, dict):
+        return False
+    if (
+        expired.get("success") is not True
+        or expired.get("failureKind") != "wechat_action_ref_expired"
+    ):
+        return False
+    profile_overrides = payload.get("profileOverrides")
+    if not isinstance(profile_overrides, dict):
+        return False
+    for key in ("validOverride", "invalidFallback"):
+        item = profile_overrides.get(key)
+        if not isinstance(item, dict) or item.get("success") is not True:
+            return False
+    return True
 
 
 def _load_testpypi_install_proof(root: Path, path: Path) -> dict[str, Any]:

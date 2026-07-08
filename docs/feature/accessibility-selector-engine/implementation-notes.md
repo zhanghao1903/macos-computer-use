@@ -2403,3 +2403,73 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 102 tests passed.
+
+## Release Proof Slice: Selector Engine Smoke Report
+
+Status: implemented; automated release-preflight verification passed; live
+WeChat smoke evidence still requires a real focused WeChat `AXWindow`.
+
+Commit scope:
+
+- add `wechat_selector_engine_smoke` as a strict external proof key in
+  `scripts/release_preflight.py`;
+- make `--wechat-smoke-report` recognize the
+  `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1` report written
+  by `examples/wechat_selector_engine_smoke_test.py`;
+- validate the report schema, successful summary, required checklist booleans,
+  protocol-shaped WeChat observations, valid/invalid profile override checks,
+  and expired actionRef failure kind before accepting the proof;
+- update `scripts/release_proof_bundle.py`, `scripts/dev_check.py`, and the
+  GitHub Release workflow so `wechat-selector-engine-smoke.json` is copied,
+  downloaded, and passed to strict release preflight;
+- update release docs and feature merge-readiness docs with the new asset name
+  and proof contract.
+
+Public surface:
+
+- no public selector command, protocol schema, or SDK method is added;
+- release tooling now treats the selector-engine checklist as a separate
+  release proof from the older focus/draft and submit WeChat smokes;
+- `release-proof.json` now accepts `wechat_selector_engine_smoke` as a known
+  boolean key.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_release_preflight -k wechat_selector
+```
+
+Result: 2 tests passed.
+
+```bash
+python -m py_compile \
+  scripts/release_preflight.py \
+  scripts/release_proof_bundle.py \
+  scripts/dev_check.py \
+  tests/test_release_preflight.py \
+  tests/test_dev_check.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_release_preflight
+```
+
+Result: 78 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_dev_check
+```
+
+Result: 7 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s tests
+```
+
+Result: 104 tests passed.

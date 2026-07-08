@@ -138,6 +138,7 @@ Use this checklist before publishing the app-control tool package suite.
         --textedit-smoke-report ./textedit-smoke.json \
         --wechat-smoke-report ./wechat-focus-draft-smoke.json \
         --wechat-smoke-report ./wechat-submit-smoke.json \
+        --wechat-smoke-report ./wechat-selector-engine-smoke.json \
         --testpypi-install-report ./testpypi-install.json \
         --trusted-publisher-report ./trusted-publisher.json \
         --proof ./release-proof.json \
@@ -152,6 +153,7 @@ Example `release-proof.json`:
   "textedit_smoke": true,
   "wechat_focus_draft_smoke": true,
   "wechat_submit_smoke": true,
+  "wechat_selector_engine_smoke": true,
   "testpypi_install": true,
   "pypi_trusted_publisher": true
 }
@@ -172,7 +174,8 @@ Publisher report.
       names and blocks PyPI publishing if any are missing or fail validation:
       `helper-doctor.json`, `textedit-smoke.json`,
       `wechat-focus-draft-smoke.json`,
-      `wechat-submit-smoke.json`, `testpypi-install.json`,
+      `wechat-submit-smoke.json`, `wechat-selector-engine-smoke.json`,
+      `testpypi-install.json`,
       `trusted-publisher.json`, and `release-proof.json`.
 - [ ] Prefer generating the release asset directory with:
       ```bash
@@ -182,6 +185,7 @@ Publisher report.
         --textedit-smoke-report ./textedit-smoke.json \
         --wechat-focus-draft-report ./wechat-focus-draft-smoke.json \
         --wechat-submit-report ./wechat-submit-smoke.json \
+        --wechat-selector-engine-report ./wechat-selector-engine-smoke.json \
         --testpypi-install-report ./testpypi-install.json \
         --trusted-publisher-report ./trusted-publisher.json
       ```

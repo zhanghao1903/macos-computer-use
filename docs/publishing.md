@@ -124,6 +124,7 @@ to PyPI:
   "textedit_smoke": true,
   "wechat_focus_draft_smoke": true,
   "wechat_submit_smoke": true,
+  "wechat_selector_engine_smoke": true,
   "testpypi_install": true,
   "pypi_trusted_publisher": true
 }
@@ -226,6 +227,7 @@ python scripts/release_preflight.py \
   --textedit-smoke-report ./textedit-smoke.json \
   --wechat-smoke-report ./wechat-focus-draft-smoke.json \
   --wechat-smoke-report ./wechat-submit-smoke.json \
+  --wechat-smoke-report ./wechat-selector-engine-smoke.json \
   --testpypi-install-report ./testpypi-install.json \
   --trusted-publisher-report ./trusted-publisher.json \
   --proof ./release-proof.json \
@@ -242,6 +244,7 @@ python scripts/release_proof_bundle.py \
   --textedit-smoke-report ./textedit-smoke.json \
   --wechat-focus-draft-report ./wechat-focus-draft-smoke.json \
   --wechat-submit-report ./wechat-submit-smoke.json \
+  --wechat-selector-engine-report ./wechat-selector-engine-smoke.json \
   --testpypi-install-report ./testpypi-install.json \
   --trusted-publisher-report ./trusted-publisher.json
 ```
@@ -267,6 +270,7 @@ helper-doctor.json
 textedit-smoke.json
 wechat-focus-draft-smoke.json
 wechat-submit-smoke.json
+wechat-selector-engine-smoke.json
 testpypi-install.json
 trusted-publisher.json
 release-proof.json

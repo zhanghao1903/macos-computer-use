@@ -753,3 +753,69 @@ The feature is not release-ready until the remaining real WeChat smoke evidence
 is added to this file or linked from it. Public selector protocol commands
 remain deferred; this feature currently ships only the internal selector
 engine, WeChat packaged profile migration, and profile override configuration.
+
+## Release Proof Preflight Recognition
+
+The consolidated selector-engine smoke checklist is now consumable by the
+strict release proof path:
+
+- report file name expected by release tooling:
+  `wechat-selector-engine-smoke.json`;
+- proof key: `wechat_selector_engine_smoke`;
+- report schema:
+  `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1`;
+- recognized through repeated `--wechat-smoke-report` arguments on
+  `scripts/release_preflight.py`;
+- bundled through `scripts/release_proof_bundle.py
+  --wechat-selector-engine-report`;
+- enforced by the GitHub Release workflow before PyPI publishing.
+
+The loader accepts a report only when the summary succeeds, all required
+checklist booleans are true, WeChat operations are protocol-shaped
+observations, valid/invalid profile override checks pass, and the expired
+actionRef check fails closed with `wechat_action_ref_expired`.
+
+Automated checks run for this proof-recognition slice:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_release_preflight -k wechat_selector
+```
+
+Result: 2 tests passed.
+
+```bash
+python -m py_compile \
+  scripts/release_preflight.py \
+  scripts/release_proof_bundle.py \
+  scripts/dev_check.py \
+  tests/test_release_preflight.py \
+  tests/test_dev_check.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_release_preflight
+```
+
+Result: 78 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest tests.test_dev_check
+```
+
+Result: 7 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest discover -s tests
+```
+
+Result: 104 tests passed.
+
+This does not replace the real live WeChat smoke requirement. It makes the
+future live smoke output structurally enforceable by release preflight once the
+report is produced from a real desktop run.

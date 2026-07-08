@@ -95,6 +95,13 @@ covering the remaining conversation, contact-opening, visible-message,
 profile-override, fallback, and expired-actionRef checks without drafting or
 submitting a message.
 
+The release proof gate now recognizes that report as
+`wechat_selector_engine_smoke` when it is attached or passed as
+`wechat-selector-engine-smoke.json`. The report must keep the selector-engine
+schema, a successful summary, all required checklist booleans, protocol-shaped
+WeChat observations, profile override/fallback success, and an expired
+actionRef failure kind of `wechat_action_ref_expired`.
+
 ## Public Surface Impact
 
 Added public/semi-public config:

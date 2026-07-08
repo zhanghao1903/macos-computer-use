@@ -69,6 +69,7 @@ class DevCheckScriptTests(unittest.TestCase):
         command = checks[0].command()
         self.assertIn("--require-external", command)
         self.assertIn("release-proof/helper-doctor.json", command)
+        self.assertIn("release-proof/wechat-selector-engine-smoke.json", command)
         self.assertIn("release-proof/release-proof.json", command)
 
     def test_can_select_wheel_preflight(self) -> None:

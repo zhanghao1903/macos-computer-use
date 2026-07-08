@@ -99,6 +99,8 @@ CHECKS: tuple[DevCheck, ...] = (
             "release-proof/wechat-focus-draft-smoke.json",
             "--wechat-smoke-report",
             "release-proof/wechat-submit-smoke.json",
+            "--wechat-smoke-report",
+            "release-proof/wechat-selector-engine-smoke.json",
             "--testpypi-install-report",
             "release-proof/testpypi-install.json",
             "--trusted-publisher-report",
