@@ -2130,3 +2130,69 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 ```
 
 Result: 6 tests passed.
+
+## Selector Corrective Slice: Collection Selector Constraints
+
+Status: implemented; automated verification passed.
+
+Commit scope:
+
+- apply `SelectorDefinition.constraints` when filtering collection
+  `item_selector` candidates;
+- apply descendant field selector constraints before extracting field values;
+- request `AXSelected` only when a collection selector needs selected-state
+  evidence;
+- request structural summary flags such as `includeChildRoles`,
+  `includeDescendantRoles`, and `includeChildrenCount` when collection
+  constraints need that evidence;
+- include custom step match attributes in collection query attributes so
+  collection extraction does not rely on absent evidence.
+
+Public surface:
+
+- no top-level `computer_use_macos` export;
+- no command builder, protocol command, JSON Schema, or CLI change;
+- behavior remains inside the internal selector-profile MVP and packaged
+  profile consumption path.
+
+Implemented behavior:
+
+- collection item candidates now fail closed when required structural
+  constraints are missing or false;
+- descendant field extraction skips nodes that match role/attribute filters but
+  fail selector constraints;
+- contacts/messages/conversation list profiles can use the same constraint
+  language for repeated rows and nested field values as standalone selectors;
+- collection query payloads stay bounded and request only the extra evidence
+  required by the profile constraints.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: 50 tests passed.
+
+```bash
+python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/collections.py \
+  packages/computer-use-macos/tests/test_selectors.py
+```
+
+Result: passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 104 tests passed, 1 skipped.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py
+```
+
+Result: 6 tests passed.

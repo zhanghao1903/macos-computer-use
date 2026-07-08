@@ -1586,6 +1586,122 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.items, ({"displayName": "Ada"},))
         self.assertIn("AXEnabled", runner.calls[2]["query"]["attributes"])
 
+    def test_collection_item_selector_applies_constraints(self) -> None:
+        raw = _valid_profile()
+        item = raw["collections"]["contacts"]["item"]  # type: ignore[index]
+        item["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "minChildren",
+                "value": 1,
+                "required": True,
+            }
+        ]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0",
+                            "role": "AXRow",
+                            "childrenCount": 0,
+                        },
+                        {
+                            "axPath": "0/11/1",
+                            "role": "AXRow",
+                            "childrenCount": 1,
+                        },
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Ada",
+                        }
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Ada"},))
+        self.assertEqual(result.diagnostics.query_count, 3)
+        self.assertEqual(
+            runner.calls[2]["root"],
+            {"kind": "axPath", "axPath": "0/11/1"},
+        )
+        self.assertTrue(runner.calls[1]["query"]["includeChildrenCount"])
+
+    def test_descendant_field_selector_applies_constraints(self) -> None:
+        raw = _valid_profile()
+        display_name = raw["collections"]["contacts"]["fields"]["displayName"]  # type: ignore[index]
+        display_name["selector"]["constraints"] = [  # type: ignore[index]
+            {
+                "kind": "selected",
+                "value": False,
+                "required": True,
+            }
+        ]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload([{"axPath": "0/11/0", "role": "AXRow"}]),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Missing selected evidence",
+                        },
+                        {
+                            "axPath": "0/11/0/1",
+                            "role": "AXStaticText",
+                            "value": "Selected row",
+                            "raw": {"AXSelected": True},
+                        },
+                        {
+                            "axPath": "0/11/0/2",
+                            "role": "AXStaticText",
+                            "value": "Ada",
+                            "AXSelected": False,
+                        },
+                    ]
+                ),
+            ]
+        )
+        extractor = CollectionExtractor(SelectorResolver(profile, runner))
+
+        result = extractor.extract("contacts", limit=1)
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Ada"},))
+        self.assertIn("AXSelected", runner.calls[2]["query"]["attributes"])
+
     def test_pagination_uses_limit_plus_one_for_has_more(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         runner = FakeQueryRunner(

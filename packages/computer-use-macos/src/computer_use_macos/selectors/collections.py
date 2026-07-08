@@ -8,6 +8,7 @@ from typing import Any
 
 from .diagnostics import selector_diagnostics
 from .matching import (
+    constraints_match,
     effective_step_match,
     match_node,
     node_actions,
@@ -23,7 +24,9 @@ from .models import (
     FieldDefinition,
     JsonValue,
     PaginationState,
+    SelectorConstraint,
     SelectorDiagnostics,
+    SelectorStep,
 )
 from .resolver import SelectorResolver, _normalize_query_payload
 from .transforms import apply_transform
@@ -184,30 +187,26 @@ class CollectionExtractor:
                 "maxDepth": step.max_depth,
                 "limit": limit,
                 "timeBudgetMs": step.time_budget_ms,
-                "attributes": [
-                    "AXRole",
-                    "AXTitle",
-                    "AXValue",
-                    "AXDescription",
-                    "AXPlaceholderValue",
-                    "AXFrame",
-                    "AXHidden",
-                    "AXEnabled",
-                    "AXFocused",
-                ],
+                "attributes": _query_attributes(step, item_selector.constraints),
                 "actions": bool(step.match.actions_include)
                 or _collection_needs_item_actions(collection),
                 "match": {"roleIn": list(step.role_in or step.match.role_in)},
+                **_constraint_query_flags(item_selector.constraints),
             },
             include_raw=debug,
         )
         normalized = _normalize_query_payload(payload)
         match = effective_step_match(step)
-        nodes = [
-            node
-            for node in normalized["nodes"]
-            if match_node(node, match, self.resolver.profile.locale_aliases)[0]
-        ]
+        nodes = []
+        for node in normalized["nodes"]:
+            if not match_node(node, match, self.resolver.profile.locale_aliases)[0]:
+                continue
+            constraints_ok, _, _ = constraints_match(
+                node,
+                item_selector.constraints,
+            )
+            if constraints_ok:
+                nodes.append(node)
         diagnostics = normalized["diagnostics"]
         return nodes, selector_diagnostics(
             query_count=1,
@@ -293,17 +292,10 @@ class CollectionExtractor:
                 "maxDepth": step.max_depth,
                 "limit": step.limit,
                 "timeBudgetMs": step.time_budget_ms,
-                "attributes": [
-                    "AXRole",
-                    "AXTitle",
-                    "AXValue",
-                    "AXDescription",
-                    "AXPlaceholderValue",
-                    "AXHidden",
-                    "AXEnabled",
-                ],
+                "attributes": _query_attributes(step, field.selector.constraints),
                 "actions": bool(step.match.actions_include),
                 "match": {"roleIn": list(step.role_in or step.match.role_in)},
+                **_constraint_query_flags(field.selector.constraints),
             },
             include_raw=debug,
         )
@@ -319,7 +311,14 @@ class CollectionExtractor:
             else None
         )
         for node in normalized["nodes"]:
-            if match_node(node, match, self.resolver.profile.locale_aliases)[0]:
+            matched, _ = match_node(node, match, self.resolver.profile.locale_aliases)
+            if not matched:
+                continue
+            constraints_ok, _, _ = constraints_match(
+                node,
+                field.selector.constraints,
+            )
+            if constraints_ok:
                 if field.attribute is not None:
                     return _FieldExtraction(
                         value=node_attribute(node, field.attribute),
@@ -412,6 +411,40 @@ def _collection_needs_item_actions(collection: CollectionDefinition) -> bool:
         field.source == "computed" and field.attribute == "elementRef"
         for field in collection.fields.values()
     )
+
+
+def _query_attributes(
+    step: SelectorStep,
+    constraints: tuple[SelectorConstraint, ...],
+) -> list[str]:
+    attributes = {
+        "AXRole",
+        "AXTitle",
+        "AXValue",
+        "AXDescription",
+        "AXPlaceholderValue",
+        "AXFrame",
+        "AXHidden",
+        "AXEnabled",
+        "AXFocused",
+    }
+    attributes.update(step.match.attributes)
+    if any(constraint.kind == "selected" for constraint in constraints):
+        attributes.add("AXSelected")
+    return sorted(attributes)
+
+
+def _constraint_query_flags(
+    constraints: tuple[SelectorConstraint, ...],
+) -> dict[str, JsonValue]:
+    flags: dict[str, JsonValue] = {}
+    if any(constraint.kind == "hasChildRole" for constraint in constraints):
+        flags["includeChildRoles"] = True
+    if any(constraint.kind == "hasDescendantRole" for constraint in constraints):
+        flags["includeDescendantRoles"] = True
+    if any(constraint.kind == "minChildren" for constraint in constraints):
+        flags["includeChildrenCount"] = True
+    return flags
 
 
 def _collection_node_count(

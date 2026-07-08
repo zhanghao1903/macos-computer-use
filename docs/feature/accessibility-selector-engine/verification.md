@@ -475,6 +475,34 @@ New coverage:
 - selectors without weighted scoring signals keep hard-filter-only confidence
   behavior.
 
+## Additional Verification: Collection Selector Constraints
+
+Date: 2026-07-08.
+
+This verification covers collection extraction constraint handling. Previously,
+collection `item_selector` and descendant field selectors used match filters
+but did not apply selector-level constraints, so a repeated row or field node
+could be accepted without the structural evidence required by the profile.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Selector tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_selectors.py` | Passed: 50 tests |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/selectors/collections.py packages/computer-use-macos/tests/test_selectors.py` | Passed |
+| `computer-use-macos` tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 104 tests, 1 skipped |
+| WeChat profile tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 6 tests |
+
+New coverage:
+
+- collection item selectors apply required constraints before field extraction;
+- item selectors request `includeChildrenCount` when `minChildren` evidence is
+  required;
+- descendant field selectors apply required `selected` constraints before
+  reading field values;
+- descendant field queries request `AXSelected` when selected-state evidence is
+  required;
+- collection queries include custom step match attributes in their bounded AX
+  attribute requests.
+
 ## Unavailable Checks
 
 `uv run ruff check ...` was attempted, but the local environment does not have a
