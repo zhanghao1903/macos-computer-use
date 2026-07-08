@@ -9,6 +9,7 @@ Review sources:
 
 - `technical-review-2026-07-06.md`
 - `technical-review-2026-07-07.md`
+- `technical-review-remediation-2026-07-08.md`
 - `requirements.md`
 
 ## Scope

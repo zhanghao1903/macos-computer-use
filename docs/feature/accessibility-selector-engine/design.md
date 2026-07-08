@@ -9,6 +9,7 @@ Feature directory: `docs/feature/accessibility-selector-engine/`.
 Requirement artifact: `requirements.md`.
 Design document: `design.md`.
 Review artifact: `technical-review-2026-07-06.md`.
+Review remediation: `technical-review-remediation-2026-07-08.md`.
 
 This document defines the proposed selector/profile architecture for solving
 macOS Accessibility graph search in a reusable way. The design is motivated by
