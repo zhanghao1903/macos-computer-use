@@ -573,6 +573,13 @@ the current checkout as `PYTHONPATH`.
 The current no-focused-window desktop blocker and recovery steps are recorded
 in `live-smoke-recovery.md`.
 
+A read-only `frontmostApp` root probe was attempted from the current
+Codex-hosted Python process on 2026-07-08. It did not reach WeChat because
+`readiness.status=missing_accessibility` and `accessibility_trusted=false`.
+That permission blocker is separate from the earlier trusted-session
+`accessibility_query_no_focused_window` blocker and is now recorded in
+`live-smoke-recovery.md`.
+
 Passed evidence:
 
 - `inspect_window` wrote `/private/tmp/accessibility-selector-inspect-fixed.json`

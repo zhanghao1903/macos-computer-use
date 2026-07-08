@@ -40,6 +40,30 @@ The package now fails closed in this state:
 
 ## Latest Retry
 
+On 2026-07-08, a read-only `frontmostApp` root probe was attempted from the
+Codex-hosted Python process:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  python -c '... accessibility_query(root={"kind": "frontmostApp"}) ...'
+```
+
+Result:
+
+```text
+status=not_ready
+success=false
+failureKind=not_available
+readiness.status=missing_accessibility
+accessibility_trusted=false
+summary=macOS Accessibility query is unavailable until readiness is ready.
+```
+
+This did not reach WeChat or the selector backend. It only proves that the
+current Codex-spawned Python process is not Accessibility-trusted. Live smoke
+must be run from a trusted Terminal/Python host or after granting
+Accessibility permission to the host process.
+
 After the listed-contact actionRef and visible-row `open_contact` updates,
 `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` was rerun
 against the current feature checkout and wrote:
