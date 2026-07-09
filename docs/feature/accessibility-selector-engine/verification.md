@@ -1046,10 +1046,14 @@ New coverage:
 - mapped Contacts navigation uses `accessibility_query(scope=self)` with an
   800 ms timeout to read the button frame, then `click(coordinates=...)` with a
   1200 ms timeout;
+- mapped navigation now prefers packaged direct `screen_coordinates`, so normal
+  coordinate-click switching sends no Accessibility frame query;
 - if coordinate click is disabled, mapped navigation falls back to `AXPress`
   with a 2000 ms command timeout instead of inheriting the parent API timeout;
+- if mapped navigation still fails, the WeChat API returns
+  `wechat_navigation_failed` instead of falling back to the old selector path;
 - SDK example fakes now model the frame-query plus coordinate-click command
-  shape.
+  shape and the direct-coordinate command shape.
 
 Manual proof still required:
 

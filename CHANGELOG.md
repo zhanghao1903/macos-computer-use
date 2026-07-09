@@ -79,6 +79,10 @@
 - Avoid slow WeChat mapped navigation `AXPress` calls by skipping already-active
   tabs, using bounded frame-based coordinate clicks for mapped navigation, and
   limiting Accessibility-action fallback to 2 seconds.
+- Add direct screen-coordinate hints to the WeChat navigation control map and
+  stop falling back to the old selector path when mapped navigation fails, so
+  navigation failures stay bounded instead of expanding into long selector
+  searches.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

@@ -732,8 +732,15 @@ class WeChatDesktopTool:
             evidence=evidence,
             phase_events=phase_events,
         )
-        if switched is None or not switched.success:
+        if switched is None:
             return None
+        if not switched.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_navigation_failed",
+                switched,
+                evidence=evidence,
+            )
         collection_query = self._query_mapped_collection(
             command,
             collection_id,
@@ -890,6 +897,15 @@ class WeChatDesktopTool:
     ) -> ToolObservation | None:
         if control.action != "AXPress" or not control.kind.startswith("navigation."):
             return None
+        direct_click = self._execute_mapped_control_direct_coordinate_click(
+            command,
+            control,
+            phase=phase,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if direct_click is not None:
+            return direct_click
         query_phase = f"{phase}:frame"
         frame_query = self._app_control_command(
             command,
@@ -942,6 +958,36 @@ class WeChatDesktopTool:
         )
         evidence[phase] = _safe_app_control_observation(click_result)
         return click_result
+
+    def _execute_mapped_control_direct_coordinate_click(
+        self,
+        command: ToolCommand,
+        control: WeChatMappedControl,
+        *,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        if not control.screen_coordinates:
+            return None
+        last_result: ToolObservation | None = None
+        for index, (x, y) in enumerate(control.screen_coordinates):
+            click_phase = f"{phase}:direct_{index}"
+            click_result = self._app_control_command(
+                command,
+                phase=click_phase,
+                operation="click",
+                input=self._target_app_input(coordinates={"x": x, "y": y}),
+                timeout_ms=_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS,
+                phase_events=phase_events,
+            )
+            evidence[click_phase] = _safe_app_control_observation(click_result)
+            last_result = click_result
+            if click_result.success:
+                return click_result
+            if _coordinate_click_disabled(click_result):
+                return click_result
+        return last_result
 
     def _query_mapped_collection(
         self,

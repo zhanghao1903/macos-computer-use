@@ -62,6 +62,10 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         self.assertEqual(control_map.map_id, "wechat.macos.default")
         self.assertEqual(control_map.navigation["contacts"].ax_paths, ("0/2",))
         self.assertEqual(
+            control_map.navigation["contacts"].screen_coordinates,
+            ((264, 227),),
+        )
+        self.assertEqual(
             control_map.collections["contacts"].root_ax_paths[0],
             "0/12/2/0",
         )

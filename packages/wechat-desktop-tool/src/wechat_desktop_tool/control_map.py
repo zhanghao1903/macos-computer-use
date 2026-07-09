@@ -19,6 +19,7 @@ class WeChatMappedControl:
     ax_paths: tuple[str, ...]
     role: str
     labels: tuple[str, ...] = ()
+    screen_coordinates: tuple[tuple[int, int], ...] = ()
     action: str = "AXPress"
     kind: str = "ui.press"
     risk: str = "changes_focus"
@@ -127,6 +128,10 @@ def _parse_control(
         ax_paths=_strings(payload.get("ax_paths"), f"{control_id}.ax_paths"),
         role=_string(payload.get("role"), f"{control_id}.role"),
         labels=_strings(payload.get("labels", ()), f"{control_id}.labels"),
+        screen_coordinates=_coordinate_pairs(
+            payload.get("screen_coordinates", ()),
+            f"{control_id}.screen_coordinates",
+        ),
         action=_string(payload.get("action", "AXPress"), f"{control_id}.action"),
         kind=_string(payload.get("kind", "ui.press"), f"{control_id}.kind"),
         risk=_string(payload.get("risk", default_risk), f"{control_id}.risk"),
@@ -189,9 +194,30 @@ def _strings(value: Any, field_name: str) -> tuple[str, ...]:
     return items
 
 
+def _coordinate_pairs(value: Any, field_name: str) -> tuple[tuple[int, int], ...]:
+    if value in (None, (), []):
+        return ()
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"{field_name} must be a list of coordinate objects")
+    coordinates: list[tuple[int, int]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{field_name}[{index}] must be a table")
+        x = _non_negative_int(item.get("x"), f"{field_name}[{index}].x")
+        y = _non_negative_int(item.get("y"), f"{field_name}[{index}].y")
+        coordinates.append((x, y))
+    return tuple(coordinates)
+
+
 def _positive_int(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _non_negative_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
     return value
 
 

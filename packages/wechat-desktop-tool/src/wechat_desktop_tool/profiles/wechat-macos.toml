@@ -244,6 +244,7 @@ map_version = "2026.07"
 ax_paths = ["0/1"]
 role = "AXRadioButton"
 labels = ["聊天", "__EN_CHATS_PLACEHOLDER__"]
+screen_coordinates = [{ x = 264, y = 179 }]
 action = "AXPress"
 kind = "navigation.switch"
 risk = "changes_focus"
@@ -252,6 +253,7 @@ risk = "changes_focus"
 ax_paths = ["0/2"]
 role = "AXRadioButton"
 labels = ["通讯录", "__EN_CONTACTS_PLACEHOLDER__"]
+screen_coordinates = [{ x = 264, y = 227 }]
 action = "AXPress"
 kind = "navigation.switch"
 risk = "changes_focus"
@@ -260,6 +262,7 @@ risk = "changes_focus"
 ax_paths = ["0/3"]
 role = "AXRadioButton"
 labels = ["收藏", "__EN_FAVORITES_PLACEHOLDER__"]
+screen_coordinates = [{ x = 264, y = 275 }]
 action = "AXPress"
 kind = "navigation.switch"
 risk = "changes_focus"

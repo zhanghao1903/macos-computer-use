@@ -106,16 +106,7 @@ class FakeFileTransferSendServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            root = command.get("input", {}).get("root", {})
-            root_path = root.get("axPath") if isinstance(root, dict) else None
-            if root_path == "0/2":
-                observation_payload = {
-                    "accessibilityQuery": _wechat_query(
-                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
-                    )
-                }
-            else:
-                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -179,16 +170,7 @@ class FakeContactsListServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            root = command.get("input", {}).get("root", {})
-            root_path = root.get("axPath") if isinstance(root, dict) else None
-            if root_path == "0/2":
-                observation_payload = {
-                    "accessibilityQuery": _wechat_query(
-                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
-                    )
-                }
-            else:
-                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -249,16 +231,7 @@ class FakeContactsRecentMessagesServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            root = command.get("input", {}).get("root", {})
-            root_path = root.get("axPath") if isinstance(root, dict) else None
-            if root_path == "0/2":
-                observation_payload = {
-                    "accessibilityQuery": _wechat_query(
-                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
-                    )
-                }
-            else:
-                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -310,6 +283,13 @@ class FakeSelectorEngineSmokeServiceClient:
                 self.current_chat = "文件传输助手"
                 self.section = "chats"
             observation_payload = {"executed": True}
+        elif operation == "click":
+            coordinates = command.get("input", {}).get("coordinates")
+            if coordinates == {"x": 264, "y": 227}:
+                self.section = "contacts"
+            elif coordinates == {"x": 264, "y": 179}:
+                self.section = "chats"
+            observation_payload = {"clicked": True}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -629,7 +609,6 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "click",
                 "accessibility_query",
             ],
@@ -683,7 +662,6 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "click",
                 "accessibility_query",
                 "accessibility_action",

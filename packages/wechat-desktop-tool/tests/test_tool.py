@@ -614,6 +614,10 @@ def _coordinate_click_disabled_response() -> ToolObservation:
     )
 
 
+def _coordinate_click_response() -> dict[str, Any]:
+    return {"observation": {"metadata": {"coordinateClick": True}}}
+
+
 def _unsupported_accessibility_action_response() -> ToolObservation:
     return ToolObservation.failure(
         command_id="cmd_accessibility_action",
@@ -1244,8 +1248,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
-                _mapped_navigation_frame_response(),
-                {},
+                _coordinate_click_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node(
@@ -1330,23 +1333,22 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "click",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/2")
-        self.assertEqual(app_control.commands[2].input["query"]["scope"], "self")
-        self.assertEqual(app_control.commands[2].timeout_ms, 800)
-        self.assertEqual(app_control.commands[3].input["coordinates"], {"x": 30, "y": 35})
-        self.assertEqual(app_control.commands[3].timeout_ms, 1200)
-        self.assertEqual(app_control.commands[4].input["root"]["axPath"], "0/12/2/0")
+        self.assertEqual(
+            app_control.commands[2].input["coordinates"],
+            {"x": 264, "y": 227},
+        )
+        self.assertEqual(app_control.commands[2].timeout_ms, 1200)
+        self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
         self.assertLessEqual(
-            app_control.commands[4].input["query"]["timeBudgetMs"],
+            app_control.commands[3].input["query"]["timeBudgetMs"],
             2_200,
         )
         self.assertEqual(
-            app_control.commands[4].input["query"]["match"]["roleIn"],
+            app_control.commands[3].input["query"]["match"]["roleIn"],
             ["AXRow", "AXCell", "AXStaticText"],
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
@@ -1357,8 +1359,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
-                _mapped_navigation_frame_response(),
-                {},
+                _coordinate_click_response(),
                 _accessibility_query_response(
                     [
                         _normalized_node(
@@ -1438,8 +1439,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["Ada", "Bob"],
         )
         self.assertEqual(result.observation["pagination"]["limit"], 2)
-        self.assertEqual(app_control.commands[4].input["query"]["limit"], 140)
-        self.assertEqual(app_control.commands[4].input["root"]["axPath"], "0/12/2/0")
+        self.assertEqual(app_control.commands[3].input["query"]["limit"], 140)
+        self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
 
     def test_list_contacts_skips_navigation_when_contacts_window_active(self) -> None:
         app_control = FakeAppControl(
@@ -1488,20 +1489,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
-                _mapped_navigation_frame_response(),
                 _coordinate_click_disabled_response(),
                 _failed_accessibility_action_response(),
-                _accessibility_query_response(
-                    [
-                        _normalized_node(
-                            "0/1",
-                            "AXRadioButton",
-                            description="聊天",
-                            value=1,
-                            actions=["AXPress"],
-                        ),
-                    ]
-                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1509,26 +1498,19 @@ class WeChatDesktopToolTests(unittest.TestCase):
         result = tool.list_contacts(limit=2)
 
         self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_FOUND)
+        self.assertEqual(result.status, ToolStatus.FAILED)
         self.assertEqual(result.failure_kind, "wechat_navigation_failed")
-        self.assertEqual(result.observation["selector"]["id"], "navigation.contacts")
-        self.assertEqual(result.observation["selector"]["status"], "not_found")
-        self.assertEqual(
-            result.observation["selector"]["diagnostics"]["failureKind"],
-            "selector_not_found",
-        )
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
                 "open_app",
                 "observe",
-                "accessibility_query",
                 "click",
                 "accessibility_action",
-                "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[4].timeout_ms, 2_000)
+        self.assertEqual(app_control.commands[2].timeout_ms, 1_200)
+        self.assertEqual(app_control.commands[3].timeout_ms, 2_000)
 
     def test_list_conversations_uses_packaged_control_map_fast_path(self) -> None:
         app_control = FakeAppControl(

@@ -2766,11 +2766,18 @@ Implemented behavior:
   the navigation phase records `already_selected` and sends no desktop action;
 - when a navigation switch is still required, the tool queries only the mapped
   navigation control itself with `scope = "self"` and an 800 ms command budget;
-- if the frame query returns the expected role/label, the tool clicks the
-  control center with a 1200 ms coordinate-click command;
+- packaged navigation controls can provide direct `screen_coordinates` derived
+  from live rawdata; when present, those coordinates are clicked first with a
+  1200 ms command budget and no Accessibility frame query;
+- if direct coordinates are not configured, and the frame query returns the
+  expected role/label, the tool clicks the control center with a 1200 ms
+  coordinate-click command;
 - if coordinate click is disabled by the application policy, the tool falls
   back to `AXPress` with a 2000 ms command timeout instead of inheriting the
   parent command timeout;
+- if mapped navigation still fails, the API returns `wechat_navigation_failed`
+  instead of falling back to the old selector navigation path, preventing a
+  50-second broad-search fallback;
 - coordinate fallback is limited to control-map navigation controls and does
   not apply to message submission or arbitrary actionRefs.
 
@@ -2778,7 +2785,8 @@ Performance intent:
 
 - already-active sections avoid the navigation click entirely;
 - required navigation switches avoid the slow `AXUIElementPerformAction`
-  path when coordinate click is enabled;
+  path when coordinate click is enabled, because direct control-map coordinates
+  do not require an AX frame lookup;
 - when coordinate click is not enabled, the `AXPress` fallback is bounded to
   2 seconds so a slow WeChat Accessibility action cannot consume the full API
   timeout.
