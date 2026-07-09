@@ -1252,15 +1252,6 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _accessibility_query_response(
                     [
                         _normalized_node(
-                            "0/12/2/0/0",
-                            "AXRow",
-                            x=219,
-                            y=114,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
-                        ),
-                        _normalized_node(
                             "0/12/2/0/0/0/1",
                             "AXStaticText",
                             value="Ada",
@@ -1268,29 +1259,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
                             y=132,
                         ),
                         _normalized_node(
-                            "0/12/2/0/1",
-                            "AXRow",
-                            x=219,
-                            y=184,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
-                        ),
-                        _normalized_node(
                             "0/12/2/0/1/0/1",
                             "AXStaticText",
                             value="Bob",
                             x=295,
                             y=202,
-                        ),
-                        _normalized_node(
-                            "0/12/2/0/2",
-                            "AXRow",
-                            x=219,
-                            y=254,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
                         ),
                         _normalized_node(
                             "0/12/2/0/2/0/1",
@@ -1323,6 +1296,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
             result.observation["items"][0]["actionRef"]["action"],
             "AXPress",
         )
+        self.assertEqual(
+            result.observation["items"][0]["actionRef"]["target"]["axPath"],
+            "0/12/2/0/0",
+        )
+        self.assertEqual(
+            result.observation["items"][0]["element"]["role"],
+            "AXRow",
+        )
         self.assertIn("createdAt", result.observation["items"][0]["actionRef"])
         self.assertIn("expiresAt", result.observation["items"][0]["actionRef"])
         self.assertEqual(result.observation["pagination"]["limit"], 2)
@@ -1345,11 +1326,16 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
         self.assertLessEqual(
             app_control.commands[3].input["query"]["timeBudgetMs"],
-            2_200,
+            1_200,
         )
         self.assertEqual(
             app_control.commands[3].input["query"]["match"]["roleIn"],
-            ["AXRow", "AXCell", "AXStaticText"],
+            ["AXStaticText"],
+        )
+        self.assertFalse(app_control.commands[3].input["query"]["actions"])
+        self.assertEqual(
+            app_control.commands[3].input["query"]["attributes"],
+            ["AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"],
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
 
@@ -1363,25 +1349,9 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _accessibility_query_response(
                     [
                         _normalized_node(
-                            "0/12/2/0/0",
-                            "AXRow",
-                            x=219,
-                            y=120,
-                            width=256,
-                            height=39,
-                        ),
-                        _normalized_node(
                             "0/12/2/0/0/0/1",
                             "AXStaticText",
                             value="新的朋友",
-                        ),
-                        _normalized_node(
-                            "0/12/2/0/1",
-                            "AXRow",
-                            x=219,
-                            y=159,
-                            width=256,
-                            height=36,
                         ),
                         _normalized_node(
                             "0/12/2/0/1/0/1",
@@ -1389,27 +1359,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
                             value="A",
                         ),
                         _normalized_node(
-                            "0/12/2/0/2",
-                            "AXRow",
-                            x=219,
-                            y=195,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
-                        ),
-                        _normalized_node(
                             "0/12/2/0/2/0/1",
                             "AXStaticText",
                             value="Ada",
-                        ),
-                        _normalized_node(
-                            "0/12/2/0/3",
-                            "AXRow",
-                            x=219,
-                            y=265,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
+                            x=295,
+                            y=213,
                         ),
                         _normalized_node(
                             "0/12/2/0/3/0/1",
@@ -1439,7 +1393,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["Ada", "Bob"],
         )
         self.assertEqual(result.observation["pagination"]["limit"], 2)
-        self.assertEqual(app_control.commands[3].input["query"]["limit"], 140)
+        self.assertEqual(app_control.commands[3].input["query"]["limit"], 60)
         self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
 
     def test_list_contacts_skips_navigation_when_contacts_window_active(self) -> None:
@@ -1455,15 +1409,6 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 },
                 _accessibility_query_response(
                     [
-                        _normalized_node(
-                            "0/12/2/0/0",
-                            "AXRow",
-                            x=219,
-                            y=114,
-                            width=256,
-                            height=70,
-                            actions=["AXPress"],
-                        ),
                         _normalized_node(
                             "0/12/2/0/0/0/1",
                             "AXStaticText",

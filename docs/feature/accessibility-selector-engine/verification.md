@@ -1063,3 +1063,46 @@ Manual proof still required:
 - confirm `control_map_switch_contacts_skipped` appears when the window is
   already `微信 (通讯录)`, or that the coordinate click phases complete within
   the 800 ms + 1200 ms budgets when a tab switch is required.
+
+## Additional Verification: WeChat Contact List Query Performance
+
+Date: 2026-07-09.
+
+This verification covers the follow-up fix for slow contact table reads after
+mapped navigation was already optimized. The live smoke result showed
+`listContacts.timing.durationMs = 12805` and
+`control_map_contacts_0.timing.durationMs = 12397`, while the inner query
+diagnostics reported a much smaller Accessibility traversal time.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| WeChat targeted tests | `PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_tool.py packages/wechat-desktop-tool/tests/test_profiles.py` | Passed: 94 tests |
+| `computer-use-macos` targeted tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py` | Passed: 57 tests, 1 skipped |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 99 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 108 tests, 1 skipped |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| Python compile check | `python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/control_map.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/computer-use-macos/src/computer_use_macos/client.py` | Passed |
+| Whitespace/conflict check | `git diff --check` | Passed |
+
+New coverage:
+
+- packaged contacts control-map collections request only `AXStaticText`;
+- contacts collection queries use the reduced attribute set and disable
+  action-name collection;
+- `list_contacts` can build contact items and `AXRow` actionRefs from
+  static-text-only query results;
+- special Contacts utility rows, section labels, and status text remain
+  filtered before applying the caller limit;
+- SDK example fakes model the text-only contacts query path;
+- `computer-use-macos` Accessibility query source includes a role prefilter
+  before full node reads.
+
+Manual proof still required:
+
+- restart `computer-use-macos serve` so the service loads the updated packages;
+- rerun `examples/wechat_contacts_list_test.py` against the real WeChat client;
+- confirm `listContacts.evidence.control_map_contacts_0.timing.durationMs`
+  drops materially from the previous 12397 ms result;
+- confirm `listContacts.timing.durationMs` is below 3000 ms or capture the new
+  phase timings for the next optimization slice.

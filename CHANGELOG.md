@@ -83,6 +83,9 @@
   stop falling back to the old selector path when mapped navigation fails, so
   navigation failures stay bounded instead of expanding into long selector
   searches.
+- Narrow mapped WeChat contact-list reads to static text nodes and prefilter
+  Accessibility queries by role, reducing contact table payloads while keeping
+  existing contact `actionRef` responses.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

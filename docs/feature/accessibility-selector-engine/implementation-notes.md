@@ -2790,3 +2790,44 @@ Performance intent:
 - when coordinate click is not enabled, the `AXPress` fallback is bounded to
   2 seconds so a slow WeChat Accessibility action cannot consume the full API
   timeout.
+
+## WeChat Contact List Query Performance
+
+Status: implemented as a follow-up performance fix for mapped contact listing.
+
+Problem observed in live smoke:
+
+- after mapped navigation was skipped successfully, `list_contacts` still took
+  about 12.8 seconds end to end;
+- the slow phase was `control_map_contacts_0`, whose app-control wrapper
+  reported about 12.4 seconds while the inner Accessibility query diagnostics
+  reported about 1.4 seconds;
+- the query returned row, cell, and static-text nodes for the contact table,
+  producing a larger traversal, response payload, and rawdata log record than
+  the semantic API needs.
+
+Implemented behavior:
+
+- the packaged contacts control-map collection now queries only `AXStaticText`
+  nodes under the mapped contacts root;
+- the query uses a reduced attribute set: `AXRole`, `AXValue`, `AXPosition`,
+  `AXSize`, and `AXFrame`;
+- the contacts query disables action-name collection because static text nodes
+  do not need actions;
+- the WeChat extractor synthesizes `AXRow` action targets from stable contact
+  text paths such as `0/12/2/0/<row>/0/<text>`, preserving the existing
+  `actionRef` shape for application callers;
+- known Contacts utility rows, section labels, and status text remain filtered
+  before applying the caller's limit;
+- the lower-level `computer-use-macos` Accessibility query script now uses
+  `match.role` / `match.roleIn` as a prefilter, so nodes with non-matching roles
+  avoid full attribute and action reads.
+
+Performance intent:
+
+- normal contact listing should return far fewer nodes and write much smaller
+  rawdata records;
+- `control_map_contacts_0` should spend its Accessibility work on contact names
+  rather than row/cell scaffolding;
+- public WeChat APIs and response shapes remain compatible while improving the
+  internal query path.

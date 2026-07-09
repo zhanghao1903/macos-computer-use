@@ -69,6 +69,12 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             control_map.collections["contacts"].root_ax_paths[0],
             "0/12/2/0",
         )
+        self.assertEqual(control_map.collections["contacts"].roles, ("AXStaticText",))
+        self.assertEqual(
+            control_map.collections["contacts"].attributes,
+            ("AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"),
+        )
+        self.assertFalse(control_map.collections["contacts"].actions)
         self.assertEqual(
             control_map.collections["conversations"].root_ax_paths,
             ("0/11/1/0",),

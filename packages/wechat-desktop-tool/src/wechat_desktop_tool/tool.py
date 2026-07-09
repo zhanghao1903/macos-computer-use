@@ -1016,6 +1016,8 @@ class WeChatDesktopTool:
                 role_in=list(collection.roles),
                 limit=query_limit,
                 time_budget_ms=collection.time_budget_ms,
+                attributes=list(collection.attributes) or None,
+                actions=collection.actions,
                 evidence=evidence,
                 phase_events=phase_events,
             )
@@ -2542,6 +2544,8 @@ class WeChatDesktopTool:
         limit: int,
         evidence: dict[str, JsonValue],
         time_budget_ms: int | None = None,
+        attributes: list[str] | None = None,
+        actions: bool = True,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         ax_path = _node_ax_path(root_node)
@@ -2567,8 +2571,8 @@ class WeChatDesktopTool:
                     "timeBudgetMs": time_budget_ms
                     if time_budget_ms is not None
                     else (8_000 if scope == "descendants" else 5_000),
-                    "attributes": _QUERY_ATTRIBUTES,
-                    "actions": True,
+                    "attributes": attributes or _QUERY_ATTRIBUTES,
+                    "actions": actions,
                     "includeChildrenCount": False,
                     "match": {"roleIn": role_in},
                 },
@@ -3688,6 +3692,8 @@ def _row_items_from_nodes(
     limit: int,
     snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
+    if section == "contacts":
+        nodes = _nodes_with_synthesized_contact_rows(nodes)
     labels_by_row = _row_labels_by_path(nodes)
     contact_labels_by_row = (
         _contact_row_labels_by_path(nodes) if section == "contacts" else {}
@@ -3757,6 +3763,95 @@ def _row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
             row_path = _nearest_row_path(path, row_paths) or path.rsplit("/", 1)[0]
             labels.setdefault(row_path, label)
     return labels
+
+
+def _nodes_with_synthesized_contact_rows(
+    nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if any(node.get("role") == "AXRow" for node in nodes):
+        return nodes
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes:
+        if node.get("role") != "AXStaticText":
+            continue
+        path = str(node.get("axPath") or "")
+        row_path = _contact_row_path_from_static_text_path(path)
+        if row_path is None:
+            continue
+        groups.setdefault(row_path, []).append(node)
+
+    synthesized_rows: list[dict[str, Any]] = []
+    for row_path, text_nodes in groups.items():
+        labels = [
+            (node, label)
+            for node in text_nodes
+            if (label := _node_label(node)) is not None
+        ]
+        if any(_is_contact_whole_row_special_label(label) for _node, label in labels):
+            continue
+        candidates = [
+            (node, label)
+            for node, label in labels
+            if not _is_contact_non_name_label(label)
+        ]
+        if not candidates:
+            continue
+        label_node, label = sorted(
+            candidates,
+            key=lambda item: _node_frame_sort_key(item[0]),
+        )[0]
+        synthesized_rows.append(
+            _synthesized_contact_row_node(row_path, label_node, label),
+        )
+    if not synthesized_rows:
+        return nodes
+    return [*synthesized_rows, *nodes]
+
+
+def _contact_row_path_from_static_text_path(path: str) -> str | None:
+    if not path or "/" not in path:
+        return None
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[-2] == "0":
+        return "/".join(parts[:-2])
+    if len(parts) >= 2:
+        return "/".join(parts[:-1])
+    return None
+
+
+def _synthesized_contact_row_node(
+    row_path: str,
+    text_node: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "axPath": row_path,
+        "role": "AXRow",
+        "label": label,
+        "actions": ["AXPress"],
+    }
+    frame = text_node.get("frame")
+    if isinstance(frame, Mapping):
+        x = _number_value(frame.get("x")) or 0.0
+        y = _number_value(frame.get("y")) or 0.0
+        width = _number_value(frame.get("width")) or 0.0
+        row["frame"] = {
+            "x": max(0.0, x - 76.0),
+            "y": max(0.0, y - 18.0),
+            "width": max(256.0, width + 76.0),
+            "height": 58.0,
+        }
+    return row
+
+
+def _node_frame_sort_key(node: Mapping[str, Any]) -> tuple[float, float]:
+    frame = node.get("frame")
+    if not isinstance(frame, Mapping):
+        return (0.0, 0.0)
+    return (
+        _number_value(frame.get("y")) or 0.0,
+        _number_value(frame.get("x")) or 0.0,
+    )
 
 
 def _contact_row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
@@ -3841,10 +3936,36 @@ def _is_contact_non_name_label(label: str) -> bool:
         "#",
         "新的朋友",
         "new friends",
+        "群聊",
+        "group chats",
+        "标签",
+        "tags",
+        "公众号",
+        "official accounts",
+        "企业微信联系人",
+        "wecom contacts",
         "通讯录管理",
         "contacts management",
         "已添加",
         "added",
+    }
+
+
+def _is_contact_whole_row_special_label(label: str) -> bool:
+    normalized = label.strip().casefold()
+    return normalized in {
+        "新的朋友",
+        "new friends",
+        "群聊",
+        "group chats",
+        "标签",
+        "tags",
+        "公众号",
+        "official accounts",
+        "企业微信联系人",
+        "wecom contacts",
+        "通讯录管理",
+        "contacts management",
     }
 
 

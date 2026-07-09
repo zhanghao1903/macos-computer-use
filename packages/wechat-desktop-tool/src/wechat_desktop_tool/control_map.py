@@ -30,6 +30,8 @@ class WeChatMappedCollection:
     collection_id: str
     root_ax_paths: tuple[str, ...]
     roles: tuple[str, ...]
+    attributes: tuple[str, ...] = ()
+    actions: bool = True
     max_depth: int = 3
     minimum_limit: int = 80
     limit_multiplier: int = 4
@@ -150,6 +152,12 @@ def _parse_collection(
             f"{collection_id}.root_ax_paths",
         ),
         roles=_strings(payload.get("roles"), f"{collection_id}.roles"),
+        attributes=_strings(
+            payload.get("attributes", ()),
+            f"{collection_id}.attributes",
+            allow_empty=True,
+        ),
+        actions=_bool(payload.get("actions", True), f"{collection_id}.actions"),
         max_depth=_positive_int(
             payload.get("max_depth", 3),
             f"{collection_id}.max_depth",
@@ -185,13 +193,24 @@ def _string(value: Any, field_name: str) -> str:
     return value.strip()
 
 
-def _strings(value: Any, field_name: str) -> tuple[str, ...]:
+def _strings(
+    value: Any,
+    field_name: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):
         raise ValueError(f"{field_name} must be a string list")
     items = tuple(_string(item, field_name) for item in value)
-    if not items:
+    if not items and not allow_empty:
         raise ValueError(f"{field_name} must be non-empty")
     return items
+
+
+def _bool(value: Any, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
 
 
 def _coordinate_pairs(value: Any, field_name: str) -> tuple[tuple[int, int], ...]:

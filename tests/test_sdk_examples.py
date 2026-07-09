@@ -324,6 +324,8 @@ class FakeSelectorEngineSmokeServiceClient:
             )
         if role_in == ["AXRadioButton"]:
             return _wechat_query(self._navigation_nodes())
+        if root_path == "0/12/2/0" and role_in == ["AXStaticText"]:
+            return _wechat_query(self._contact_text_nodes(root_path))
         if (
             root_path in {"0/11/1/0", "0/12/2/0"}
             and isinstance(role_in, list)
@@ -403,6 +405,12 @@ class FakeSelectorEngineSmokeServiceClient:
                 description="文件传输助手,hello,09:00,置顶",
                 height=68,
             )
+        ]
+
+    def _contact_text_nodes(self, root_path: str) -> list[dict[str, Any]]:
+        return [
+            _query_node(f"{root_path}/0/0/1", "AXStaticText", value="Ada"),
+            _query_node(f"{root_path}/1/0/1", "AXStaticText", value="Bob"),
         ]
 
     def _field_nodes(self, root_path: str) -> list[dict[str, Any]]:

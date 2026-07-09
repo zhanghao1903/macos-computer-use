@@ -2986,6 +2986,19 @@ def string_set(value: Any) -> set[str]:
     return {str(value).casefold()}
 
 
+def role_filter_allows(element: Any) -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    match = query.get("match") if isinstance(query.get("match"), dict) else {}
+    if "role" not in match and "roleIn" not in match:
+        return True
+    role = text_value(safe_scalar(ax_get(element, "AXRole")))
+    if "role" in match and role != text_value(match.get("role")):
+        return False
+    if "roleIn" in match and role not in string_set(match.get("roleIn")):
+        return False
+    return True
+
+
 def node_matches(node: dict[str, Any]) -> bool:
     query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
     match = query.get("match") if isinstance(query.get("match"), dict) else {}
@@ -3038,13 +3051,14 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
             return
         diagnostics["nodeCount"] += 1
         if include_self:
-            node = read_node(element, path)
-            if node_matches(node):
-                nodes.append(node)
-                if len(nodes) >= limit:
-                    diagnostics["truncated"] = True
-                    diagnostics["truncationReason"] = "limit"
-                    return
+            if role_filter_allows(element):
+                node = read_node(element, path)
+                if node_matches(node):
+                    nodes.append(node)
+                    if len(nodes) >= limit:
+                        diagnostics["truncated"] = True
+                        diagnostics["truncationReason"] = "limit"
+                        return
         if scope == "self" or depth >= max_depth:
             return
         for index, child in enumerate(children_of(element)):

@@ -291,11 +291,13 @@ risk = "read_only"
 
 [control_map.collections.contacts]
 root_ax_paths = ["0/12/2/0", "0/11/2/0"]
-roles = ["AXRow", "AXCell", "AXStaticText"]
+roles = ["AXStaticText"]
+attributes = ["AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"]
+actions = false
 max_depth = 3
-minimum_limit = 140
-limit_multiplier = 6
-time_budget_ms = 2200
+minimum_limit = 60
+limit_multiplier = 2
+time_budget_ms = 1200
 
 [control_map.collections.conversations]
 root_ax_paths = ["0/11/1/0"]

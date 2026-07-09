@@ -1177,6 +1177,8 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("childRoles", source)
         self.assertIn("includeDescendantRoles", source)
         self.assertIn("descendantRoles", source)
+        self.assertIn("def role_filter_allows(", source)
+        self.assertIn("if role_filter_allows(element):", source)
         self.assertIn("def focused_window_for_app(", source)
         self.assertIn('kind == "frontmostApp"', source)
         self.assertIn('raw_root_path != "app"', source)
