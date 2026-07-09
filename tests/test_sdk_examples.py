@@ -106,7 +106,16 @@ class FakeFileTransferSendServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            root = command.get("input", {}).get("root", {})
+            root_path = root.get("axPath") if isinstance(root, dict) else None
+            if root_path == "0/2":
+                observation_payload = {
+                    "accessibilityQuery": _wechat_query(
+                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
+                    )
+                }
+            else:
+                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -170,7 +179,16 @@ class FakeContactsListServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            root = command.get("input", {}).get("root", {})
+            root_path = root.get("axPath") if isinstance(root, dict) else None
+            if root_path == "0/2":
+                observation_payload = {
+                    "accessibilityQuery": _wechat_query(
+                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
+                    )
+                }
+            else:
+                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -231,7 +249,16 @@ class FakeContactsRecentMessagesServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            root = command.get("input", {}).get("root", {})
+            root_path = root.get("axPath") if isinstance(root, dict) else None
+            if root_path == "0/2":
+                observation_payload = {
+                    "accessibilityQuery": _wechat_query(
+                        [_query_node("0/2", "AXRadioButton", description="通讯录")]
+                    )
+                }
+            else:
+                observation_payload = {"accessibilityQuery": self._queries.pop(0)}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -310,6 +337,11 @@ class FakeSelectorEngineSmokeServiceClient:
         max_depth = query.get("maxDepth") if isinstance(query, dict) else None
         scope = query.get("scope") if isinstance(query, dict) else None
 
+        if root_path in {"0/1", "0/2"} and role_in == ["AXRadioButton"]:
+            label = "聊天" if root_path == "0/1" else "通讯录"
+            return _wechat_query(
+                [_query_node(root_path, "AXRadioButton", description=label)]
+            )
         if role_in == ["AXRadioButton"]:
             return _wechat_query(self._navigation_nodes())
         if (
@@ -597,7 +629,8 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_action",
+                "accessibility_query",
+                "click",
                 "accessibility_query",
             ],
         )
@@ -650,7 +683,8 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "accessibility_action",
+                "accessibility_query",
+                "click",
                 "accessibility_query",
                 "accessibility_action",
                 "open_app",
@@ -740,12 +774,13 @@ class SdkExampleTests(unittest.TestCase):
         operations = [command["operation"] for command in service_client.commands]
         self.assertIn("listConversations", persisted["summary"]["checks"])
         self.assertIn("accessibility_action", operations)
+        self.assertIn("click", operations)
         self.assertNotIn("type_text", operations)
         self.assertNotIn("press_key", operations)
         self.assertEqual(
             operations.count("accessibility_action"),
-            3,
-            "expired actionRef check must not add a fourth backend action",
+            1,
+            "expired actionRef check must not add a second backend action",
         )
 
     def test_wechat_live_prereq_probe_reports_ready_state(self) -> None:

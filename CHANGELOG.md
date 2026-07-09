@@ -76,6 +76,9 @@
 - Add a WeChat control-map fast path for mapped navigation/list/message table
   AX paths so normal semantic reads avoid broad selector discovery and nested
   per-row searches.
+- Avoid slow WeChat mapped navigation `AXPress` calls by skipping already-active
+  tabs, using bounded frame-based coordinate clicks for mapped navigation, and
+  limiting Accessibility-action fallback to 2 seconds.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

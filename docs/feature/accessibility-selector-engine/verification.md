@@ -1022,3 +1022,40 @@ Manual proof still required:
   `durationMs` for each semantic API;
 - confirm each normal API path returns within 3 seconds on the target machine;
 - update the control map if a future WeChat client changes the stable AX paths.
+
+## Additional Verification: WeChat Mapped Navigation Click Performance
+
+Date: 2026-07-09.
+
+This verification covers the follow-up fix for slow mapped navigation clicks.
+The live contact-list smoke showed `control_map_switch_contacts_0` spending
+about 11.9 seconds in `accessibility_action` even though the target window was
+already `微信 (通讯录)`.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 99 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| Python compile check | `python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py` | Passed |
+
+New coverage:
+
+- `list_contacts` skips mapped navigation when the observed window title is
+  already `微信 (通讯录)`;
+- mapped Contacts navigation uses `accessibility_query(scope=self)` with an
+  800 ms timeout to read the button frame, then `click(coordinates=...)` with a
+  1200 ms timeout;
+- if coordinate click is disabled, mapped navigation falls back to `AXPress`
+  with a 2000 ms command timeout instead of inheriting the parent API timeout;
+- SDK example fakes now model the frame-query plus coordinate-click command
+  shape.
+
+Manual proof still required:
+
+- rerun `examples/wechat_contacts_list_test.py` against the real WeChat client
+  with coordinate click enabled in `app-control.toml`;
+- confirm the `listContacts.timing.durationMs` value is below 3000 ms;
+- confirm `control_map_switch_contacts_skipped` appears when the window is
+  already `微信 (通讯录)`, or that the coordinate click phases complete within
+  the 800 ms + 1200 ms budgets when a tab switch is required.

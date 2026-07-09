@@ -49,6 +49,9 @@ _INCOMING_LABELS = {"incoming", "received", "you"}
 _OUTGOING_LABELS = {"outgoing", "sent", "me"}
 _REDACTED = "[redacted]"
 _SENSITIVE_INPUT_KEYS = {"text", "message"}
+_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS = 2_000
+_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS = 800
+_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -798,6 +801,27 @@ class WeChatDesktopTool:
         control = self._control_map.navigation.get(navigation_key)
         if control is None:
             return None
+        if _evidence_window_title_matches_navigation(evidence, control):
+            phase = f"control_map_switch_{navigation_key}_skipped"
+            skipped = ToolObservation.ok(
+                command_id=f"{command.command_id}:{phase}",
+                tool=WECHAT_TOOL,
+                operation=command.operation,
+                summary=f"WeChat is already on {navigation_key}.",
+                observation={
+                    "schema": "wechat.control_map.navigation.v1",
+                    "status": "already_selected",
+                    "navigation": navigation_key,
+                    "control": control.control_id,
+                    "source": {
+                        "mode": "control_map",
+                        "mapId": self._control_map.map_id,
+                        "mapVersion": self._control_map.map_version,
+                    },
+                },
+            )
+            evidence[phase] = _safe_app_control_observation(skipped)
+            return skipped
         return self._execute_mapped_control(
             command,
             control,
@@ -821,6 +845,20 @@ class WeChatDesktopTool:
     ) -> ToolObservation | None:
         last_result: ToolObservation | None = None
         for index, ax_path in enumerate(control.ax_paths):
+            coordinate_result = self._execute_mapped_control_coordinate_click(
+                command,
+                control,
+                ax_path=ax_path,
+                phase=f"{phase}_coordinate_{index}",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if coordinate_result is not None:
+                last_result = coordinate_result
+                if coordinate_result.success:
+                    return coordinate_result
+                if not _coordinate_click_disabled(coordinate_result):
+                    return coordinate_result
             action_ref = _action_ref_from_mapped_control(
                 control,
                 ax_path=ax_path,
@@ -832,12 +870,78 @@ class WeChatDesktopTool:
                 action_ref,
                 phase=f"{phase}_{index}",
                 evidence=evidence,
+                timeout_ms=_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS,
                 phase_events=phase_events,
             )
             last_result = result
             if result.success:
                 return result
         return last_result
+
+    def _execute_mapped_control_coordinate_click(
+        self,
+        command: ToolCommand,
+        control: WeChatMappedControl,
+        *,
+        ax_path: str,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        if control.action != "AXPress" or not control.kind.startswith("navigation."):
+            return None
+        query_phase = f"{phase}:frame"
+        frame_query = self._app_control_command(
+            command,
+            phase=query_phase,
+            operation="accessibility_query",
+            input=self._accessibility_query_input(
+                root={"kind": "axPath", "axPath": ax_path},
+                query={
+                    "scope": "self",
+                    "maxDepth": 0,
+                    "limit": 1,
+                    "timeBudgetMs": _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+                    "attributes": [
+                        "AXRole",
+                        "AXDescription",
+                        "AXTitle",
+                        "AXValue",
+                        "AXEnabled",
+                        "AXFrame",
+                        "AXPosition",
+                        "AXSize",
+                    ],
+                    "actions": False,
+                    "includeChildrenCount": False,
+                    "match": {"roleIn": [control.role]},
+                },
+            ),
+            timeout_ms=_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+            phase_events=phase_events,
+        )
+        evidence[query_phase] = _safe_app_control_observation(frame_query)
+        if not frame_query.success:
+            return None
+        nodes = _query_nodes(frame_query)
+        if not nodes:
+            return None
+        target_node = nodes[0]
+        if not _mapped_control_node_matches(target_node, control):
+            return None
+        coordinates = _node_center_coordinates(target_node)
+        if coordinates is None:
+            return None
+        click_result = self._app_control_command(
+            command,
+            phase=phase,
+            operation="click",
+            input=self._target_app_input(coordinates=coordinates),
+            timeout_ms=_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS,
+            phase_events=phase_events,
+        )
+        evidence[phase] = _safe_app_control_observation(click_result)
+        return click_result
 
     def _query_mapped_collection(
         self,
@@ -2155,6 +2259,7 @@ class WeChatDesktopTool:
         phase: str,
         operation: str,
         input: dict[str, JsonValue],
+        timeout_ms: int | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         observation = self._app_control.run_command(
@@ -2163,7 +2268,11 @@ class WeChatDesktopTool:
                 tool=self._config.app_control_tool,
                 operation=operation,
                 input=input,
-                timeout_ms=parent.timeout_ms or self._config.default_timeout_ms,
+                timeout_ms=(
+                    timeout_ms
+                    if timeout_ms is not None
+                    else parent.timeout_ms or self._config.default_timeout_ms
+                ),
                 metadata={
                     "sourceTool": WECHAT_TOOL,
                     "parentCommandId": parent.command_id,
@@ -2473,6 +2582,7 @@ class WeChatDesktopTool:
         *,
         phase: str,
         evidence: dict[str, JsonValue],
+        timeout_ms: int | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         expiry_failure = _action_ref_expiry_failure(command, action_ref)
@@ -2489,6 +2599,7 @@ class WeChatDesktopTool:
             phase=phase,
             operation="accessibility_action",
             input=input_payload,
+            timeout_ms=timeout_ms,
             phase_events=phase_events,
         )
         evidence[phase] = _safe_app_control_observation(result)
@@ -2502,6 +2613,7 @@ class WeChatDesktopTool:
             phase=f"{phase}:selector_fallback",
             operation="click",
             input=self._target_app_input(selector=selector),
+            timeout_ms=timeout_ms,
             phase_events=phase_events,
         )
         evidence[f"{phase}:selector_fallback"] = _safe_app_control_observation(
@@ -3163,6 +3275,95 @@ def _first_concrete_label(labels: tuple[str, ...]) -> str | None:
         if label and not label.startswith("__"):
             return label
     return None
+
+
+def _evidence_window_title_matches_navigation(
+    evidence: Mapping[str, JsonValue],
+    control: WeChatMappedControl,
+) -> bool:
+    expected = {
+        label.casefold()
+        for label in control.labels
+        if label and not label.startswith("__")
+    }
+    if not expected:
+        return False
+    for key in (
+        "verify_wechat_window_after_focus",
+        "verify_wechat_accessibility_window",
+        "verify_wechat_window",
+    ):
+        item = evidence.get(key)
+        if not isinstance(item, Mapping):
+            continue
+        title = _window_title_from_safe_observation(item)
+        if title and any(label in title.casefold() for label in expected):
+            return True
+    return False
+
+
+def _window_title_from_safe_observation(value: Mapping[str, JsonValue]) -> str | None:
+    observation = value.get("observation")
+    if isinstance(observation, Mapping):
+        for key in ("windowTitle", "window_title", "title"):
+            title = observation.get(key)
+            if isinstance(title, str) and title.strip():
+                return title.strip()
+        metadata = observation.get("metadata")
+        if isinstance(metadata, Mapping):
+            for key in ("window_title", "windowTitle"):
+                title = metadata.get(key)
+                if isinstance(title, str) and title.strip():
+                    return title.strip()
+        nested = observation.get("accessibilityQuery")
+        if isinstance(nested, Mapping):
+            window = nested.get("window")
+            if isinstance(window, Mapping):
+                title = window.get("title")
+                if isinstance(title, str) and title.strip():
+                    return title.strip()
+    for key in ("summary", "textExtract"):
+        text = value.get(key)
+        if isinstance(text, str) and "Window:" in text:
+            return text.rsplit("Window:", 1)[1].strip().rstrip(".")
+    return None
+
+
+def _mapped_control_node_matches(
+    node: Mapping[str, Any],
+    control: WeChatMappedControl,
+) -> bool:
+    if str(node.get("role") or "") != control.role:
+        return False
+    concrete_labels = {
+        label.casefold()
+        for label in control.labels
+        if label and not label.startswith("__")
+    }
+    if not concrete_labels:
+        return True
+    label = _node_label(node)
+    return label is not None and label.casefold() in concrete_labels
+
+
+def _node_center_coordinates(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
+    frame = node.get("frame")
+    if not isinstance(frame, Mapping):
+        return None
+    x = _number_value(frame.get("x"))
+    y = _number_value(frame.get("y"))
+    width = _number_value(frame.get("width"))
+    height = _number_value(frame.get("height"))
+    if x is None or y is None or width is None or height is None:
+        return None
+    return {
+        "x": int(round(x + width / 2)),
+        "y": int(round(y + height / 2)),
+    }
+
+
+def _coordinate_click_disabled(result: ToolObservation) -> bool:
+    return result.failure_kind == "coordinate_click_disabled"
 
 
 def _selector_from_node(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
