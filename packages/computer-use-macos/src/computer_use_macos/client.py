@@ -2145,6 +2145,13 @@ _ACCESSIBILITY_QUERY_SAFE_ATTRIBUTES = {
     "AXPlaceholderValue",
 }
 
+_ACCESSIBILITY_ROOT_RESOLVER_ATTRIBUTES = {
+    "AXChildren",
+    "AXContents",
+    "AXRows",
+    "AXVisibleRows",
+}
+
 
 def _normalize_accessibility_query_request(
     *,
@@ -2163,6 +2170,13 @@ def _normalize_accessibility_query_request(
         if not isinstance(ax_path, str) or not ax_path.strip():
             raise ValueError("root.axPath is required when root.kind is axPath")
         root_payload["axPath"] = ax_path.strip()
+    root_resolver = root_payload.get("resolver")
+    if root_resolver is not None:
+        if root_kind != "axPath":
+            raise ValueError("root.resolver is only supported for axPath roots")
+        root_payload["resolver"] = _normalize_accessibility_root_resolver(
+            root_resolver,
+        )
 
     query_payload = dict(query or {})
     scope = query_payload.get("scope", "children")
@@ -2240,6 +2254,12 @@ def _normalize_accessibility_query_request(
         raise TypeError("query.includeDescendantRoles must be a boolean")
     query_payload["includeDescendantRoles"] = include_descendant_roles
 
+    prefer_visible_rows = query_payload.get("preferVisibleRows")
+    if prefer_visible_rows is not None:
+        if not isinstance(prefer_visible_rows, bool):
+            raise TypeError("query.preferVisibleRows must be a boolean")
+        query_payload["preferVisibleRows"] = prefer_visible_rows
+
     match = query_payload.get("match")
     if match is None:
         query_payload["match"] = {}
@@ -2254,6 +2274,64 @@ def _normalize_accessibility_query_request(
         "root": root_payload,
         "query": query_payload,
         "includeRaw": include_raw,
+    }
+
+
+def _normalize_accessibility_root_resolver(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError("root.resolver must be an object")
+    strategy = value.get("strategy", "attributePath")
+    if strategy != "attributePath":
+        raise ValueError("root.resolver.strategy must be attributePath")
+    raw_steps = value.get("steps")
+    if not isinstance(raw_steps, list | tuple) or not raw_steps:
+        raise ValueError("root.resolver.steps must be a non-empty list")
+    steps: list[dict[str, int | str]] = []
+    for index, raw_step in enumerate(raw_steps):
+        if not isinstance(raw_step, Mapping):
+            raise TypeError(f"root.resolver.steps[{index}] must be an object")
+        attribute = raw_step.get("attribute")
+        if not isinstance(attribute, str) or not attribute.strip():
+            raise ValueError(
+                f"root.resolver.steps[{index}].attribute must be non-empty"
+            )
+        normalized_attribute = attribute.strip()
+        if normalized_attribute not in _ACCESSIBILITY_ROOT_RESOLVER_ATTRIBUTES:
+            raise ValueError(
+                "unsupported root resolver attribute: "
+                f"{normalized_attribute}"
+            )
+        raw_item_index = raw_step.get("index")
+        if (
+            isinstance(raw_item_index, bool)
+            or not isinstance(raw_item_index, int)
+            or raw_item_index < 0
+            or raw_item_index > 10_000
+        ):
+            raise ValueError(
+                f"root.resolver.steps[{index}].index must be a non-negative integer"
+            )
+        step: dict[str, int | str] = {
+            "attribute": normalized_attribute,
+            "index": raw_item_index,
+        }
+        raw_path_index = raw_step.get("pathIndex", raw_step.get("path_index"))
+        if raw_path_index is not None:
+            if (
+                isinstance(raw_path_index, bool)
+                or not isinstance(raw_path_index, int)
+                or raw_path_index < 0
+                or raw_path_index > 10_000
+            ):
+                raise ValueError(
+                    "root.resolver.steps"
+                    f"[{index}].pathIndex must be a non-negative integer"
+                )
+            step["pathIndex"] = raw_path_index
+        steps.append(step)
+    return {
+        "strategy": "attributePath",
+        "steps": steps,
     }
 
 
@@ -2365,7 +2443,7 @@ def _bounded_int(
         raise TypeError(f"{name} must be an integer")
     if value < minimum or value > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}")
-    return value
+    return int(value)
 
 
 def _first(payload: Mapping[str, Any], *keys: str) -> Any:
@@ -2655,9 +2733,22 @@ from typing import Any
 
 APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
 CHILDREN_ATTRIBUTE = "AXChildren"
+CONTENTS_ATTRIBUTE = "AXContents"
+VISIBLE_ROWS_ATTRIBUTE = "AXVisibleRows"
+ROOT_RESOLVER_ATTRIBUTES = {
+    CHILDREN_ATTRIBUTE,
+    CONTENTS_ATTRIBUTE,
+    "AXRows",
+    VISIBLE_ROWS_ATTRIBUTE,
+}
 AX_VALUE_NUMBER_RE = re.compile(r"([xywh]):(-?\d+(?:\.\d+)?)")
 STARTED_AT = time.monotonic()
 QUERY_STARTED_AT = STARTED_AT
+ATTRIBUTE_CACHE: dict[tuple[str, str], list[Any] | Any | None] = {}
+ROOT_RESOLUTION: dict[str, Any] = {
+    "strategy": "default",
+    "durationMs": 0,
+}
 
 
 def fail(failure_kind: str, message: str) -> None:
@@ -2803,19 +2894,69 @@ def frame_from_attrs(attrs: dict[str, Any]) -> dict[str, float] | None:
     return None
 
 
-def children_of(element: Any) -> list[Any]:
-    children = ax_get(element, CHILDREN_ATTRIBUTE)
-    if not children:
+def ax_role(element: Any) -> str:
+    value = safe_scalar(cached_ax_get(element, "AXRole"))
+    return str(value or "")
+
+
+def element_cache_key(element: Any) -> str:
+    return str(element)
+
+
+def cached_ax_get(element: Any, attr: str) -> Any:
+    key = (element_cache_key(element), attr)
+    if key not in ATTRIBUTE_CACHE:
+        ATTRIBUTE_CACHE[key] = ax_get(element, attr)
+    return ATTRIBUTE_CACHE[key]
+
+
+def attribute_list(element: Any, attr: str) -> list[Any]:
+    value = cached_ax_get(element, attr)
+    if not value:
         return []
     try:
-        return list(children)
+        return list(value)
     except Exception:
         return []
 
 
-def ax_role(element: Any) -> str:
-    value = safe_scalar(ax_get(element, "AXRole"))
-    return str(value or "")
+def prefer_visible_rows() -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    return bool(query.get("preferVisibleRows", False))
+
+
+def child_attribute_for(element: Any) -> str:
+    if prefer_visible_rows() and ax_role(element) == "AXTable":
+        visible_rows = attribute_list(element, VISIBLE_ROWS_ATTRIBUTE)
+        if visible_rows:
+            return VISIBLE_ROWS_ATTRIBUTE
+    return CHILDREN_ATTRIBUTE
+
+
+def children_of(element: Any) -> list[Any]:
+    return attribute_list(element, child_attribute_for(element))
+
+
+def path_children_of(element: Any) -> list[Any]:
+    return attribute_list(element, CHILDREN_ATTRIBUTE)
+
+
+def child_path_index(parent: Any, child: Any, fallback_index: int) -> int:
+    if not (prefer_visible_rows() and ax_role(parent) == "AXTable"):
+        return fallback_index
+    value = safe_scalar(cached_ax_get(child, "AXIndex"))
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return fallback_index
+
+
+def child_entries(element: Any) -> list[tuple[int, Any]]:
+    return [
+        (child_path_index(element, child, index), child)
+        for index, child in enumerate(children_of(element))
+    ]
 
 
 def append_unique_role(roles: list[str], role: str) -> None:
@@ -2875,7 +3016,54 @@ def time_budget_exceeded() -> bool:
     return (time.monotonic() - QUERY_STARTED_AT) * 1000 >= budget_ms
 
 
-def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
+def root_resolver_steps(resolver: Any) -> list[dict[str, Any]]:
+    if not isinstance(resolver, dict):
+        return []
+    if resolver.get("strategy") != "attributePath":
+        return []
+    steps = resolver.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def resolve_root_with_attribute_path(
+    app_element: Any,
+    window: Any | None,
+    raw_path: str,
+    resolver: Any,
+) -> tuple[Any | None, str]:
+    steps = root_resolver_steps(resolver)
+    if not steps:
+        return None, raw_path
+    if raw_path == "app" or raw_path.startswith("app/"):
+        current = app_element
+        current_path = "app"
+    elif raw_path in {"", "0"} or raw_path.startswith("0/"):
+        if window is None:
+            return None, raw_path
+        current = window
+        current_path = "0"
+    else:
+        return None, raw_path
+    for step in steps:
+        attr = str(step.get("attribute") or "")
+        if attr not in ROOT_RESOLVER_ATTRIBUTES:
+            return None, raw_path
+        try:
+            index = int(step.get("index"))
+            path_index = int(step.get("pathIndex", index))
+        except Exception:
+            return None, raw_path
+        values = attribute_list(current, attr)
+        if index < 0 or index >= len(values) or path_index < 0:
+            return None, raw_path
+        current = values[index]
+        current_path = f"{current_path}/{path_index}"
+    return current, current_path
+
+
+def resolve_root_inner(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
     root = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
     kind = root.get("kind", "focusedWindow")
     if kind == "frontmostApp":
@@ -2887,6 +3075,20 @@ def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]
     if kind != "axPath":
         return None, "0"
     raw_path = str(root.get("axPath") or root.get("path") or "").strip()
+    resolver = root.get("resolver")
+    if resolver is not None:
+        ROOT_RESOLUTION["requestedAxPath"] = raw_path
+        resolved_element, resolved_path = resolve_root_with_attribute_path(
+            app_element,
+            window,
+            raw_path,
+            resolver,
+        )
+        if resolved_element is not None:
+            ROOT_RESOLUTION["strategy"] = "attributePath"
+            ROOT_RESOLUTION["resolvedAxPath"] = resolved_path
+            return resolved_element, resolved_path
+        ROOT_RESOLUTION["strategy"] = "attributePathFallback"
     if raw_path == "app":
         return app_element, "app"
     if raw_path.startswith("app/"):
@@ -2897,7 +3099,7 @@ def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]
                 index = int(raw_index)
             except ValueError:
                 return None, raw_path
-            children = children_of(current)
+            children = path_children_of(current)
             if index < 0 or index >= len(children):
                 return None, raw_path
             current = children[index]
@@ -2917,7 +3119,7 @@ def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]
             index = int(raw_index)
         except ValueError:
             return None, raw_path
-        children = children_of(current)
+        children = path_children_of(current)
         if index < 0 or index >= len(children):
             return None, raw_path
         current = children[index]
@@ -2925,12 +3127,20 @@ def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]
     return current, current_path
 
 
+def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
+    started = time.monotonic()
+    root_element, root_path = resolve_root_inner(app_element, window)
+    ROOT_RESOLUTION["durationMs"] = int(round((time.monotonic() - started) * 1000))
+    ROOT_RESOLUTION["resolvedAxPath"] = root_path
+    return root_element, root_path
+
+
 def read_node(element: Any, path: str) -> dict[str, Any]:
     query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
     requested_attrs = query.get("attributes") or []
     raw_attrs: dict[str, Any] = {}
     for attr in requested_attrs:
-        value = safe_scalar(ax_get(element, attr))
+        value = safe_scalar(cached_ax_get(element, attr))
         if value is not None:
             raw_attrs[attr] = value
     node: dict[str, Any] = {"axPath": path}
@@ -2991,7 +3201,7 @@ def role_filter_allows(element: Any) -> bool:
     match = query.get("match") if isinstance(query.get("match"), dict) else {}
     if "role" not in match and "roleIn" not in match:
         return True
-    role = text_value(safe_scalar(ax_get(element, "AXRole")))
+    role = text_value(safe_scalar(cached_ax_get(element, "AXRole")))
     if "role" in match and role != text_value(match.get("role")):
         return False
     if "roleIn" in match and role not in string_set(match.get("roleIn")):
@@ -3061,7 +3271,7 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
                         return
         if scope == "self" or depth >= max_depth:
             return
-        for index, child in enumerate(children_of(element)):
+        for index, child in child_entries(element):
             visit(child, f"{path}/{index}", depth + 1, True)
             if diagnostics["truncated"]:
                 return
@@ -3069,12 +3279,12 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
     if scope == "self":
         visit(root_element, root_path, 0, True)
     elif scope == "children":
-        for index, child in enumerate(children_of(root_element)):
+        for index, child in child_entries(root_element):
             visit(child, f"{root_path}/{index}", 1, True)
             if diagnostics["truncated"]:
                 break
     else:
-        for index, child in enumerate(children_of(root_element)):
+        for index, child in child_entries(root_element):
             visit(child, f"{root_path}/{index}", 1, True)
             if diagnostics["truncated"]:
                 break
@@ -3118,6 +3328,9 @@ if root_element is None:
 window_title = safe_scalar(ax_get(window, "AXTitle")) if window is not None else None
 QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
+diagnostics["rootResolution"] = dict(ROOT_RESOLUTION)
+if prefer_visible_rows():
+    diagnostics["preferVisibleRows"] = True
 app_name = str(app.localizedName() or "")
 bundle_id = str(app.bundleIdentifier() or "")
 snapshot_id = f"frontmost:{app_name}:{window_title or ''}"

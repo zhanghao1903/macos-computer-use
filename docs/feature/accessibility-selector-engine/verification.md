@@ -1106,3 +1106,46 @@ Manual proof still required:
   drops materially from the previous 12397 ms result;
 - confirm `listContacts.timing.durationMs` is below 3000 ms or capture the new
   phase timings for the next optimization slice.
+
+## Additional Verification: Indexed Root Resolver And Visible Rows
+
+Date: 2026-07-10.
+
+This verification covers the follow-up fix for stable mapped root resolution
+and large WeChat contact tables. The live smoke result after the text-only
+query optimization still showed `listContacts.timing.durationMs = 12136` and
+`control_map_contacts_0.timing.durationMs = 11803`, while the inner
+Accessibility diagnostics reported only 277 ms.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/wechat-desktop-tool/src/wechat_desktop_tool/control_map.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/computer-use-macos/tests/test_package.py packages/wechat-desktop-tool/tests/test_profiles.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| `computer-use-macos` targeted query tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py -k accessibility_query` | Passed: 5 tests |
+| WeChat targeted contact tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest packages/wechat-desktop-tool/tests/test_profiles.py packages/wechat-desktop-tool/tests/test_tool.py -k list_contacts` | Passed: 4 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 109 tests, 1 skipped |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 99 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| Whitespace/conflict check | `git diff --check` | Passed |
+
+New coverage:
+
+- `accessibility_query` preserves an `attributePath` root resolver and
+  normalizes `path_index` to `pathIndex`;
+- `accessibility_query` preserves opt-in `preferVisibleRows`;
+- the query script contains `AXContents`, `AXVisibleRows`, `child_entries`,
+  and root-resolution diagnostics support;
+- the packaged WeChat contacts control map loads resolver steps for
+  `0/12/2/0`;
+- contacts fast-path queries send the resolver payload and `preferVisibleRows`;
+- contacts parsing filters the `联系人` utility row before caller limits.
+
+Manual proof still required:
+
+- restart `computer-use-macos serve` so the service loads the updated packages;
+- rerun `examples/wechat_contacts_list_test.py` against the real WeChat client;
+- confirm `listContacts.evidence.control_map_contacts_0.observation`
+  contains `diagnostics.rootResolution.strategy = "attributePath"` and
+  `diagnostics.preferVisibleRows = true`;
+- confirm `listContacts.timing.durationMs` is below 3000 ms, or capture the new
+  phase timings for another focused optimization.

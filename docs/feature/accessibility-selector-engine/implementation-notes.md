@@ -2831,3 +2831,52 @@ Performance intent:
   rather than row/cell scaffolding;
 - public WeChat APIs and response shapes remain compatible while improving the
   internal query path.
+
+## Indexed Root Resolver And Visible Row Traversal
+
+Status: implemented as a follow-up performance fix for stable mapped paths.
+
+Problem observed in live smoke:
+
+- after contact reads were narrowed to `AXStaticText`, the real
+  `list_contacts` API still spent about 12.1 seconds end to end;
+- `control_map_contacts_0` reported about 11.8 seconds while the inner
+  Accessibility query diagnostics reported about 277 ms;
+- the remaining cost was consistent with resolving stable root paths and
+  materializing large table child collections around the mapped
+  `0/12/2/0` contact table.
+
+Implemented behavior:
+
+- `macos.computer_use/accessibility_query` accepts an opt-in
+  `root.resolver.strategy = "attributePath"` payload for `axPath` roots;
+- resolver steps can walk bounded Accessibility attributes such as
+  `AXChildren`, `AXContents`, `AXRows`, and `AXVisibleRows`;
+- each resolver step carries an `index` for the attribute list and an optional
+  `pathIndex` so a fast attribute path can still produce the stable public
+  `axPath` used by existing actionRefs;
+- the query script caches AX attribute reads within a single query process, so
+  root resolution, role filtering, node reads, and child traversal do not
+  repeatedly ask macOS for the same attribute;
+- queries can opt into `preferVisibleRows`, causing `AXTable` traversal to use
+  `AXVisibleRows` when available instead of materializing all table children;
+- when visible rows expose `AXIndex`, child paths preserve the table row index
+  instead of using only the visible-window offset;
+- query diagnostics now include `rootResolution` timing and strategy details;
+- the packaged WeChat contacts control-map collection uses resolver hints for
+  `0/12/2/0` and `0/11/2/0`, with the final scroll-area step reading
+  `AXContents[0]`;
+- the packaged contacts collection opts into visible-row traversal;
+- WeChat contact extraction filters the Contacts utility row label
+  `联系人` / `contacts` before applying caller limits.
+
+Performance intent:
+
+- stable mapped roots avoid broad tree walking and can use the cheapest known
+  attribute path for the current WeChat layout;
+- visible-window contact listing should avoid forcing WeChat to materialize
+  hundreds or thousands of off-screen contact rows;
+- the optimization is control-map driven, so a future WeChat layout change can
+  be handled by updating the profile rather than changing code;
+- public WeChat list-contact response contracts and actionRef shapes remain
+  unchanged.

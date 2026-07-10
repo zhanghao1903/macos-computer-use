@@ -298,6 +298,23 @@ max_depth = 3
 minimum_limit = 60
 limit_multiplier = 2
 time_budget_ms = 1200
+prefer_visible_rows = true
+
+[control_map.collections.contacts.root_resolvers."0/12/2/0"]
+strategy = "attributePath"
+steps = [
+  { attribute = "AXChildren", index = 12 },
+  { attribute = "AXChildren", index = 2 },
+  { attribute = "AXContents", index = 0, path_index = 0 },
+]
+
+[control_map.collections.contacts.root_resolvers."0/11/2/0"]
+strategy = "attributePath"
+steps = [
+  { attribute = "AXChildren", index = 11 },
+  { attribute = "AXChildren", index = 2 },
+  { attribute = "AXContents", index = 0, path_index = 0 },
+]
 
 [control_map.collections.conversations]
 root_ax_paths = ["0/11/1/0"]

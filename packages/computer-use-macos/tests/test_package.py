@@ -920,6 +920,87 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(query["root"]["axPath"], "app")
         self.assertEqual(query["nodes"][0]["axPath"], "app")
 
+    def test_package_local_client_supports_accessibility_query_root_resolver(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "Current", "role": "AXWindow"},
+                    "root": {"axPath": "0/12/2/0"},
+                    "nodes": [],
+                    "diagnostics": {
+                        "durationMs": 10,
+                        "truncated": False,
+                        "nodeCount": 0,
+                        "rootResolution": {
+                            "strategy": "attributePath",
+                            "durationMs": 1,
+                        },
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={
+                    "kind": "axPath",
+                    "axPath": "0/12/2/0",
+                    "resolver": {
+                        "strategy": "attributePath",
+                        "steps": [
+                            {"attribute": "AXChildren", "index": 12},
+                            {"attribute": "AXChildren", "index": 2},
+                            {
+                                "attribute": "AXContents",
+                                "index": 0,
+                                "path_index": 0,
+                            },
+                        ],
+                    },
+                },
+                query={
+                    "scope": "descendants",
+                    "preferVisibleRows": True,
+                    "attributes": ["AXRole", "AXValue"],
+                },
+                command_id="cmd_query_root_resolver",
+                timeout_ms=30_000,
+            )
+        )
+
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(
+            request["root"]["resolver"],
+            {
+                "strategy": "attributePath",
+                "steps": [
+                    {"attribute": "AXChildren", "index": 12},
+                    {"attribute": "AXChildren", "index": 2},
+                    {"attribute": "AXContents", "index": 0, "pathIndex": 0},
+                ],
+            },
+        )
+        self.assertEqual(request["query"]["preferVisibleRows"], True)
+
     def test_package_accessibility_query_preserves_longer_time_budget(self) -> None:
         runner = FakeRunner()
         runner.queue(
@@ -1179,6 +1260,12 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("descendantRoles", source)
         self.assertIn("def role_filter_allows(", source)
         self.assertIn("if role_filter_allows(element):", source)
+        self.assertIn("def resolve_root_with_attribute_path(", source)
+        self.assertIn("AXContents", source)
+        self.assertIn("AXVisibleRows", source)
+        self.assertIn("preferVisibleRows", source)
+        self.assertIn("child_entries", source)
+        self.assertIn("rootResolution", source)
         self.assertIn("def focused_window_for_app(", source)
         self.assertIn('kind == "frontmostApp"', source)
         self.assertIn('raw_root_path != "app"', source)

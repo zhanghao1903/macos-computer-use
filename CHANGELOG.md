@@ -86,6 +86,9 @@
 - Narrow mapped WeChat contact-list reads to static text nodes and prefilter
   Accessibility queries by role, reducing contact table payloads while keeping
   existing contact `actionRef` responses.
+- Add an indexed Accessibility root resolver and visible-row traversal hints
+  for mapped WeChat contact-list reads, avoiding full-table child materializing
+  on stable contact table paths.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

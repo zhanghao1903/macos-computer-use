@@ -1324,6 +1324,17 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[2].timeout_ms, 1200)
         self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
+        self.assertEqual(
+            app_control.commands[3].input["root"]["resolver"],
+            {
+                "strategy": "attributePath",
+                "steps": [
+                    {"attribute": "AXChildren", "index": 12},
+                    {"attribute": "AXChildren", "index": 2},
+                    {"attribute": "AXContents", "index": 0, "pathIndex": 0},
+                ],
+            },
+        )
         self.assertLessEqual(
             app_control.commands[3].input["query"]["timeBudgetMs"],
             1_200,
@@ -1336,6 +1347,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(
             app_control.commands[3].input["query"]["attributes"],
             ["AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"],
+        )
+        self.assertEqual(
+            app_control.commands[3].input["query"]["preferVisibleRows"],
+            True,
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
 
@@ -1361,19 +1376,24 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         _normalized_node(
                             "0/12/2/0/2/0/1",
                             "AXStaticText",
+                            value="联系人",
+                        ),
+                        _normalized_node(
+                            "0/12/2/0/3/0/1",
+                            "AXStaticText",
                             value="Ada",
                             x=295,
                             y=213,
                         ),
                         _normalized_node(
-                            "0/12/2/0/3/0/1",
+                            "0/12/2/0/4/0/1",
                             "AXStaticText",
                             value="已添加",
                             x=428,
                             y=281,
                         ),
                         _normalized_node(
-                            "0/12/2/0/3/0/2",
+                            "0/12/2/0/4/0/2",
                             "AXStaticText",
                             value="Bob",
                             x=295,
@@ -1395,6 +1415,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.observation["pagination"]["limit"], 2)
         self.assertEqual(app_control.commands[3].input["query"]["limit"], 60)
         self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/12/2/0")
+        self.assertEqual(
+            app_control.commands[3].input["query"]["preferVisibleRows"],
+            True,
+        )
 
     def test_list_contacts_skips_navigation_when_contacts_window_active(self) -> None:
         app_control = FakeAppControl(
@@ -1429,6 +1453,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["open_app", "observe", "accessibility_query"],
         )
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/2/0")
+        self.assertEqual(
+            app_control.commands[2].input["query"]["preferVisibleRows"],
+            True,
+        )
 
     def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
         app_control = FakeAppControl(

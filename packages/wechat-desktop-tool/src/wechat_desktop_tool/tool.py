@@ -24,6 +24,7 @@ from app_control_protocol.json_types import JsonValue
 from .commands import WECHAT_TOOL, wechat_command
 from .control_map import WeChatMappedCollection
 from .control_map import WeChatMappedControl
+from .control_map import WeChatRootResolver
 from .models import (
     WECHAT_WINDOW_SCHEMA,
     WeChatDesktopConfig,
@@ -1018,6 +1019,8 @@ class WeChatDesktopTool:
                 time_budget_ms=collection.time_budget_ms,
                 attributes=list(collection.attributes) or None,
                 actions=collection.actions,
+                root_resolver=collection.root_resolvers.get(root_ax_path),
+                prefer_visible_rows=collection.prefer_visible_rows,
                 evidence=evidence,
                 phase_events=phase_events,
             )
@@ -2546,6 +2549,8 @@ class WeChatDesktopTool:
         time_budget_ms: int | None = None,
         attributes: list[str] | None = None,
         actions: bool = True,
+        root_resolver: WeChatRootResolver | None = None,
+        prefer_visible_rows: bool = False,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         ax_path = _node_ax_path(root_node)
@@ -2558,24 +2563,34 @@ class WeChatDesktopTool:
                 retryable=True,
                 evidence=evidence,
             )
+        root_payload: dict[str, JsonValue] = {"kind": "axPath", "axPath": ax_path}
+        if root_resolver is not None:
+            root_payload["resolver"] = _root_resolver_payload(root_resolver)
+        query_attributes: list[JsonValue] = [
+            str(attribute) for attribute in (attributes or _QUERY_ATTRIBUTES)
+        ]
+        query_roles: list[JsonValue] = [str(role) for role in role_in]
+        query_payload: dict[str, JsonValue] = {
+            "scope": scope,
+            "maxDepth": max_depth,
+            "limit": limit,
+            "timeBudgetMs": time_budget_ms
+            if time_budget_ms is not None
+            else (8_000 if scope == "descendants" else 5_000),
+            "attributes": query_attributes,
+            "actions": actions,
+            "includeChildrenCount": False,
+            "match": {"roleIn": query_roles},
+        }
+        if prefer_visible_rows:
+            query_payload["preferVisibleRows"] = True
         result = self._app_control_command(
             command,
             phase=phase,
             operation="accessibility_query",
             input=self._accessibility_query_input(
-                root={"kind": "axPath", "axPath": ax_path},
-                query={
-                    "scope": scope,
-                    "maxDepth": max_depth,
-                    "limit": limit,
-                    "timeBudgetMs": time_budget_ms
-                    if time_budget_ms is not None
-                    else (8_000 if scope == "descendants" else 5_000),
-                    "attributes": attributes or _QUERY_ATTRIBUTES,
-                    "actions": actions,
-                    "includeChildrenCount": False,
-                    "match": {"roleIn": role_in},
-                },
+                root=root_payload,
+                query=query_payload,
             ),
             phase_events=phase_events,
         )
@@ -2791,6 +2806,22 @@ def _coerce_command(command: ToolCommand | Mapping[str, Any]) -> ToolCommand:
     if isinstance(command, Mapping):
         return ToolCommand.from_dict(dict(command))
     return command
+
+
+def _root_resolver_payload(resolver: WeChatRootResolver) -> dict[str, JsonValue]:
+    steps: list[JsonValue] = []
+    for step in resolver.steps:
+        step_payload: dict[str, JsonValue] = {
+            "attribute": step.attribute,
+            "index": step.index,
+        }
+        if step.path_index is not None:
+            step_payload["pathIndex"] = step.path_index
+        steps.append(step_payload)
+    return {
+        "strategy": resolver.strategy,
+        "steps": steps,
+    }
 
 
 def _node_from_selector_element(element: Any) -> dict[str, Any]:
@@ -3944,6 +3975,8 @@ def _is_contact_non_name_label(label: str) -> bool:
         "official accounts",
         "企业微信联系人",
         "wecom contacts",
+        "联系人",
+        "contacts",
         "通讯录管理",
         "contacts management",
         "已添加",
@@ -3964,6 +3997,8 @@ def _is_contact_whole_row_special_label(label: str) -> bool:
         "official accounts",
         "企业微信联系人",
         "wecom contacts",
+        "联系人",
+        "contacts",
         "通讯录管理",
         "contacts management",
     }

@@ -75,6 +75,22 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             ("AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"),
         )
         self.assertFalse(control_map.collections["contacts"].actions)
+        self.assertTrue(control_map.collections["contacts"].prefer_visible_rows)
+        contacts_resolver = control_map.collections["contacts"].root_resolvers[
+            "0/12/2/0"
+        ]
+        self.assertEqual(contacts_resolver.strategy, "attributePath")
+        self.assertEqual(
+            [
+                (step.attribute, step.index, step.path_index)
+                for step in contacts_resolver.steps
+            ],
+            [
+                ("AXChildren", 12, None),
+                ("AXChildren", 2, None),
+                ("AXContents", 0, 0),
+            ],
+        )
         self.assertEqual(
             control_map.collections["conversations"].root_ax_paths,
             ("0/11/1/0",),
