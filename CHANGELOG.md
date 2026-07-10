@@ -95,6 +95,10 @@
 - Reuse a persistent Accessibility query worker in `computer-use-macos`
   service mode so repeated queries avoid per-call PyObjC/AppKit cold starts
   while retaining the existing subprocess fallback.
+- Verify the requested WeChat chat before reading messages, support current
+  `0/12` and compatible `0/11` mapped roots, use policy-gated Quartz clicks for
+  rows without `AXPress`, and make the SDK recent-messages example print one
+  configured target's returned rows.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

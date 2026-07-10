@@ -20,9 +20,9 @@ resolving chained selectors under prior step results, filtering noisy contact
 rows before filling caller limits, opening visible rows through selector-derived
 actionRefs, and verifying focus after safe selector click, `AXSetFocus`,
 hotkey, or configured coordinate fallback attempts. It also handles live WeChat
-`AXRow` targets that omit action names or reject `AXPress` by using bounded
-actionRefs and a selected-search-result `Return` fallback instead of raw
-coordinates.
+`AXRow` targets that omit action names or reject `AXPress` by using the queried
+AX frame with policy-gated Quartz coordinate clicks, then verifies the opened
+chat title before allowing message reads to continue.
 
 ## Consumer Impact
 
@@ -33,6 +33,7 @@ Package consumers continue to call the existing WeChat semantic APIs:
 - `list_conversations`
 - `open_contact`
 - `read_visible_messages`
+- `read_contact_messages`
 
 New optional configuration allows applications to inject a local WeChat selector
 profile without rebuilding the package:
@@ -42,6 +43,11 @@ profile without rebuilding the package:
 
 If an override profile is missing, unreadable, invalid TOML, or fails selector
 validation, the tool falls back to the packaged profile.
+
+The SDK recent-messages example now reads one configured contact instead of
+iterating over a contact page. It defaults to `文件传输助手`, accepts
+`--contact` and `--message-limit`, records separate `openContact` and
+`readVisibleMessages` results, and prints returned message rows.
 
 ## Public API And Compatibility
 
@@ -57,19 +63,44 @@ validation, the tool falls back to the packaged profile.
 - `accessibility_action` now permits `AXSetFocus` on a resolved Accessibility
   element path by setting `AXFocused=true`. Callers still need a follow-up focus
   verification before typing.
+- `open_contact` now fails with `contact_not_found` when the queried active chat
+  title does not match the requested contact; composed message reads stop at
+  that failure instead of returning another conversation's rows.
+- `click_coordinate` retains its existing API and opt-in policy while reporting
+  additive `method = quartz_cg_event` metadata after native execution.
 - `wechat-desktop-tool` imports `computer_use_macos.selectors` only through
   `wechat_desktop_tool.profiles`, preserving the package boundary.
 
+Example-only migration: callers of
+`examples/wechat_contacts_recent_messages_test.py` should replace
+`--max-contacts` / `--stop-on-error` with `--contact`. Package API callers do
+not need to migrate.
+
 ## Safety And Authorization
 
-The selector engine does not make arbitrary raw AX data or raw coordinate
-clicks part of the application-facing contract. WeChat APIs continue to return
-semantic models and structured failures. Message submission remains explicit
-and is not hidden behind selector resolution.
+The selector engine does not expose arbitrary raw AX data or unrestricted raw
+coordinate actions as a WeChat application-facing contract. Coordinate clicks
+remain disabled unless the service configuration enables
+`allow_coordinate_click`; target frames come from bounded Accessibility
+queries, and `open_contact` verifies the resulting chat title. WeChat APIs
+continue to return semantic models and structured failures. Message submission
+remains explicit and is not hidden behind selector resolution.
 
 ## Verification
 
-Latest targeted checks recorded in `verification.md`:
+Latest 2026-07-10 checks recorded in `verification.md`:
+
+- protocol package: 54 tests passed
+- `computer-use-macos`: 112 tests passed, 1 skipped
+- `wechat-desktop-tool`: 103 tests passed
+- SDK examples: 9 tests passed
+- root repository: 109 tests passed, including wheel and release preflight
+- Python compile and whitespace checks: passed
+- alternate-root regression: `0/12` empty then `0/11` successful, passed for
+  conversation listing and `open_contact`
+- real targeted WeChat smoke: `文件传输助手` verified and 30 rows printed
+
+Earlier feature checks also recorded there include:
 
 - GitHub Actions PR #3 `test`: passed
 - selector collection batch field extraction: package tests passed
@@ -82,12 +113,7 @@ Latest targeted checks recorded in `verification.md`:
 - live WeChat selector-engine smoke: passed
 - release preflight with the live smoke report: passed
 
-Broader earlier F5 checks are also recorded there:
-
-- `app-control-protocol`: 54 tests passed
-- root repository tests, including release preflight and wheel-check: 101 tests
-  passed
-- WeChat package-boundary tests: 5 tests passed
+The complete historical test and smoke evidence remains in `verification.md`.
 
 ## Manual Proof Status
 
@@ -113,7 +139,21 @@ Earlier desktop blockers and rerun commands remain documented in
 `live-smoke-recovery.md` for troubleshooting. They are no longer merge blockers
 for this branch because the consolidated smoke proof has passed.
 
+The latest targeted recent-messages smoke also passed through an isolated
+service using the current source:
+
+- `currentChat = 文件传输助手`
+- `messageCount = 30`
+- `failedStep = null`
+- `openWeChat = 463 ms`
+- `openContact = 1175 ms`
+- `readVisibleMessages = 2052 ms`
+
+The private smoke JSON remained under `/private/tmp` and is not committed.
+
 ## Release Note
 
 Add internal selector profile support and selector-backed WeChat semantic
-operations, plus optional `wechat.selector_profile_path` override config.
+operations, plus optional `wechat.selector_profile_path` override config;
+verify requested chat titles before reading messages and use policy-gated
+Quartz clicks for WeChat rows without `AXPress`.

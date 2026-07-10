@@ -1,16 +1,19 @@
 # Accessibility Selector Engine Merge Readiness
 
-- Review date: 2026-07-09
+- Review date: 2026-07-10
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Feature directory: `docs/feature/accessibility-selector-engine/`
-- Status: technically merge-ready; branch CI is green and the PR remains draft
+- Status: technically merge-ready after F6 remediation; branch CI is green and
+  the PR remains draft
 
 ## Decision
 
-The feature is ready for PR review. Branch CI passed on PR #3 after the CI
-source-path fixes, and the PR is mergeable. The PR remains a draft until the
-owner chooses to request review.
+The feature is ready for PR review. The 2026-07-10 F6 code review found one
+alternate-root fallback regression, returned the feature to F4/F5, and verified
+the remediation before restoring this merge-ready decision. PR #3 is mergeable,
+and CI passed on run `29103299589` / job `86397377175`. The PR remains a draft
+until the owner chooses to request review.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
@@ -21,6 +24,37 @@ macOS/WeChat selector-engine smoke passed on 2026-07-08 through the trusted
 local service, covering conversations, contact switching, message reading,
 override behavior, and stale actionRef handling. The feature changes desktop
 automation behavior, so the live smoke report remains part of the merge proof.
+
+The latest targeted smoke additionally proved that the recent-messages example
+opens `文件传输助手`, verifies that title, prints 30 rows, and keeps
+`open_contact` and `read_visible_messages` below the three-second API target.
+
+## F6 Review Refresh
+
+The 2026-07-10 review checked the latest contact-message and performance
+commits, package boundaries, generated artifacts, release records, PR text,
+local full tests, real WeChat proof, and GitHub CI.
+
+Review finding and remediation:
+
+- finding: an empty result from the first mapped `0/12` collection root could
+  stop lookup before the compatible `0/11` root;
+- remediation: generic collection and targeted conversation lookup now continue
+  until a configured root returns nodes, then use selector/search fallback only
+  after mapped alternatives are exhausted;
+- proof: deterministic tests cover `0/12` empty followed by `0/11` success for
+  both `list_conversations` and `open_contact`;
+- result: no unresolved code-review findings remain.
+
+Repository hygiene review:
+
+- local private smoke JSON, rawdata, tokens, build output, and the package-local
+  untracked lock file are not part of the branch diff;
+- only the workspace `uv.lock` is tracked as expected;
+- unrelated dirty skill/docs/example changes remain outside this feature's
+  commits;
+- `git diff --check origin/main...HEAD` is clean after removing the trailing
+  blank line in `requirements.md`.
 
 ## Scenario Coverage
 
@@ -48,6 +82,13 @@ Implemented and covered by automated tests:
   resolved Accessibility elements;
 - open visible WeChat conversation/contact rows through their selector-derived
   actionRefs before using the search-box workflow.
+- use current `0/12` and compatible `0/11` mapped roots for conversations,
+  chat panels, and visible messages;
+- verify the active chat title before any composed contact-message read;
+- use policy-gated Quartz clicks for queried rows that do not expose a usable
+  `AXPress` action;
+- print a configured target contact's returned message rows from the SDK
+  recent-messages example.
 
 Passed on a live WeChat desktop:
 
@@ -60,6 +101,9 @@ Passed on a live WeChat desktop:
 - valid local selector profile override loading;
 - invalid selector profile fallback to the packaged profile;
 - expired actionRef rejection before backend execution.
+- targeted `文件传输助手` recent-message read with 30 terminal-printed rows;
+- mismatched-title failure proof that returned zero messages instead of reading
+  the unrelated active conversation.
 
 Final live proof:
 
@@ -96,6 +140,16 @@ Changed semi-public action behavior:
 - `accessibility_action` now accepts `AXSetFocus` for a resolved Accessibility
   element path and executes it by setting `AXFocused=true`; callers should still
   verify focus after the action before typing.
+- `open_contact` now fails closed with `contact_not_found` when the verified
+  chat title differs from the requested contact.
+- coordinate clicks retain the existing opt-in policy and now report additive
+  `method = quartz_cg_event` metadata when executed by the native backend.
+
+Changed example behavior:
+
+- `examples/wechat_contacts_recent_messages_test.py` now reads one configurable
+  contact using `--contact` instead of `--max-contacts` / `--stop-on-error`;
+- this is an example-only migration; package API callers do not need to change.
 
 No public selector protocol command was added. `resolve_selector` and
 `extract_collection` remain deferred to a future API proposal.
@@ -123,6 +177,21 @@ Automated package-boundary tests passed during F5 verification.
 ## Verification Summary
 
 Latest targeted verification recorded in `verification.md`:
+
+- 2026-07-10 remediation CI: passed on run `29103299589` / job
+  `86397377175`;
+- protocol package: 54 tests passed;
+- `computer-use-macos`: 112 tests passed, 1 skipped;
+- `wechat-desktop-tool`: 103 tests passed;
+- SDK examples: 9 tests passed;
+- root repository: 109 tests passed, including wheel and release preflight;
+- latest real targeted WeChat smoke: `currentChat=文件传输助手`,
+  `messageCount=30`, `failedStep=null`;
+- measured API timings: `openWeChat=463 ms`, `openContact=1175 ms`, and
+  `readVisibleMessages=2052 ms`;
+- alternate-root list/open regression tests: passed.
+
+Historical feature verification also recorded there:
 
 - GitHub Actions PR #3 `test` check passed on run
   `28958774968` / job `85924596643`;
@@ -164,11 +233,15 @@ Present in `CHANGELOG.md` under `Unreleased`:
   `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH`;
 - Internal: selector engine, packaged WeChat selector profile, collection
   extraction, and selector-backed WeChat semantic migration.
+- Fixed: verify requested WeChat chats before reading, support current/compatible
+  mapped roots, use policy-gated Quartz row clicks, and print the configured
+  target's messages from the SDK example.
 
 ## PR/MR Description
 
-Prepared in `pr-description.md`. It now includes the passing live smoke proof
-and CI source-path recovery evidence, and has been synced to PR #3.
+Prepared in `pr-description.md`. It includes the latest title-verification,
+Quartz safety boundary, example-only migration, alternate-root remediation,
+API timing, live smoke, and CI evidence, and has been synced to PR #3.
 
 ## Merge Blockers
 

@@ -95,4 +95,3 @@ No implementation-blocking decisions remain for the internal MVP after the
 | Service-owned resolver and cache | `computer-use-macos` maintainers | Future public selector phase | Keep resolver and cache in the Python caller process. |
 | Public profile override config | Package maintainers and application integrators | Slice 5 | Keep override loading internal or adapter-owned until validation and fallback tests exist. |
 | Higher-risk action support such as text submission | Semantic package and application policy owners | Future safety review | Keep text submission outside selector action definitions. |
-
