@@ -92,6 +92,9 @@
 - Add per-step `accessibility_query` timing diagnostics so rawdata logs can
   identify whether query time is spent in PyObjC import, app/window lookup,
   root resolution, collection, or response serialization.
+- Reuse a persistent Accessibility query worker in `computer-use-macos`
+  service mode so repeated queries avoid per-call PyObjC/AppKit cold starts
+  while retaining the existing subprocess fallback.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

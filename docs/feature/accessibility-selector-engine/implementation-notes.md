@@ -2922,3 +2922,47 @@ Performance intent:
   collect, and response serialization costs;
 - future optimization should target the largest step in
   `diagnostics.stepTimings` instead of guessing from the outer command timing.
+
+## Persistent Accessibility Query Worker
+
+Status: implemented as a performance slice after step timing identified Python
+and PyObjC cold-start cost as the dominant delay.
+
+Problem observed in live smoke:
+
+- the latest real `examples/wechat-contacts-list-test.json` showed
+  `listContacts.timing.durationMs = 12575`;
+- the mapped contact-table query itself collected only 75 nodes and reported
+  `diagnostics.durationMs = 19`;
+- `diagnostics.stepTimings` showed `pyobjcImport` at about 10914 ms and
+  `appKitLoad` at about 952 ms, so the remaining latency was process and
+  framework startup rather than Accessibility tree traversal.
+
+Implemented behavior:
+
+- direct `computer-use-macos` clients created with the default runner on macOS
+  start a warm `accessibility_query` worker subprocess;
+- the worker imports PyObjC and preloads AppKit once, then accepts one query
+  request per stdin line and returns one JSON response per stdout line;
+- each worker request still executes the same bounded query script, preserving
+  request normalization, allowlists, diagnostics, and failure payloads;
+- custom test runners and injected probes do not start the worker, keeping unit
+  tests and embedded fake transports on the original subprocess path;
+- if the worker returns a non-timeout protocol failure, the client falls back to
+  the existing one-shot subprocess path;
+- worker timeouts terminate the worker and preserve the original timeout
+  behavior instead of adding a second slow fallback attempt;
+- successful and failed query payloads now include
+  `diagnostics.transport.mode`, `durationMs`, and fallback details when
+  applicable;
+- the query script skips repeated AppKit `loadBundle` work when
+  `NSWorkspace` is already available in the warm process.
+
+Performance intent:
+
+- long-running local service mode should pay PyObjC/AppKit startup once at
+  service startup instead of once per WeChat API call;
+- mapped WeChat APIs should now spend their budget on the bounded query and
+  semantic extraction, not Python framework import time;
+- fallback keeps the public `macos.computer_use/accessibility_query` contract
+  compatible if the worker cannot start or crashes.

@@ -7,13 +7,16 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import select
+import subprocess
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
 from app_control_protocol import AppControlConfig, HelperConfig
 
-from .commands import CommandRunner, SubprocessCommandRunner
+from .commands import CommandResult, CommandRunner, SubprocessCommandRunner
 from .models import (
     ComputerUseOperation,
     ComputerUseReadiness,
@@ -41,6 +44,10 @@ def _bounded(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "...[truncated]"
+
+
+def _duration_ms(started: float) -> int:
+    return max(0, int(round((time.monotonic() - started) * 1000)))
 
 
 def _timeout_metadata(
@@ -107,6 +114,17 @@ def _target_identity_metadata(
     if bundle_id is not None:
         metadata["bundle_id"] = bundle_id
     return metadata
+
+
+def _attach_accessibility_query_transport(
+    payload: dict[str, Any],
+    transport: Mapping[str, Any],
+) -> None:
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        payload["diagnostics"] = diagnostics
+    diagnostics["transport"] = dict(transport)
 
 
 _KEY_CODES = {
@@ -187,6 +205,150 @@ _ACCESSIBILITY_ROLE_COLLECTIONS = {
 }
 
 
+class _AccessibilityQueryWorker:
+    """Warm subprocess for repeated Accessibility queries in service mode."""
+
+    _PROTOCOL_FAILURE = 70
+
+    def __init__(self, *, executable: str = sys.executable) -> None:
+        self._executable = executable
+        self._process: subprocess.Popen[str] | None = None
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        with self._lock:
+            self._ensure_started()
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stop_locked()
+
+    def run(self, request: Mapping[str, Any], *, timeout: float) -> CommandResult:
+        started = time.monotonic()
+        timeout = max(0.1, timeout)
+        with self._lock:
+            try:
+                process = self._ensure_started()
+            except Exception as exc:
+                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+            if process.stdin is None or process.stdout is None:
+                self._stop_locked()
+                return CommandResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    "Accessibility query worker pipes are unavailable.",
+                )
+            try:
+                process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                process.stdin.flush()
+            except Exception as exc:
+                self._stop_locked()
+                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+
+            line = self._read_response_line(process, timeout, started)
+            if line is None:
+                stderr = self._terminate_for_timeout(process)
+                return CommandResult(124, "", stderr, timed_out=True)
+            if not line:
+                stderr = self._collect_stderr(process)
+                self._stop_locked()
+                return CommandResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    stderr or "Accessibility query worker exited without a response.",
+                )
+            return CommandResult(0, line, "")
+
+    def _ensure_started(self) -> subprocess.Popen[str]:
+        if self._process is not None and self._process.poll() is None:
+            return self._process
+        self._stop_locked()
+        self._process = subprocess.Popen(
+            [
+                self._executable,
+                "-u",
+                "-c",
+                _accessibility_query_worker_script(),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        return self._process
+
+    def _read_response_line(
+        self,
+        process: subprocess.Popen[str],
+        timeout: float,
+        started: float,
+    ) -> str | None:
+        if process.stdout is None:
+            return ""
+        deadline = started + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            ready, _, _ = select.select([process.stdout], [], [], remaining)
+            if not ready:
+                return None
+            line = process.stdout.readline()
+            if line == "":
+                return ""
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if self._is_worker_ready_line(stripped):
+                continue
+            return stripped
+
+    def _is_worker_ready_line(self, line: str) -> bool:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(payload, dict) and payload.get("workerReady") is True
+
+    def _terminate_for_timeout(self, process: subprocess.Popen[str]) -> str:
+        try:
+            process.kill()
+            _, stderr = process.communicate(timeout=1)
+        except Exception as exc:
+            stderr = str(exc)
+        finally:
+            self._process = None
+        return stderr or "Accessibility query worker timed out."
+
+    def _collect_stderr(self, process: subprocess.Popen[str]) -> str:
+        if process.poll() is None:
+            return ""
+        try:
+            _, stderr = process.communicate(timeout=1)
+        except Exception as exc:
+            return str(exc)
+        return stderr or ""
+
+    def _stop_locked(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1)
+
+    def __del__(self) -> None:
+        try:
+            self.stop()
+        except Exception:
+            pass
+
+
 class MacOSComputerUseClient:
     """Small, LLM-free macOS automation client.
 
@@ -218,6 +380,13 @@ class MacOSComputerUseClient:
         self._runner = runner or SubprocessCommandRunner()
         self._policy = policy or SafetyPolicy()
         self._allowed_apps = self._normalize_allowed_apps(allowed_apps)
+        self._accessibility_query_worker: _AccessibilityQueryWorker | None = None
+        if runner is None and probe is None and enabled and self._is_darwin_host():
+            self._accessibility_query_worker = _AccessibilityQueryWorker()
+            try:
+                self._accessibility_query_worker.start()
+            except Exception:
+                self._accessibility_query_worker = None
 
     @classmethod
     def from_config(
@@ -282,6 +451,12 @@ class MacOSComputerUseClient:
         if isinstance(allowed_apps, Mapping):
             return {name: bundle_id for name, bundle_id in allowed_apps.items()}
         return {name: None for name in allowed_apps}
+
+    def _is_darwin_host(self) -> bool:
+        try:
+            return self._probe.platform_name() == "Darwin"
+        except Exception:
+            return False
 
     def readiness(self) -> ComputerUseReadiness:
         return build_readiness(
@@ -931,14 +1106,9 @@ class MacOSComputerUseClient:
             include_raw=include_raw,
         )
         snapshot_timeout = min(timeout, 15.0)
-        result = self._runner.run(
-            [
-                sys.executable,
-                "-c",
-                _accessibility_query_script(),
-                json.dumps(request, ensure_ascii=False),
-            ],
-            timeout=snapshot_timeout,
+        result, transport = self._run_accessibility_query_request(
+            request,
+            snapshot_timeout,
         )
         if getattr(result, "timed_out", False):
             return _timed_out_result(
@@ -949,6 +1119,7 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_timeout",
+                    "accessibility_query_transport": transport,
                 },
             )
         if result.returncode != 0:
@@ -959,6 +1130,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_failed",
                     "stderr": _bounded(result.stderr or result.stdout, 1000),
+                    "accessibility_query_transport": transport,
                 },
             )
         try:
@@ -971,6 +1143,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_invalid_json",
                     "stdout": _bounded(result.stdout, 1000),
+                    "accessibility_query_transport": transport,
                 },
             )
         if not isinstance(payload, dict):
@@ -980,8 +1153,10 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_invalid_payload",
+                    "accessibility_query_transport": transport,
                 },
             )
+        _attach_accessibility_query_transport(payload, transport)
         if payload.get("available") is False:
             failure_kind = payload.get("failureKind")
             return ComputerUseResult.failed(
@@ -1008,6 +1183,55 @@ class MacOSComputerUseClient:
                 "accessibility_query": payload,
             },
         )
+
+    def _run_accessibility_query_request(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        worker = self._accessibility_query_worker
+        if worker is None:
+            return self._run_accessibility_query_subprocess(request, timeout)
+
+        worker_started = time.monotonic()
+        worker_result = worker.run(request, timeout=timeout)
+        worker_transport: dict[str, Any] = {
+            "mode": "worker",
+            "durationMs": _duration_ms(worker_started),
+            "fallback": False,
+        }
+        if worker_result.timed_out or worker_result.returncode == 0:
+            return worker_result, worker_transport
+
+        result, transport = self._run_accessibility_query_subprocess(request, timeout)
+        transport["fallback"] = True
+        transport["fallbackFromWorker"] = True
+        transport["workerDurationMs"] = worker_transport["durationMs"]
+        transport["workerReturnCode"] = worker_result.returncode
+        if worker_result.stderr:
+            transport["workerStderr"] = _bounded(worker_result.stderr, 1000)
+        return result, transport
+
+    def _run_accessibility_query_subprocess(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        started = time.monotonic()
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-c",
+                _accessibility_query_script(),
+                json.dumps(request, ensure_ascii=False),
+            ],
+            timeout=timeout,
+        )
+        return result, {
+            "mode": "subprocess",
+            "durationMs": _duration_ms(started),
+            "fallback": False,
+        }
 
     def accessibility_action(
         self,
@@ -3330,7 +3554,10 @@ if not permission_available:
     )
 
 try:
-    objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+    try:
+        objc.lookUpClass("NSWorkspace")
+    except Exception:
+        objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
     mark_step("appKitLoad")
 except Exception as exc:
     mark_step("appKitLoad")
@@ -3411,6 +3638,94 @@ mark_step("serializeResponse")
 diagnostics["stepTimings"] = list(STEP_TIMINGS)
 serialized_payload = json.dumps(payload, ensure_ascii=False)
 print(serialized_payload)
+'''
+
+
+def _accessibility_query_worker_script() -> str:
+    query_script = json.dumps(_accessibility_query_script(), ensure_ascii=False)
+    return f'''
+from __future__ import annotations
+
+from contextlib import redirect_stdout
+from io import StringIO
+import json
+import sys
+import traceback
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+QUERY_SCRIPT = {query_script}
+
+
+def warm_frameworks() -> None:
+    status = "ok"
+    message = ""
+    try:
+        import objc
+        import ApplicationServices  # noqa: F401
+        try:
+            objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+        except Exception:
+            objc.lookUpClass("NSWorkspace")
+    except Exception as exc:
+        status = "error"
+        message = str(exc)
+    print(
+        json.dumps(
+            {{
+                "workerReady": True,
+                "status": status,
+                "message": message,
+            }},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
+def run_query(raw_request: str) -> str:
+    output = StringIO()
+    original_argv = sys.argv
+    sys.argv = ["accessibility_query_worker", raw_request]
+    namespace = {{"__name__": "__main__"}}
+    try:
+        with redirect_stdout(output):
+            try:
+                exec(QUERY_SCRIPT, namespace)
+            except SystemExit:
+                pass
+    except BaseException as exc:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_query_worker_failed",
+                "message": str(exc),
+                "diagnostics": {{
+                    "workerException": traceback.format_exc(limit=8),
+                }},
+            }},
+            ensure_ascii=False,
+        )
+    finally:
+        sys.argv = original_argv
+    lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
+    if not lines:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_query_worker_empty_response",
+                "message": "Accessibility query worker produced no response.",
+            }},
+            ensure_ascii=False,
+        )
+    return lines[-1]
+
+
+warm_frameworks()
+for line in sys.stdin:
+    raw_request = line.strip()
+    if not raw_request:
+        continue
+    print(run_query(raw_request), flush=True)
 '''
 
 

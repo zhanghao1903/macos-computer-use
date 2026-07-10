@@ -1185,3 +1185,45 @@ Manual proof still required:
 - inspect
   `listContacts.evidence.control_map_contacts_0.observation.accessibilityQuery.diagnostics.stepTimings`;
 - identify the largest step and use that as the next optimization target.
+
+## Additional Verification: Persistent Accessibility Query Worker
+
+Date: 2026-07-10.
+
+This verification covers the performance slice that keeps a warm
+`accessibility_query` worker process alive in default direct service mode. The
+preceding live smoke showed `listContacts.timing.durationMs = 12575`, while the
+inner query collected 75 nodes in 19 ms and spent about 10914 ms in
+`pyobjcImport` plus about 952 ms in `appKitLoad`.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/computer-use-macos/tests/test_package.py` | Passed |
+| `computer-use-macos` targeted query tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py -k accessibility_query` | Passed: 8 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 112 tests, 1 skipped |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 99 tests |
+| Whitespace/conflict check | `git diff --check` | Passed |
+
+New coverage:
+
+- `accessibility_query` can return successful payloads through the warm worker
+  without calling the one-shot runner;
+- non-timeout worker protocol failures fall back to the existing subprocess
+  execution path;
+- returned query payloads include `diagnostics.transport.mode`, fallback state,
+  worker return code, and bounded worker stderr when fallback occurs;
+- the worker script source wraps the existing query script, emits a
+  `workerReady` line, redirects query stdout, and loops over stdin requests.
+
+Manual proof still required:
+
+- restart `computer-use-macos serve` so the service starts the warm query
+  worker;
+- rerun `examples/wechat_contacts_list_test.py` against the real WeChat client;
+- confirm the contact-list query reports
+  `diagnostics.transport.mode = "worker"`;
+- confirm `listContacts.timing.durationMs` is below 3000 ms or use
+  `diagnostics.transport` and `diagnostics.stepTimings` for the next focused
+  performance slice.

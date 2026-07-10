@@ -56,6 +56,7 @@ from computer_use_macos.client import MacOSComputerUseClient as ClientFromModule
 from computer_use_macos.client import _accessibility_action_script
 from computer_use_macos.client import _accessibility_click_script
 from computer_use_macos.client import _accessibility_query_script
+from computer_use_macos.client import _accessibility_query_worker_script
 from computer_use_macos.client import _accessibility_tree_snapshot_script
 from computer_use_macos.client import _normalize_accessibility_selector
 from computer_use_macos.helper import (
@@ -239,6 +240,23 @@ class FakeRunner:
         if self.responses:
             return self.responses.pop(0)
         return CommandResult(0, "", "")
+
+
+class FakeAccessibilityQueryWorker:
+    def __init__(self, result: CommandResult) -> None:
+        self.result = result
+        self.requests: list[Mapping[str, object]] = []
+        self.timeouts: list[float] = []
+
+    def run(
+        self,
+        request: Mapping[str, object],
+        *,
+        timeout: float,
+    ) -> CommandResult:
+        self.requests.append(request)
+        self.timeouts.append(timeout)
+        return self.result
 
 
 class ComputerUseMacOSPackageTests(unittest.TestCase):
@@ -859,6 +877,120 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(query["nodes"][0]["description"], "Documents")
         self.assertNotIn("attributeNames", query["nodes"][0])
 
+    def test_package_accessibility_query_can_use_warm_worker_transport(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        worker = FakeAccessibilityQueryWorker(
+            CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "schema": "macos.accessibility.query.v1",
+                        "available": True,
+                        "snapshotId": "frontmost:TextEdit:Current",
+                        "app": {
+                            "name": "TextEdit",
+                            "bundleId": "com.apple.TextEdit",
+                            "pid": 123,
+                        },
+                        "window": {"title": "Current", "role": "AXWindow"},
+                        "root": {"axPath": "0"},
+                        "nodes": [],
+                        "diagnostics": {
+                            "durationMs": 5,
+                            "truncated": False,
+                            "nodeCount": 0,
+                        },
+                    }
+                ),
+                "",
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+        client._accessibility_query_worker = worker
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "focusedWindow"},
+                query={"scope": "children"},
+                command_id="cmd_query_worker",
+                timeout_ms=30_000,
+            )
+        )
+
+        query = observation.observation["accessibilityQuery"]
+        transport = query["diagnostics"]["transport"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(worker.requests[0]["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(worker.timeouts[0], 15.0)
+        self.assertEqual(transport["mode"], "worker")
+        self.assertEqual(transport["fallback"], False)
+
+    def test_package_accessibility_query_worker_failure_falls_back(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "Current", "role": "AXWindow"},
+                    "root": {"axPath": "0"},
+                    "nodes": [],
+                    "diagnostics": {
+                        "durationMs": 10,
+                        "truncated": False,
+                        "nodeCount": 0,
+                    },
+                }
+            )
+        )
+        worker = FakeAccessibilityQueryWorker(
+            CommandResult(70, "", "worker failed")
+        )
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+        client._accessibility_query_worker = worker
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                root={"kind": "focusedWindow"},
+                query={"scope": "children"},
+                command_id="cmd_query_worker_fallback",
+                timeout_ms=30_000,
+            )
+        )
+
+        query = observation.observation["accessibilityQuery"]
+        transport = query["diagnostics"]["transport"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(transport["mode"], "subprocess")
+        self.assertEqual(transport["fallback"], True)
+        self.assertEqual(transport["fallbackFromWorker"], True)
+        self.assertEqual(transport["workerReturnCode"], 70)
+        self.assertIn("worker failed", transport["workerStderr"])
+
     def test_package_local_client_supports_frontmost_app_accessibility_query_root(
         self,
     ) -> None:
@@ -1283,6 +1415,19 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)
         self.assertIn("return None", source)
+
+    def test_package_accessibility_query_worker_script_wraps_query_script(
+        self,
+    ) -> None:
+        source = _accessibility_query_worker_script()
+
+        compile(source, "<accessibility-query-worker>", "exec")
+        self.assertIn("workerReady", source)
+        self.assertIn("def warm_frameworks(", source)
+        self.assertIn("QUERY_SCRIPT", source)
+        self.assertIn("redirect_stdout", source)
+        self.assertIn("for line in sys.stdin:", source)
+        self.assertIn("accessibility_query_worker_failed", source)
 
     def test_package_accessibility_action_script_executes_verified_axpress(
         self,
