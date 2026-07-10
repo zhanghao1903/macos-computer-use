@@ -1296,3 +1296,35 @@ Live macOS and WeChat proof:
 The live output was written only under `/private/tmp` and is intentionally not
 tracked because it contains private chat data. The smoke changed focus and read
 visible content only; it did not draft or send a message.
+
+## Additional Verification: Alternate Control-Map Root Remediation
+
+Date: 2026-07-10.
+
+This verification covers the F6 review finding that an empty result from the
+first configured control-map root could prevent the next compatible root from
+being queried.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Python compile check | `.venv/bin/python -m py_compile packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/wechat-desktop-tool/tests/test_tool.py` | Passed |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 103 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests` | Passed: 109 tests, including wheel and release preflight checks |
+| Whitespace/conflict check | `git diff --check` for the remediation files | Passed |
+
+New regression coverage proves:
+
+- `list_conversations` queries `0/12/1/0`, observes an empty result, then
+  queries `0/11/1/0` and returns the conversation found there;
+- `open_contact` follows the same root order, opens the target returned by the
+  second root, and verifies its title under `0/11/4`;
+- selector/search fallback tests model both mapped roots returning empty before
+  selector discovery begins;
+- current-layout fast paths still stop after a non-empty `0/12` result.
+
+The available live WeChat client uses the `0/12` layout and cannot provide real
+desktop proof for the older `0/11` branch. That compatibility branch is covered
+by deterministic command-sequence tests; the existing `0/12` live smoke remains
+the real desktop proof for mapped target lookup, coordinate click, title
+verification, and message reading.
