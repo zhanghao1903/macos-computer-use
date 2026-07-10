@@ -1227,3 +1227,72 @@ Manual proof still required:
 - confirm `listContacts.timing.durationMs` is below 3000 ms or use
   `diagnostics.transport` and `diagnostics.stepTimings` for the next focused
   performance slice.
+
+## Additional Verification: File Transfer Recent Messages Workflow
+
+Date: 2026-07-10.
+
+This verification covers the corrected end-to-end workflow:
+
+1. open and focus WeChat;
+2. enter the Chats section;
+3. switch to `文件传输助手`;
+4. verify the active chat title;
+5. read and print up to 30 visible message rows.
+
+Automated checks:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Python compile check | `.venv/bin/python -m py_compile examples/wechat_contacts_recent_messages_test.py packages/computer-use-macos/src/computer_use_macos/_coordinate_click.py packages/computer-use-macos/src/computer_use_macos/client.py packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py packages/computer-use-macos/tests/test_package.py packages/wechat-desktop-tool/tests/test_profiles.py packages/wechat-desktop-tool/tests/test_tool.py tests/test_sdk_examples.py` | Passed |
+| Protocol package tests | `PYTHONPATH=packages/app-control-protocol/src .venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | Passed: 54 tests |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 112 tests, 1 skipped |
+| WeChat package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | Passed: 101 tests |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests` | Passed: 109 tests, including wheel and release preflight checks |
+| Whitespace/conflict check | `git diff --check` | Passed |
+
+New automated coverage proves:
+
+- the SDK example starts in a different fake conversation, opens
+  `文件传输助手`, then reads two fake message rows;
+- the example exposes separate `openContact` and `readVisibleMessages` results
+  and prints each returned message;
+- a mismatched verified chat title returns `contact_not_found` and composed
+  message reading stops before issuing a message-list query;
+- `open_contact` enters the Chats section when the current navigation section
+  is Contacts;
+- a conversation row without `AXPress` uses its AX-frame center coordinate;
+- the coordinate-click client invokes the internal Quartz event module and
+  reports `method = quartz_cg_event`;
+- the packaged profile loads both current `0/12` and older `0/11` control-map
+  variants.
+
+Live macOS and WeChat proof:
+
+- a first smoke with the title-verification fix but the old AppleScript click
+  backend correctly failed with `contact_not_found`, `messageCount = 0`, and
+  `failedStep = openContact` instead of reading the unrelated active chat;
+- a native Quartz click at the queried file-transfer row frame was visually
+  confirmed to open `文件传输助手`;
+- an isolated service using the updated source completed
+  `examples/wechat_contacts_recent_messages_test.py` with:
+  - `success = true`;
+  - `contact = 文件传输助手`;
+  - `currentChat = 文件传输助手`;
+  - `messageCount = 30`;
+  - `messageLimit = 30`;
+  - `failedStep = null`;
+- the example printed all 30 returned records to the terminal;
+- measured SDK operation timings were:
+  - `openWeChat = 463 ms`;
+  - `openContact = 1175 ms`;
+  - `readVisibleMessages = 2052 ms`;
+- measured `openContact` phases included:
+  - mapped target query: 96 ms;
+  - Quartz coordinate click: 627 ms;
+  - target-title verification query: 23 ms.
+
+The live output was written only under `/private/tmp` and is intentionally not
+tracked because it contains private chat data. The smoke changed focus and read
+visible content only; it did not draft or send a message.
