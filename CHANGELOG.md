@@ -89,6 +89,9 @@
 - Add an indexed Accessibility root resolver and visible-row traversal hints
   for mapped WeChat contact-list reads, avoiding full-table child materializing
   on stable contact table paths.
+- Add per-step `accessibility_query` timing diagnostics so rawdata logs can
+  identify whether query time is spent in PyObjC import, app/window lookup,
+  root resolution, collection, or response serialization.
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.

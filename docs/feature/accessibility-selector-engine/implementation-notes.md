@@ -2880,3 +2880,45 @@ Performance intent:
   be handled by updating the profile rather than changing code;
 - public WeChat list-contact response contracts and actionRef shapes remain
   unchanged.
+
+## Accessibility Query Step Timing Diagnostics
+
+Status: implemented as a diagnostics slice for the remaining query-wrapper
+latency.
+
+Problem observed in live smoke:
+
+- after indexed root resolution and visible-row traversal landed,
+  `list_contacts` still took about 11.2 seconds end to end;
+- `control_map_contacts_0` still reported about 10.6 seconds at the app-control
+  command layer;
+- the inner Accessibility collect diagnostics showed only 16 ms, with
+  `rootResolution.strategy = "attributePath"` and `preferVisibleRows = true`;
+- existing diagnostics could prove that tree traversal was fast, but could not
+  explain where the remaining wrapper time was spent.
+
+Implemented behavior:
+
+- `macos.computer_use/accessibility_query` now returns
+  `diagnostics.stepTimings` on successful responses;
+- failure responses also include `diagnostics.stepTimings` when the script has
+  progressed far enough to record timings;
+- each timing record contains:
+  - `name`: stable internal step name;
+  - `startedMs`: offset from script start;
+  - `durationMs`: duration since the previous recorded step;
+- recorded steps include request parsing, PyObjC import, permission check,
+  AppKit load, running-app selection, process identifier lookup,
+  AX application creation, root request parsing, focused-window lookup,
+  root resolution, window title read, collect, response metadata, response
+  build, and response serialization estimate;
+- existing rawdata logging automatically persists these timings because the
+  raw observation stores the full Accessibility query payload.
+
+Performance intent:
+
+- the next real WeChat smoke can distinguish Python/PyObjC startup,
+  permissions, AppKit initialization, app/window lookup, root resolution,
+  collect, and response serialization costs;
+- future optimization should target the largest step in
+  `diagnostics.stepTimings` instead of guessing from the outer command timing.

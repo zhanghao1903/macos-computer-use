@@ -2749,6 +2749,27 @@ ROOT_RESOLUTION: dict[str, Any] = {
     "strategy": "default",
     "durationMs": 0,
 }
+STEP_TIMINGS: list[dict[str, Any]] = []
+LAST_STEP_AT = STARTED_AT
+
+
+def elapsed_ms(started: float | None = None, ended: float | None = None) -> int:
+    base = STARTED_AT if started is None else started
+    finish = time.monotonic() if ended is None else ended
+    return max(0, int(round((finish - base) * 1000)))
+
+
+def mark_step(name: str) -> None:
+    global LAST_STEP_AT
+    now = time.monotonic()
+    STEP_TIMINGS.append(
+        {
+            "name": name,
+            "startedMs": elapsed_ms(STARTED_AT, LAST_STEP_AT),
+            "durationMs": elapsed_ms(LAST_STEP_AT, now),
+        }
+    )
+    LAST_STEP_AT = now
 
 
 def fail(failure_kind: str, message: str) -> None:
@@ -2758,6 +2779,10 @@ def fail(failure_kind: str, message: str) -> None:
                 "available": False,
                 "failureKind": failure_kind,
                 "message": message,
+                "diagnostics": {
+                    "durationMs": elapsed_ms(),
+                    "stepTimings": list(STEP_TIMINGS),
+                },
             },
             ensure_ascii=False,
         )
@@ -2767,7 +2792,9 @@ def fail(failure_kind: str, message: str) -> None:
 
 try:
     REQUEST = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+    mark_step("parseRequest")
 except Exception as exc:
+    mark_step("parseRequest")
     fail("accessibility_query_invalid_request", str(exc))
 
 try:
@@ -2780,7 +2807,9 @@ try:
         AXUIElementCreateApplication,
         kAXFocusedWindowAttribute,
     )
+    mark_step("pyobjcImport")
 except Exception as exc:
+    mark_step("pyobjcImport")
     fail("accessibility_query_pyobjc_unavailable", str(exc))
 
 
@@ -3292,7 +3321,9 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
     return nodes, diagnostics
 
 
-if not AXIsProcessTrusted():
+permission_available = bool(AXIsProcessTrusted())
+mark_step("permissionCheck")
+if not permission_available:
     fail(
         "missing_accessibility",
         "Accessibility permission is not available for the Python process.",
@@ -3300,19 +3331,31 @@ if not AXIsProcessTrusted():
 
 try:
     objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
-    app = selected_running_app()
+    mark_step("appKitLoad")
 except Exception as exc:
+    mark_step("appKitLoad")
+    fail("accessibility_query_frontmost_app_failed", str(exc))
+
+try:
+    app = selected_running_app()
+    mark_step("selectRunningApp")
+except Exception as exc:
+    mark_step("selectRunningApp")
     fail("accessibility_query_frontmost_app_failed", str(exc))
 
 if app is None:
     fail("accessibility_query_no_frontmost_app", "No frontmost app is available.")
 
 pid = int(app.processIdentifier())
+mark_step("readProcessIdentifier")
 app_ax = AXUIElementCreateApplication(pid)
+mark_step("createApplicationElement")
 root_request = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
 root_kind = root_request.get("kind", "focusedWindow")
 raw_root_path = str(root_request.get("axPath") or root_request.get("path") or "").strip()
+mark_step("readRootRequest")
 window = focused_window_for_app(app_ax)
+mark_step("focusedWindow")
 if (
     window is None
     and root_kind != "frontmostApp"
@@ -3322,18 +3365,22 @@ if (
     fail("accessibility_query_no_focused_window", "No focused window is available.")
 
 root_element, root_path = resolve_root(app_ax, window)
+mark_step("resolveRoot")
 if root_element is None:
     fail("accessibility_query_root_not_found", "Could not resolve query root.")
 
 window_title = safe_scalar(ax_get(window, "AXTitle")) if window is not None else None
+mark_step("windowTitle")
 QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
+mark_step("collect")
 diagnostics["rootResolution"] = dict(ROOT_RESOLUTION)
 if prefer_visible_rows():
     diagnostics["preferVisibleRows"] = True
 app_name = str(app.localizedName() or "")
 bundle_id = str(app.bundleIdentifier() or "")
 snapshot_id = f"frontmost:{app_name}:{window_title or ''}"
+mark_step("responseMetadata")
 payload = {
     "schema": "macos.accessibility.query.v1",
     "available": True,
@@ -3357,7 +3404,13 @@ payload = {
     "nodes": nodes,
     "diagnostics": diagnostics,
 }
-print(json.dumps(payload, ensure_ascii=False))
+mark_step("buildResponse")
+diagnostics["stepTimings"] = list(STEP_TIMINGS)
+serialized_payload = json.dumps(payload, ensure_ascii=False)
+mark_step("serializeResponse")
+diagnostics["stepTimings"] = list(STEP_TIMINGS)
+serialized_payload = json.dumps(payload, ensure_ascii=False)
+print(serialized_payload)
 '''
 
 

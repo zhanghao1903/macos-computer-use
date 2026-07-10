@@ -1149,3 +1149,39 @@ Manual proof still required:
   `diagnostics.preferVisibleRows = true`;
 - confirm `listContacts.timing.durationMs` is below 3000 ms, or capture the new
   phase timings for another focused optimization.
+
+## Additional Verification: Accessibility Query Step Timing Diagnostics
+
+Date: 2026-07-10.
+
+This verification covers the diagnostics slice that records each major
+`accessibility_query` script phase. The preceding live smoke showed that
+`control_map_contacts_0` spent about 10.6 seconds in the app-control wrapper
+while the inner collect phase took only 16 ms, so future optimization needs
+sub-step timings.
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Python compile check | `python -m py_compile packages/computer-use-macos/src/computer_use_macos/client.py packages/computer-use-macos/tests/test_package.py` | Passed |
+| `computer-use-macos` targeted query tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest packages/computer-use-macos/tests/test_package.py -k accessibility_query` | Passed: 5 tests |
+| Local no-permission script smoke | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python - <<'PY' ...` | Passed: failure response included `parseRequest`, `pyobjcImport`, and `permissionCheck` step timings |
+| `computer-use-macos` package tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python -m unittest discover -s packages/computer-use-macos/tests` | Passed: 109 tests, 1 skipped |
+| SDK example tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest tests.test_sdk_examples` | Passed: 9 tests |
+| Root repository tests | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python -m unittest discover -s tests` | Passed: 109 tests |
+| Whitespace/conflict check | `git diff --check` | Passed |
+
+New coverage:
+
+- the query script source includes the `mark_step` timing helper;
+- successful query responses include `diagnostics.stepTimings`;
+- failure responses include timing diagnostics when available;
+- source assertions cover timing steps for PyObjC import, permission checks,
+  app selection, focused-window lookup, collect, and response serialization.
+
+Manual proof still required:
+
+- restart `computer-use-macos serve` so the service loads the updated packages;
+- rerun `examples/wechat_contacts_list_test.py` against the real WeChat client;
+- inspect
+  `listContacts.evidence.control_map_contacts_0.observation.accessibilityQuery.diagnostics.stepTimings`;
+- identify the largest step and use that as the next optimization target.
