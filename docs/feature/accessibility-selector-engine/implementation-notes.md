@@ -3022,3 +3022,38 @@ Public and safety impact:
 - the workflow changes focus and reads visible data only; it does not draft or
   submit messages;
 - live message payloads remain local smoke evidence and are not committed.
+
+## F6 Review Remediation: Alternate Control-Map Roots
+
+Status: implemented after the merge-readiness review found an empty-result
+fallback regression.
+
+Review finding:
+
+- the packaged conversations and visible-message maps now contain current
+  `0/12` and older `0/11` root variants;
+- the first implementation returned immediately after the first successful
+  query even when that root produced no nodes;
+- a layout where the first path exists but is empty and the second path holds
+  the collection would therefore return an empty list or fall into the search
+  workflow without trying the compatible mapped path;
+- this weakened the map-variant compatibility that the profile was intended to
+  provide.
+
+Remediation:
+
+- generic mapped collection queries now continue through configured roots
+  until one returns nodes;
+- targeted mapped conversation queries use the same non-empty-result rule;
+- when every mapped root fails or is empty, the existing selector/search
+  fallback remains available;
+- regression tests cover `0/12` returning an empty query followed by a
+  successful `0/11` conversation collection;
+- regression tests cover the same root sequence for `open_contact`, including
+  target-title verification under the matching `0/11/4` chat panel.
+
+Public impact:
+
+- no API, schema, failure-kind, config, or safety-policy change;
+- the remediation restores the intended compatibility behavior for packaged
+  control-map alternatives.

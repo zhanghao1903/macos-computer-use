@@ -1561,6 +1561,41 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
 
+    def test_list_conversations_tries_second_mapped_root_after_empty_first(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response([]),
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/11/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.list_conversations(limit=30)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            [item["displayName"] for item in result.observation["items"]],
+            ["文件传输助手"],
+        )
+        self.assertEqual(
+            [
+                command.input["root"]["axPath"]
+                for command in app_control.commands
+                if command.operation == "accessibility_query"
+            ],
+            ["0/12/1/0", "0/11/1/0"],
+        )
+
     def test_execute_action_runs_accessibility_action_ref(self) -> None:
         app_control = FakeAppControl([_accessibility_action_response()])
         tool = WeChatDesktopTool(app_control)
@@ -1808,6 +1843,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 {},
                 _accessibility_query_response([]),
+                _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
@@ -1849,6 +1885,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "observe",
                 "type_text",
@@ -1858,16 +1895,18 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
-        self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 8_000)
-        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 2_000)
-        self.assertEqual(app_control.commands[9].input["text"], "Ada")
+        self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/11/1/0")
+        self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 8_000)
+        self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 2_500)
+        self.assertEqual(app_control.commands[7].input["query"]["timeBudgetMs"], 2_000)
+        self.assertEqual(app_control.commands[10].input["text"], "Ada")
 
     def test_open_contact_uses_coordinates_when_search_row_action_fails(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
+                _accessibility_query_response([]),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),
@@ -1909,6 +1948,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "observe",
                 "type_text",
@@ -1919,7 +1959,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            app_control.commands[12].input["coordinates"],
+            app_control.commands[13].input["coordinates"],
             {"x": 465, "y": 152},
         )
 
@@ -1983,6 +2023,53 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertNotIn(
             "type_text",
             [command.operation for command in app_control.commands],
+        )
+
+    def test_open_contact_tries_second_mapped_root_after_empty_first(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response([]),
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/11/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+                _accessibility_action_response(
+                    ax_path="0/11/1/0/0",
+                    role="AXRow",
+                    label="文件传输助手,hello,09:00,置顶",
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="文件传输助手",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("文件传输助手")
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.observation["currentChat"]["title"],
+            "文件传输助手",
+        )
+        self.assertEqual(
+            [
+                command.input["root"]["axPath"]
+                for command in app_control.commands
+                if command.operation == "accessibility_query"
+            ],
+            ["0/12/1/0", "0/11/1/0", "0/11/4"],
         )
 
     def test_open_contact_enters_chats_and_coordinate_clicks_unsupported_row(
@@ -2111,6 +2198,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 {},
                 _accessibility_query_response([]),
+                _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
@@ -2189,6 +2277,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "observe",
                 "accessibility_action",
@@ -2200,14 +2289,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[9].input["action"], "AXSetFocus")
-        self.assertEqual(app_control.commands[10].input["keys"], ["Command", "F"])
-        self.assertEqual(app_control.commands[12].input["text"], "Ada")
+        self.assertEqual(app_control.commands[10].input["action"], "AXSetFocus")
+        self.assertEqual(app_control.commands[11].input["keys"], ["Command", "F"])
+        self.assertEqual(app_control.commands[13].input["text"], "Ada")
 
     def test_open_contact_reports_disambiguation_from_query_stub(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
+                _accessibility_query_response([]),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),
@@ -2244,6 +2334,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
                 "click",
                 "observe",
                 "type_text",
@@ -2255,6 +2346,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
+                _accessibility_query_response([]),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),
@@ -2294,6 +2386,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
+                "accessibility_query",
             ],
         )
 
@@ -2301,6 +2394,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl(
             [
                 {},
+                _accessibility_query_response([]),
                 _accessibility_query_response([]),
                 _top_level_query_response(chats_selected=True),
                 _accessibility_query_response([]),

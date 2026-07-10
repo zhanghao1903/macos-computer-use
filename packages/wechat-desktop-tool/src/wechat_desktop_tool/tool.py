@@ -1025,7 +1025,9 @@ class WeChatDesktopTool:
             )
             if not result.success:
                 continue
-            return result, collection, _query_nodes(result)
+            nodes = _query_nodes(result)
+            if nodes:
+                return result, collection, nodes
         return None
 
     def _query_mapped_conversation_target(
@@ -1061,10 +1063,11 @@ class WeChatDesktopTool:
                 evidence=evidence,
                 phase_events=phase_events,
             )
-            if result.success:
-                return result, collection, _conversation_rows_from_cells(
-                    _query_nodes(result)
-                )
+            if not result.success:
+                continue
+            rows = _conversation_rows_from_cells(_query_nodes(result))
+            if rows:
+                return result, collection, rows
         return None
 
     def _mapped_region_node(
