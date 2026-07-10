@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+from contextlib import redirect_stdout
+from io import StringIO
 import json
 from pathlib import Path
 import tempfile
@@ -189,29 +191,7 @@ class FakeContactsListServiceClient:
 class FakeContactsRecentMessagesServiceClient:
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
-        self._queries = [
-            _wechat_query(
-                [
-                    _query_node(
-                        "0/12/2/0/0",
-                        "AXRow",
-                        height=68,
-                    ),
-                    _query_node(
-                        "0/12/2/0/0/0/1",
-                        "AXStaticText",
-                        value="Ada",
-                    ),
-                ]
-            ),
-            _wechat_query(
-                [
-                    _query_node("0/11/4/2", "AXStaticText", value="Ada"),
-                    _query_node("0/11/4/0/0/0", "AXRow", description="hello"),
-                    _query_node("0/11/4/0/0/1", "AXRow", description="reply"),
-                ]
-            ),
-        ]
+        self.current_chat = "其他会话"
 
     def run_command(
         self,
@@ -231,7 +211,13 @@ class FakeContactsRecentMessagesServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            observation_payload = {"accessibilityQuery": self._query(command)}
+        elif operation == "accessibility_action":
+            target = command.get("input", {}).get("target", {})
+            ax_path = target.get("axPath") if isinstance(target, dict) else None
+            if ax_path == "0/12/1/0/0":
+                self.current_chat = "文件传输助手"
+            observation_payload = {"executed": True}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -245,6 +231,48 @@ class FakeContactsRecentMessagesServiceClient:
                 request_id=request_id or "fake_request",
             ).to_dict()
         ]
+
+    def _query(self, command: dict[str, Any]) -> dict[str, Any]:
+        input_payload = command.get("input", {})
+        query = input_payload.get("query", {})
+        root = input_payload.get("root", {})
+        role_in = (
+            query.get("match", {}).get("roleIn")
+            if isinstance(query, dict)
+            else None
+        )
+        root_path = root.get("axPath") if isinstance(root, dict) else None
+        if (
+            root_path == "0/12/1/0"
+            and isinstance(role_in, list)
+            and ("AXRow" in role_in or "AXCell" in role_in)
+        ):
+            return _wechat_query(
+                [
+                    _query_node(
+                        "0/12/1/0/0",
+                        "AXRow",
+                        description="文件传输助手,hello,09:00,置顶",
+                        height=68,
+                    )
+                ]
+            )
+        if root_path == "0/12/4" and role_in == ["AXStaticText"]:
+            return _wechat_query(
+                [_query_node("0/12/4/2", "AXStaticText", value=self.current_chat)]
+            )
+        if (
+            root_path == "0/12/4/0/0"
+            and isinstance(role_in, list)
+            and "AXRow" in role_in
+        ):
+            return _wechat_query(
+                [
+                    _query_node("0/12/4/0/0/0", "AXRow", description="hello"),
+                    _query_node("0/12/4/0/0/1", "AXRow", description="reply"),
+                ]
+            )
+        return _wechat_query([])
 
 
 class FakeSelectorEngineSmokeServiceClient:
@@ -279,7 +307,7 @@ class FakeSelectorEngineSmokeServiceClient:
                 self.section = "chats"
             elif ax_path == "0/2":
                 self.section = "contacts"
-            elif ax_path == "0/11/1/0/0":
+            elif ax_path in {"0/12/1/0/0", "0/11/1/0/0"}:
                 self.current_chat = "文件传输助手"
                 self.section = "chats"
             observation_payload = {"executed": True}
@@ -327,14 +355,21 @@ class FakeSelectorEngineSmokeServiceClient:
         if root_path == "0/12/2/0" and role_in == ["AXStaticText"]:
             return _wechat_query(self._contact_text_nodes(root_path))
         if (
-            root_path in {"0/11/1/0", "0/12/2/0"}
+            root_path in {"0/12/1/0", "0/11/1/0", "0/12/2/0"}
             and isinstance(role_in, list)
-            and "AXRow" in role_in
+            and ("AXRow" in role_in or "AXCell" in role_in)
         ):
             return _wechat_query(self._row_nodes(root_path))
-        if role_in == ["AXSplitGroup"] and root_path == "0/11":
+        if role_in == ["AXSplitGroup"] and root_path in {"0/12", "0/11"}:
+            main_root = root_path
             return _wechat_query(
-                [_query_node("0/11/4", "AXSplitGroup", description="chat-panel")]
+                [
+                    _query_node(
+                        f"{main_root}/4",
+                        "AXSplitGroup",
+                        description="chat-panel",
+                    )
+                ]
             )
         if role_in == ["AXSplitGroup"]:
             return _wechat_query(
@@ -345,22 +380,48 @@ class FakeSelectorEngineSmokeServiceClient:
         if root_path in {"0/11/1/0/0", "0/11/1/0/1"}:
             return _wechat_query(self._field_nodes(root_path))
         if (
-            root_path in {"0/11/4", "0/11/4/0/0"}
+            root_path in {
+                "0/12/4",
+                "0/12/4/0/0",
+                "0/11/4",
+                "0/11/4/0/0",
+            }
             and isinstance(role_in, list)
             and "AXRow" in role_in
         ):
+            message_root = (
+                "0/12/4/0/0"
+                if root_path.startswith("0/12")
+                else "0/11/4/0/0"
+            )
             return _wechat_query(
                 [
-                    _query_node("0/11/4/0/0/0", "AXRow", description="hello"),
-                    _query_node("0/11/4/0/0/1", "AXRow", description="reply"),
+                    _query_node(f"{message_root}/0", "AXRow", description="hello"),
+                    _query_node(f"{message_root}/1", "AXRow", description="reply"),
                 ]
             )
-        if root_path in {"0/11/4/0/0/0", "0/11/4/0/0/1"}:
+        if root_path in {
+            "0/12/4/0/0/0",
+            "0/12/4/0/0/1",
+            "0/11/4/0/0/0",
+            "0/11/4/0/0/1",
+        }:
             text = "hello" if root_path.endswith("/0") else "reply"
-            return _wechat_query([_query_node(f"{root_path}/0", "AXStaticText", value=text)])
-        if root_path == "0/11" and role_in == ["AXStaticText"]:
             return _wechat_query(
-                [_query_node("0/11/4/2", "AXStaticText", value=self.current_chat)]
+                [_query_node(f"{root_path}/0", "AXStaticText", value=text)]
+            )
+        if root_path in {"0/12", "0/12/4", "0/11", "0/11/4"} and role_in == [
+            "AXStaticText"
+        ]:
+            main_root = "0/12" if root_path.startswith("0/12") else "0/11"
+            return _wechat_query(
+                [
+                    _query_node(
+                        f"{main_root}/4/2",
+                        "AXStaticText",
+                        value=self.current_chat,
+                    )
+                ]
             )
         if root_path == "0/11" and role_in == ["AXRow", "AXCell", "AXStaticText"]:
             return _wechat_query(self._visible_contact_nodes())
@@ -390,7 +451,7 @@ class FakeSelectorEngineSmokeServiceClient:
             _query_node("0/3", "AXRadioButton", description="收藏", value=0),
         ]
 
-    def _row_nodes(self, root_path: str = "0/11/1/0") -> list[dict[str, Any]]:
+    def _row_nodes(self, root_path: str = "0/12/1/0") -> list[dict[str, Any]]:
         if root_path == "0/12/2/0":
             return [
                 _query_node(f"{root_path}/0", "AXRow", height=68),
@@ -624,7 +685,9 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(persisted["summary"]["listedContactCount"], 2)
         self.assertEqual(persisted["contactNames"], ["Ada", "Bob"])
 
-    def test_wechat_contacts_recent_messages_test_reads_listed_contacts(self) -> None:
+    def test_wechat_contacts_recent_messages_test_reads_configured_contact(
+        self,
+    ) -> None:
         module = _load_wechat_contacts_recent_messages_test_module()
         service_client = FakeContactsRecentMessagesServiceClient()
         system_open = FakeSystemOpenRunner()
@@ -637,29 +700,34 @@ class SdkExampleTests(unittest.TestCase):
                 socket_path="/tmp/app-control.sock",
                 service_client=service_client,
                 system_open_runner=system_open,
-                max_contacts=1,
+                contact="文件传输助手",
                 message_limit=30,
             )
 
             persisted = json.loads(output_path.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["summary"]["success"], True)
-        self.assertEqual(payload["summary"]["listedContactCount"], 1)
-        self.assertEqual(payload["summary"]["processedContactCount"], 1)
+        self.assertEqual(payload["summary"]["contact"], "文件传输助手")
+        self.assertEqual(payload["summary"]["messageCount"], 2)
         self.assertEqual(payload["systemOpenWeChat"]["success"], True)
         self.assertEqual(
             [command[:2] for command in system_open.commands],
             [["open", "-b"], ["osascript", "-e"]],
         )
-        self.assertEqual(payload["contacts"][0]["contact"], "Ada")
-        self.assertEqual(payload["contacts"][0]["openMethod"], "actionRef")
-        self.assertEqual(payload["contacts"][0]["messageCount"], 2)
         self.assertEqual(
-            payload["contacts"][0]["openListedContact"]["operation"],
-            "execute_action",
+            payload["openContact"]["operation"],
+            "open_contact",
         )
         self.assertEqual(
-            payload["contacts"][0]["readVisibleMessages"]["operation"],
+            payload["openContact"]["observation"]["target"],
+            "文件传输助手",
+        )
+        self.assertEqual(
+            payload["openContact"]["observation"]["currentChat"]["title"],
+            "文件传输助手",
+        )
+        self.assertEqual(
+            payload["readVisibleMessages"]["operation"],
             "read_visible_messages",
         )
         self.assertEqual(
@@ -670,9 +738,9 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "click",
                 "accessibility_query",
                 "accessibility_action",
+                "accessibility_query",
                 "open_app",
                 "observe",
                 "accessibility_query",
@@ -682,6 +750,14 @@ class SdkExampleTests(unittest.TestCase):
             "type_text",
             [command["operation"] for command in service_client.commands],
         )
+        output = StringIO()
+        with redirect_stdout(output):
+            module._print_message_records(payload["readVisibleMessages"])
+        self.assertIn("messages (2):", output.getvalue())
+        self.assertIn("01. [unknown] hello", output.getvalue())
+        self.assertIn("02. [unknown] reply", output.getvalue())
+        self.assertEqual(persisted["summary"]["contact"], "文件传输助手")
+        self.assertEqual(persisted["summary"]["currentChat"], "文件传输助手")
         self.assertEqual(persisted["summary"]["messageLimit"], 30)
 
     def test_wechat_contacts_recent_messages_reports_open_failure(self) -> None:
@@ -697,13 +773,20 @@ class SdkExampleTests(unittest.TestCase):
                 socket_path="/tmp/app-control.sock",
                 service_client=service_client,
                 system_open_runner=system_open,
-                max_contacts=1,
+                contact="文件传输助手",
                 message_limit=30,
             )
 
         self.assertEqual(payload["summary"]["success"], False)
         self.assertEqual(payload["summary"]["failedStep"], "openWeChat")
-        self.assertEqual(payload["listContacts"]["failureKind"], "open_wechat_failed")
+        self.assertEqual(
+            payload["openContact"]["failureKind"],
+            "open_wechat_failed",
+        )
+        self.assertEqual(
+            payload["readVisibleMessages"]["failureKind"],
+            "open_contact_failed",
+        )
         self.assertEqual(
             [command["operation"] for command in service_client.commands],
             [

@@ -93,7 +93,11 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         )
         self.assertEqual(
             control_map.collections["conversations"].root_ax_paths,
-            ("0/11/1/0",),
+            ("0/12/1/0", "0/11/1/0"),
+        )
+        self.assertEqual(
+            control_map.collections["visibleMessages"].root_ax_paths,
+            ("0/12/4/0/0", "0/11/4/0/0"),
         )
 
     def test_packaged_selector_resolver_uses_default_profile(self) -> None:

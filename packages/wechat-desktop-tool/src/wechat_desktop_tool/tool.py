@@ -1006,7 +1006,6 @@ class WeChatDesktopTool:
             collection.minimum_limit,
             semantic_limit * collection.limit_multiplier,
         )
-        last_nodes: list[dict[str, Any]] = []
         for index, root_ax_path in enumerate(collection.root_ax_paths):
             result = self._query_accessibility_nodes(
                 command,
@@ -1026,20 +1025,70 @@ class WeChatDesktopTool:
             )
             if not result.success:
                 continue
-            nodes = _query_nodes(result)
-            last_nodes = nodes
-            if nodes:
-                return result, collection, nodes
-        if last_nodes:
-            return result, collection, last_nodes
+            return result, collection, _query_nodes(result)
         return None
 
-    def _mapped_region_node(self, region_id: str) -> dict[str, Any] | None:
+    def _query_mapped_conversation_target(
+        self,
+        command: ToolCommand,
+        contact: str,
+        *,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
+        collection = self._control_map.collections.get("conversations")
+        if collection is None:
+            return None
+        for index, root_ax_path in enumerate(collection.root_ax_paths):
+            result = self._query_accessibility_nodes(
+                command,
+                root_node={"axPath": root_ax_path},
+                phase=f"control_map_conversation_target_{index}",
+                scope="descendants",
+                max_depth=2,
+                role_in=["AXCell"],
+                limit=1,
+                time_budget_ms=min(collection.time_budget_ms, 900),
+                attributes=[
+                    "AXRole",
+                    "AXDescription",
+                    "AXPosition",
+                    "AXSize",
+                    "AXFrame",
+                ],
+                actions=False,
+                match={"descriptionContains": f"{contact},"},
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if result.success:
+                return result, collection, _conversation_rows_from_cells(
+                    _query_nodes(result)
+                )
+        return None
+
+    def _mapped_region_node(
+        self,
+        region_id: str,
+        *,
+        reference_ax_path: str | None = None,
+    ) -> dict[str, Any] | None:
         region = self._control_map.regions.get(region_id)
         if region is None or not region.ax_paths:
             return None
+        ax_path = region.ax_paths[0]
+        if reference_ax_path is not None:
+            reference_root = "/".join(reference_ax_path.split("/")[:2])
+            ax_path = next(
+                (
+                    candidate
+                    for candidate in region.ax_paths
+                    if "/".join(candidate.split("/")[:2]) == reference_root
+                ),
+                ax_path,
+            )
         node: dict[str, Any] = {
-            "axPath": region.ax_paths[0],
+            "axPath": ax_path,
             "role": region.role,
         }
         label = _first_concrete_label(region.labels)
@@ -1058,6 +1107,19 @@ class WeChatDesktopTool:
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
             return _open_wechat_phase_failure(command, opened, evidence)
+        chats_ready = self._press_mapped_navigation(
+            command,
+            "chats",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if chats_ready is not None and not chats_ready.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_navigation_failed",
+                chats_ready,
+                evidence=evidence,
+            )
         visible_opened = self._open_visible_contact_with_control_map(
             command,
             contact=contact,
@@ -1201,33 +1263,21 @@ class WeChatDesktopTool:
                 selected,
                 evidence=evidence,
             )
-        verification = self._query_descendants(
+        return self._opened_contact_observation(
             command,
-            root_node=_node_from_selector_element(main_content.elements[0]),
-            phase="verify_contact",
-            role_in=["AXStaticText"],
-            limit=40,
+            contact=contact,
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(
+                        _node_from_selector_element(main_content.elements[0])
+                    ),
+                )
+                or _node_from_selector_element(main_content.elements[0])
+            ),
+            open_method="search",
             evidence=evidence,
             phase_events=phase_events,
-        )
-        chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
-        return ToolObservation.ok(
-            command_id=command.command_id,
-            tool=WECHAT_TOOL,
-            operation=command.operation,
-            summary="Opened WeChat contact.",
-            observation={
-                "schema": "wechat.open_contact.v1",
-                "target": contact,
-                "status": "opened",
-                "openMethod": "search",
-                "currentChat": {"title": chat_title or contact},
-                "availableActions": [
-                    {"id": "wechat.read_visible_messages", "status": "available"},
-                    {"id": "wechat.draft_message", "status": "needs_input"},
-                ],
-            },
-            evidence=evidence,
         )
 
     def _open_visible_contact_phase(
@@ -1271,14 +1321,15 @@ class WeChatDesktopTool:
             )
         if not candidates:
             return None
-        action_ref = candidates[0].get("actionRef")
-        if not isinstance(action_ref, Mapping):
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping):
             return None
-        opened = self._execute_action_ref(
+        opened = self._click_node_phase(
             command,
-            action_ref,
+            element,
             phase="open_visible_contact",
             evidence=evidence,
+            snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
             phase_events=phase_events,
         )
         if not opened.success:
@@ -1286,7 +1337,13 @@ class WeChatDesktopTool:
         return self._opened_contact_observation(
             command,
             contact=contact,
-            main_content=main_content,
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(main_content),
+                )
+                or main_content
+            ),
             open_method="visible_action_ref",
             evidence=evidence,
             phase_events=phase_events,
@@ -1300,10 +1357,9 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
-        collection_query = self._query_mapped_collection(
+        collection_query = self._query_mapped_conversation_target(
             command,
-            "conversations",
-            semantic_limit=40,
+            contact,
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -1336,14 +1392,15 @@ class WeChatDesktopTool:
             )
         if not candidates:
             return None
-        action_ref = candidates[0].get("actionRef")
-        if not isinstance(action_ref, Mapping):
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping):
             return None
-        opened = self._execute_action_ref(
+        opened = self._click_node_phase(
             command,
-            action_ref,
+            element,
             phase="control_map_open_visible_contact",
             evidence=evidence,
+            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
             phase_events=phase_events,
         )
         if not opened.success:
@@ -1351,7 +1408,13 @@ class WeChatDesktopTool:
         return self._opened_contact_observation(
             command,
             contact=contact,
-            main_content=self._mapped_region_node("chatPanel") or {"axPath": "0/11/4"},
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(element),
+                )
+                or {"axPath": "0/12/4"}
+            ),
             open_method="control_map_visible_action_ref",
             evidence=evidence,
             phase_events=phase_events,
@@ -1367,16 +1430,59 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        verification = self._query_descendants(
+        verification = self._query_accessibility_nodes(
             command,
             root_node=main_content,
             phase="verify_contact",
+            scope="descendants",
+            max_depth=2,
             role_in=["AXStaticText"],
-            limit=40,
+            limit=20,
+            time_budget_ms=1_200,
+            attributes=[
+                "AXRole",
+                "AXDescription",
+                "AXTitle",
+                "AXValue",
+                "AXFrame",
+            ],
+            actions=False,
             evidence=evidence,
             phase_events=phase_events,
         )
+        if not verification.success:
+            return _from_app_control_failure(
+                command,
+                "contact_not_found",
+                verification,
+                evidence=evidence,
+            )
         chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
+        confidence = _contact_confidence(contact, chat_title)
+        if chat_title is None or confidence < 0.9:
+            actual_title = chat_title or "unknown"
+            return _failure(
+                command,
+                status=ToolStatus.NOT_FOUND,
+                failure_kind="contact_not_found",
+                message=(
+                    "Verified WeChat chat title does not match requested contact: "
+                    f"{actual_title}"
+                ),
+                recovery_hint=(
+                    "Return to the WeChat chats view and retry opening the target "
+                    "contact."
+                ),
+                retryable=True,
+                observation={
+                    "schema": "wechat.open_contact.v1",
+                    "target": contact,
+                    "status": "not_opened",
+                    "openMethod": open_method,
+                    "currentChat": {"title": chat_title},
+                },
+                evidence=evidence,
+            )
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
@@ -1387,7 +1493,8 @@ class WeChatDesktopTool:
                 "target": contact,
                 "status": "opened",
                 "openMethod": open_method,
-                "currentChat": {"title": chat_title or contact},
+                "currentChat": {"title": chat_title},
+                "confidence": confidence,
                 "availableActions": [
                     {"id": "wechat.read_visible_messages", "status": "available"},
                     {"id": "wechat.draft_message", "status": "needs_input"},
@@ -2549,6 +2656,7 @@ class WeChatDesktopTool:
         time_budget_ms: int | None = None,
         attributes: list[str] | None = None,
         actions: bool = True,
+        match: Mapping[str, JsonValue] | None = None,
         root_resolver: WeChatRootResolver | None = None,
         prefer_visible_rows: bool = False,
         phase_events: "_PhaseEventCollector | None" = None,
@@ -2570,6 +2678,9 @@ class WeChatDesktopTool:
             str(attribute) for attribute in (attributes or _QUERY_ATTRIBUTES)
         ]
         query_roles: list[JsonValue] = [str(role) for role in role_in]
+        query_match: dict[str, JsonValue] = {"roleIn": query_roles}
+        if match is not None:
+            query_match.update(dict(match))
         query_payload: dict[str, JsonValue] = {
             "scope": scope,
             "maxDepth": max_depth,
@@ -2580,7 +2691,7 @@ class WeChatDesktopTool:
             "attributes": query_attributes,
             "actions": actions,
             "includeChildrenCount": False,
-            "match": {"roleIn": query_roles},
+            "match": query_match,
         }
         if prefer_visible_rows:
             query_payload["preferVisibleRows"] = True
@@ -2607,6 +2718,26 @@ class WeChatDesktopTool:
         snapshot_id: str | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        if str(node.get("role") or "") == "AXRow" and "AXPress" not in _node_actions(
+            node
+        ):
+            coordinates = _node_center_coordinates(node)
+            if coordinates is not None:
+                coordinate_phase = f"{phase}:coordinate"
+                coordinate_result = self._app_control_command(
+                    command,
+                    phase=coordinate_phase,
+                    operation="click",
+                    input=self._target_app_input(coordinates=coordinates),
+                    phase_events=phase_events,
+                )
+                evidence[coordinate_phase] = _safe_app_control_observation(
+                    coordinate_result
+                )
+                if coordinate_result.success:
+                    return coordinate_result
+                if not _coordinate_click_disabled(coordinate_result):
+                    return coordinate_result
         action_ref = _action_ref_from_node(node, snapshot_id=snapshot_id)
         if action_ref is not None:
             result = self._execute_action_ref(
@@ -2616,7 +2747,27 @@ class WeChatDesktopTool:
                 evidence=evidence,
                 phase_events=phase_events,
             )
-            if result.success or not _should_fallback_from_accessibility_action(result):
+            if result.success:
+                return result
+            if _should_try_coordinate_click_after_accessibility_action(result):
+                coordinates = _node_center_coordinates(node)
+                if coordinates is not None:
+                    coordinate_phase = f"{phase}:coordinate_fallback"
+                    coordinate_result = self._app_control_command(
+                        command,
+                        phase=coordinate_phase,
+                        operation="click",
+                        input=self._target_app_input(coordinates=coordinates),
+                        phase_events=phase_events,
+                    )
+                    evidence[coordinate_phase] = _safe_app_control_observation(
+                        coordinate_result
+                    )
+                    if coordinate_result.success:
+                        return coordinate_result
+                    if not _coordinate_click_disabled(coordinate_result):
+                        return coordinate_result
+            if not _should_fallback_from_accessibility_action(result):
                 return result
 
         input_payload = self._target_app_input()
@@ -3498,6 +3649,17 @@ def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
     return False
 
 
+def _should_try_coordinate_click_after_accessibility_action(
+    result: ToolObservation,
+) -> bool:
+    return _accessibility_action_failure_kind(result) in {
+        "accessibility_action_failed",
+        "needs_user",
+        "unsupported_operation",
+        "unsupported_accessibility_action",
+    }
+
+
 def _should_press_return_for_search_result(result: ToolObservation) -> bool:
     if result.success:
         return False
@@ -4044,6 +4206,34 @@ def _search_candidates_from_nodes(
                 action_ref["targetSummary"] = f"Open search result {display_name}"
             candidates.append(item)
     return candidates
+
+
+def _conversation_rows_from_cells(
+    nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for node in nodes:
+        role = str(node.get("role") or "")
+        ax_path = _node_ax_path(node)
+        if ax_path is None:
+            continue
+        if role == "AXRow":
+            row_path = ax_path
+            row = dict(node)
+        elif role == "AXCell" and "/" in ax_path:
+            row_path = ax_path.rsplit("/", 1)[0]
+            row = dict(node)
+            row["axPath"] = row_path
+            row["role"] = "AXRow"
+            row.pop("actions", None)
+        else:
+            continue
+        if row_path in seen_paths:
+            continue
+        seen_paths.add(row_path)
+        rows.append(row)
+    return rows
 
 
 def _visible_contact_candidates_from_nodes(

@@ -2966,3 +2966,59 @@ Performance intent:
   semantic extraction, not Python framework import time;
 - fallback keeps the public `macos.computer_use/accessibility_query` contract
   compatible if the worker cannot start or crashes.
+
+## File Transfer Recent Messages Workflow Correction
+
+Status: implemented as an F4 correctness and performance follow-up.
+
+Problem confirmed by live output:
+
+- `read_contact_messages("文件传输助手")` reported success while
+  `openContact.currentChat.title` was another conversation;
+- the method then returned 30 rows from that unrelated active conversation;
+- the SDK example printed only its summary, so the returned message records
+  were not visible in the terminal;
+- the current WeChat layout uses the `0/12` main-content branch, while the
+  conversations, chat-panel, and message-list control-map entries only named
+  their older `0/11` variants;
+- WeChat conversation rows expose no `AXPress` action. The previous fallback
+  used AppleScript `System Events click at`, which reported success without
+  selecting the row.
+
+Implemented behavior:
+
+- the packaged control map now includes both `0/12` and `0/11` variants for
+  conversations, chat panel, and visible messages;
+- `open_contact` explicitly ensures that WeChat is on the Chats navigation
+  section before resolving a conversation;
+- visible-contact resolution runs a bounded target query under the mapped
+  conversations root, matching an `AXCell` description containing the target
+  contact and stopping after the first result;
+- matching cells are normalized back to their parent conversation-row path so
+  the existing semantic candidate model and exact display-name check remain in
+  use;
+- rows that do not advertise `AXPress` go directly to their AX-frame center
+  coordinate, still subject to `allow_coordinate_click` policy;
+- `computer-use-macos` coordinate clicks now post native Quartz mouse-down and
+  mouse-up events from an internal package module instead of using AppleScript;
+- every successful `open_contact` now requires the queried chat title to match
+  the requested contact with at least the existing 0.9 confidence threshold;
+- a missing or mismatched title returns `contact_not_found`, and composed
+  `read_contact_messages` stops before reading any message rows;
+- `examples/wechat_contacts_recent_messages_test.py` now performs and records
+  explicit `openContact` and `readVisibleMessages` steps for one configurable
+  contact, defaults to `文件传输助手` and 30 messages, and prints each returned
+  message in the terminal.
+
+Public and safety impact:
+
+- the existing `open_contact`, `read_visible_messages`, and
+  `read_contact_messages` method signatures and package response schemas remain
+  compatible;
+- `open_contact` no longer reports a false successful target when the active
+  title is different;
+- coordinate execution remains disabled unless the application configuration
+  opts into `allow_coordinate_click`;
+- the workflow changes focus and reads visible data only; it does not draft or
+  submit messages;
+- live message payloads remain local smoke evidence and are not committed.

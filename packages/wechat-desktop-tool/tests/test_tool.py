@@ -1553,7 +1553,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11/1/0")
+        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_200)
         self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],
@@ -1857,14 +1857,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11/1/0")
+        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[3].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 8_000)
         self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(app_control.commands[9].input["text"], "Ada")
 
-    def test_open_contact_presses_return_when_search_row_action_fails(self) -> None:
+    def test_open_contact_uses_coordinates_when_search_row_action_fails(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
@@ -1914,11 +1914,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
-                "press_key",
+                "click",
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[12].input["key"], "Return")
+        self.assertEqual(
+            app_control.commands[12].input["coordinates"],
+            {"x": 465, "y": 152},
+        )
 
     def test_open_contact_uses_visible_row_action_ref_before_search(self) -> None:
         app_control = FakeAppControl(
@@ -1960,7 +1963,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
             result.observation["openMethod"],
             "control_map_visible_action_ref",
         )
-        self.assertEqual(result.observation["currentChat"]["title"], "文件传输助手")
+        self.assertEqual(
+            result.observation["currentChat"]["title"],
+            "文件传输助手",
+        )
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
@@ -1971,12 +1977,131 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11/1/0")
+        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[3].input["action"], "AXPress")
         self.assertNotIn("labelIn", app_control.commands[3].input["preconditions"])
         self.assertNotIn(
             "type_text",
             [command.operation for command in app_control.commands],
+        )
+
+    def test_open_contact_enters_chats_and_coordinate_clicks_unsupported_row(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (通讯录)",
+                    }
+                },
+                _coordinate_click_response(),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/12/1/0/0",
+                            "AXRow",
+                            description="文件传输助手,hello,09:00,置顶",
+                            x=294,
+                            y=95,
+                            width=271,
+                            height=68,
+                        )
+                    ]
+                ),
+                _coordinate_click_response(),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/12/4/2",
+                            "AXStaticText",
+                            value="文件传输助手",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.open_contact("文件传输助手")
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.observation["currentChat"]["title"],
+            "文件传输助手",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "click",
+                "accessibility_query",
+                "click",
+                "accessibility_query",
+            ],
+        )
+        self.assertEqual(
+            app_control.commands[2].input["coordinates"],
+            {"x": 264, "y": 179},
+        )
+        self.assertEqual(
+            app_control.commands[4].input["coordinates"],
+            {"x": 430, "y": 129},
+        )
+
+    def test_read_contact_messages_stops_when_opened_chat_title_mismatches(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/12/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+                _accessibility_action_response(
+                    ax_path="0/12/1/0/0",
+                    role="AXRow",
+                    label="文件传输助手,hello,09:00,置顶",
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/12/4/2",
+                            "AXStaticText",
+                            value="其他会话(145)",
+                        )
+                    ]
+                ),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool.read_contact_messages("文件传输助手", limit=30)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "contact_not_found")
+        self.assertEqual(
+            result.evidence["open_contact"]["failureKind"],
+            "contact_not_found",
+        )
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
+            ],
         )
 
     def test_open_contact_falls_back_to_hotkey_when_search_click_misses(
@@ -2946,7 +3071,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/11/4/0/0")
+        self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/4/0/0")
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_200)
         self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],

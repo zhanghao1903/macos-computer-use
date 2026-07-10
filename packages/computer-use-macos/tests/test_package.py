@@ -516,7 +516,20 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
 
         self.assertEqual(observation.status, ToolStatus.OK)
         self.assertEqual(observation.observation["metadata"]["coordinateClick"], True)
-        self.assertIn("click at {12, 34}", runner.calls[0][2])
+        self.assertEqual(
+            runner.calls[0],
+            (
+                sys.executable,
+                "-m",
+                "computer_use_macos._coordinate_click",
+                "12",
+                "34",
+            ),
+        )
+        self.assertEqual(
+            observation.observation["metadata"]["method"],
+            "quartz_cg_event",
+        )
 
     def test_package_local_client_supports_accessibility_selector_click(self) -> None:
         runner = FakeRunner()

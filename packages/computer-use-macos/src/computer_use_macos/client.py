@@ -1901,12 +1901,16 @@ class MacOSComputerUseClient:
                     metadata={"readiness": readiness.to_dict()},
                 )
 
-        script = (
-            'tell application "System Events"\n'
-            f"  click at {{{x}, {y}}}\n"
-            "end tell\n"
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-m",
+                "computer_use_macos._coordinate_click",
+                str(x),
+                str(y),
+            ],
+            timeout=timeout,
         )
-        result = self._runner.run(["osascript", "-e", script], timeout=timeout)
         if getattr(result, "timed_out", False):
             return _timed_out_result(
                 ComputerUseOperation.CLICK,
@@ -1915,6 +1919,7 @@ class MacOSComputerUseClient:
                 timeout,
                 metadata={
                     "coordinateClick": True,
+                    "method": "quartz_cg_event",
                     "x": x,
                     "y": y,
                     **_target_identity_metadata(target_app, bundle_id),
@@ -1926,6 +1931,7 @@ class MacOSComputerUseClient:
                 "Failed to click screen coordinate.",
                 metadata={
                     "coordinateClick": True,
+                    "method": "quartz_cg_event",
                     "x": x,
                     "y": y,
                     **_target_identity_metadata(target_app, bundle_id),
@@ -1937,6 +1943,7 @@ class MacOSComputerUseClient:
             "Clicked screen coordinate.",
             metadata={
                 "coordinateClick": True,
+                "method": "quartz_cg_event",
                 "x": x,
                 "y": y,
                 **_target_identity_metadata(target_app, bundle_id),
