@@ -1,5 +1,17 @@
 # Accessibility Selector Engine PR Description
 
+## Current Review Status
+
+`REQUEST_CHANGES` for reviewed head `07fa052`. The frozen review identified 12
+blocking findings that are not covered by the green CI suite. The previous
+merge-ready statement is superseded; PR #3 must remain draft until the findings
+in the
+[frozen review report](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-07fa052.md)
+are remediated and a new-head review passes.
+
+The original design remains the historical baseline. Remediation will be
+specified in a separate versioned design document before code changes begin.
+
 ## Problem
 
 WeChat semantic APIs previously depended on brittle hard-coded Accessibility

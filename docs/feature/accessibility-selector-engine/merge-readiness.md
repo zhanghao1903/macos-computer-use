@@ -1,19 +1,25 @@
 # Accessibility Selector Engine Merge Readiness
 
-- Review date: 2026-07-10
+- Review date: 2026-07-12
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Feature directory: `docs/feature/accessibility-selector-engine/`
-- Status: technically merge-ready after F6 remediation; branch CI is green and
-  the PR remains draft
+- Status: `REQUEST_CHANGES`; the PR remains draft and is not merge-ready
 
 ## Decision
 
-The feature is ready for PR review. The 2026-07-10 F6 code review found one
-alternate-root fallback regression, returned the feature to F4/F5, and verified
-the remediation before restoring this merge-ready decision. PR #3 is mergeable,
-and CI passed on run `29103299589` / job `86397377175`. The PR remains a draft
-until the owner chooses to request review.
+The feature is not ready to merge. The frozen review of head `07fa052` recorded
+12 blocking findings in
+[`pr-review-macos-computer-use-3-07fa052.md`](./pr-review-macos-computer-use-3-07fa052.md):
+7 S1 findings covering privacy, unsafe desktop actions, incorrect-contact
+reads, helper/dependency compatibility, and release workflow behavior; and 5 S2
+findings covering cache validation, failure mapping, batch depth, pagination,
+and strict proof validation.
+
+The earlier 2026-07-10 merge-ready decision is superseded. Green CI for
+`07fa052` did not include the reviewer's counterexamples and therefore is not
+sufficient merge proof. The lifecycle returns from F6 to F2/F3 for a separately
+versioned remediation design and implementation plan before any code changes.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
@@ -29,11 +35,12 @@ The latest targeted smoke additionally proved that the recent-messages example
 opens `文件传输助手`, verifies that title, prints 30 rows, and keeps
 `open_contact` and `read_visible_messages` below the three-second API target.
 
-## F6 Review Refresh
+## Historical F6 Review Refresh (Superseded)
 
-The 2026-07-10 review checked the latest contact-message and performance
-commits, package boundaries, generated artifacts, release records, PR text,
-local full tests, real WeChat proof, and GitHub CI.
+This section records the historical 2026-07-10 review. It checked the latest
+contact-message and performance commits, package boundaries, generated
+artifacts, release records, PR text, local full tests, real WeChat proof, and
+GitHub CI. Its conclusion no longer describes the current head's merge status.
 
 Review finding and remediation:
 
@@ -245,13 +252,28 @@ API timing, live smoke, and CI evidence, and has been synced to PR #3.
 
 ## Merge Blockers
 
-No technical merge blockers remain in the current branch state.
+All findings below must be remediated and independently re-reviewed on a new
+head before the merge-ready status can be restored:
 
-Administrative follow-up:
+- `PRR-001`: prevent private WeChat observations from entering public release
+  proof assets;
+- `PRR-002`: fail closed when search focus cannot be verified;
+- `PRR-003`: remove fixed global coordinate-first navigation;
+- `PRR-004`: make same-name contact disambiguation reachable before clicking;
+- `PRR-005`: provide helper AX parity or explicitly fail fast for unsupported
+  selector-backed operations;
+- `PRR-006`: revalidate the complete selector contract on cache hits;
+- `PRR-007`: preserve Accessibility and transport failures through resolution;
+- `PRR-008`: keep packaged collection batch queries within backend depth limits;
+- `PRR-009`: separate normal pagination lookahead from true truncation;
+- `PRR-010`: align package dependency lower bounds with required selector and
+  configuration surfaces;
+- `PRR-011`: repair and validate the clean release-workflow source paths;
+- `PRR-012`: require non-empty, internally consistent strict selector proof.
 
-1. Mark PR #3 ready for review when the owner wants review to start.
-2. Do not add public `resolve_selector` or `extract_collection` protocol
-   commands in this PR; those remain deferred to a future reviewed API proposal.
+The remediation must not add public `resolve_selector` or
+`extract_collection` protocol commands; those remain deferred to a future
+reviewed API proposal.
 
 ## Recommended PR Summary
 
