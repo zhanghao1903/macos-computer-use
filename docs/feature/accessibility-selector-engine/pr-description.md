@@ -9,8 +9,11 @@ in the
 [frozen review report](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-07fa052.md)
 are remediated and a new-head review passes.
 
-The original design remains the historical baseline. Remediation will be
-specified in a separate versioned design document before code changes begin.
+The original design remains the historical baseline. Remediation is specified
+in the separate
+[2026-07-12 remediation design](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/design-remediation-2026-07-12.md).
+That proposal requires technical review and a separate implementation plan
+before code changes begin.
 
 ## Problem
 

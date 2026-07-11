@@ -20,6 +20,8 @@ The earlier 2026-07-10 merge-ready decision is superseded. Green CI for
 `07fa052` did not include the reviewer's counterexamples and therefore is not
 sufficient merge proof. The lifecycle returns from F6 to F2/F3 for a separately
 versioned remediation design and implementation plan before any code changes.
+The current F2 proposal is
+[`design-remediation-2026-07-12.md`](./design-remediation-2026-07-12.md).
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,
