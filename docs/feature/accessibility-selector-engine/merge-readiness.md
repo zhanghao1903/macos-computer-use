@@ -22,6 +22,11 @@ sufficient merge proof. The lifecycle returns from F6 to F2/F3 for a separately
 versioned remediation design and implementation plan before any code changes.
 The current F2 proposal is
 [`design-remediation-2026-07-12.md`](./design-remediation-2026-07-12.md).
+It passed
+[`technical-review-remediation-2026-07-12.md`](./technical-review-remediation-2026-07-12.md).
+The current F3 proposal is
+[`implementation-plan-remediation-2026-07-12.md`](./implementation-plan-remediation-2026-07-12.md)
+and must be reviewed before remediation code begins.
 
 Automated package checks pass for the internal selector engine, WeChat packaged
 profile migration, collection extraction, selector profile override config,

@@ -12,8 +12,9 @@ are remediated and a new-head review passes.
 The original design remains the historical baseline. Remediation is specified
 in the separate
 [2026-07-12 remediation design](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/design-remediation-2026-07-12.md).
-That proposal requires technical review and a separate implementation plan
-before code changes begin.
+That proposal passed F2 technical review. The separate
+[remediation implementation plan](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/implementation-plan-remediation-2026-07-12.md)
+must receive its own review before code changes begin.
 
 ## Problem
 
