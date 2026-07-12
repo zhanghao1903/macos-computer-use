@@ -25,6 +25,7 @@ from app_control_protocol import (
     validate_protocol_payload,
 )
 import computer_use_macos
+from computer_use_macos.accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
 from computer_use_macos import (
     COMPUTER_USE_TOOL,
     COMPUTER_USE_FAILURE_KINDS,
@@ -59,6 +60,7 @@ from computer_use_macos.client import _accessibility_query_script
 from computer_use_macos.client import _accessibility_query_worker_script
 from computer_use_macos.client import _accessibility_tree_snapshot_script
 from computer_use_macos.client import _normalize_accessibility_selector
+from computer_use_macos.client import _normalize_accessibility_query_request
 from computer_use_macos.helper import (
     HelperManifest,
     HelperManifestIdentityError,
@@ -1430,6 +1432,36 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)
         self.assertIn("return None", source)
+
+    def test_package_accessibility_query_uses_shared_depth_limit(self) -> None:
+        self.assertEqual(MAX_ACCESSIBILITY_QUERY_DEPTH, 8)
+
+        normalized = _normalize_accessibility_query_request(
+            target_app="WeChat",
+            bundle_id="com.tencent.xinWeChat",
+            root={"kind": "focusedWindow"},
+            query={
+                "scope": "descendants",
+                "maxDepth": MAX_ACCESSIBILITY_QUERY_DEPTH,
+            },
+            include_raw=False,
+        )
+
+        self.assertEqual(
+            normalized["query"]["maxDepth"],
+            MAX_ACCESSIBILITY_QUERY_DEPTH,
+        )
+        with self.assertRaisesRegex(ValueError, "query.maxDepth"):
+            _normalize_accessibility_query_request(
+                target_app="WeChat",
+                bundle_id="com.tencent.xinWeChat",
+                root={"kind": "focusedWindow"},
+                query={
+                    "scope": "descendants",
+                    "maxDepth": MAX_ACCESSIBILITY_QUERY_DEPTH + 1,
+                },
+                include_raw=False,
+            )
 
     def test_package_accessibility_query_worker_script_wraps_query_script(
         self,

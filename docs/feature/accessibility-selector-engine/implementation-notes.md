@@ -3209,3 +3209,81 @@ Result: 121 tests passed, 1 skipped.
 
 Result: passed. Ruff remains unavailable in the current environment. No live
 WeChat operation was required for deterministic cache/failure semantics.
+
+## F4 Remediation Slice 3: Collection Batch And Pagination Correctness
+
+Status: implemented and ready for a slice-scoped commit.
+
+Review findings closed:
+
+- `PRR-008`: combined item/field batch depth can no longer exceed the real
+  Accessibility query normalizer's maximum depth;
+- `PRR-009`: an N+1 limit probe is pagination evidence rather than an
+  incomplete-query failure when the accepted lookahead candidate is present.
+
+Implemented behavior:
+
+- `computer_use_macos.accessibility_limits` defines the package-private
+  `MAX_ACCESSIBILITY_QUERY_DEPTH = 8` used by the client normalizer, selector
+  profile validation, and collection batch planning;
+- selector profiles now reject a step depth outside `0..8`, preventing a valid
+  override from generating a request the client will reject;
+- batch field depth is
+  `min(MAX_ACCESSIBILITY_QUERY_DEPTH, item_depth + field_depth)`;
+- packaged contacts `8+3`, conversations `6+3`, and visible messages `6+3`
+  all generate depth 8 batch requests that pass the real client normalizer;
+- batch values remain keyed by owning item AX path; only missing values run an
+  item-rooted fallback with the field selector's own depth and limit;
+- batch and fallback query counts are accumulated separately during extraction
+  and their sum remains exposed through existing `diagnostics.query_count`;
+- item-query truncation normalizes its reason. `limit` plus at least N+1
+  accepted item candidates clears truncation, returns the first N items,
+  reports `has_more=true`, and remains `resolved`;
+- time-budget and other incomplete item or field queries remain `partial` when
+  complete items exist and `failed` otherwise, with
+  `selector_query_truncated` taking precedence over field-skip diagnostics;
+- pagination `returned` remains equal to the semantic item count when rows are
+  skipped.
+
+Public surface:
+
+- no new command, protocol schema, public selector API, or top-level package
+  export;
+- the maximum depth remains an internal implementation limit shared across
+  package modules.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/computer-use-macos/tests -p test_selectors.py
+```
+
+Result: 63 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests -p test_profiles.py
+```
+
+Result: 9 tests passed. Each packaged collection executed one normalized batch
+query, populated two owning-item cache entries, and used fewer field queries
+than unconditional per-item extraction.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest packages/computer-use-macos/tests/test_package.py
+```
+
+Result: 62 tests passed, 1 skipped.
+
+Full package discovery results:
+
+- `computer-use-macos`: 125 passed, 1 skipped;
+- `wechat-desktop-tool`: 114 passed.
+
+`py_compile` and `git diff --check` passed. Ruff remains unavailable in the
+current environment. No live WeChat operation was required for deterministic
+depth and pagination semantics.

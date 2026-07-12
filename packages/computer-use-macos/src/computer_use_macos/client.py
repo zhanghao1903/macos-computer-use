@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from app_control_protocol import AppControlConfig, HelperConfig
 
+from .accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
 from .commands import CommandResult, CommandRunner, SubprocessCommandRunner
 from .models import (
     ComputerUseOperation,
@@ -2418,7 +2419,7 @@ def _normalize_accessibility_query_request(
         query_payload.get("maxDepth"),
         default=1 if scope != "descendants" else 3,
         minimum=0,
-        maximum=8,
+        maximum=MAX_ACCESSIBILITY_QUERY_DEPTH,
         name="query.maxDepth",
     )
     query_payload["limit"] = _bounded_int(

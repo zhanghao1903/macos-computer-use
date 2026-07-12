@@ -193,6 +193,16 @@ class SelectorProfileTests(unittest.TestCase):
         ):
             parse_selector_profile(profile)
 
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["steps"][0]["max_depth"] = 9  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "max_depth must be between 0 and 8",
+        ):
+            parse_selector_profile(profile)
+
     def test_unknown_transform_is_rejected(self) -> None:
         profile = _valid_profile()
         fields = profile["collections"]["contacts"]["fields"]  # type: ignore[index]
@@ -456,14 +466,21 @@ class FakeQueryRunner:
         return self.payloads.pop(0)
 
 
-def _query_payload(nodes: list[dict[str, object]], *, truncated: bool = False) -> dict[str, object]:
+def _query_payload(
+    nodes: list[dict[str, object]],
+    *,
+    truncated: bool = False,
+    truncation_reason: str | None = None,
+) -> dict[str, object]:
     return {
         "schema": "macos.accessibility.query.v1",
         "snapshotId": "frontmost:Sample:Main",
         "nodes": nodes,
         "diagnostics": {
             "truncated": truncated,
-            "truncationReason": "limit reached" if truncated else None,
+            "truncationReason": (
+                truncation_reason or "limit" if truncated else None
+            ),
             "nodeCount": len(nodes),
         },
     }
@@ -1899,7 +1916,10 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.pagination.limit, 2)
         self.assertEqual(result.pagination.returned, 2)
         self.assertEqual(result.pagination.has_more, False)
+        self.assertFalse(result.diagnostics.truncated)
+        self.assertIsNone(result.diagnostics.failure_kind)
         self.assertEqual(result.diagnostics.query_count, 3)
+        self.assertLess(result.diagnostics.query_count, 4)
         self.assertEqual(result.diagnostics.node_count, 5)
         self.assertEqual(runner.calls[1]["root"], {"kind": "axPath", "axPath": "0/1"})
         self.assertEqual(
@@ -1907,6 +1927,7 @@ class CollectionExtractorTests(unittest.TestCase):
             {"kind": "axPath", "axPath": "0/1"},
         )
         self.assertEqual(runner.calls[2]["query"]["limit"], 20)
+        self.assertEqual(runner.calls[2]["query"]["maxDepth"], 3)
 
     def test_missing_required_field_returns_partial_collection(self) -> None:
         profile = parse_selector_profile(_valid_profile())
@@ -1953,6 +1974,74 @@ class CollectionExtractorTests(unittest.TestCase):
             result.diagnostics.message,
             "skipped 1 item(s); field failures 1",
         )
+
+    def test_capped_batch_depth_uses_item_rooted_field_fallback(self) -> None:
+        raw = _valid_profile()
+        contacts = raw["collections"]["contacts"]  # type: ignore[index]
+        item_step = contacts["item"]["steps"][0]  # type: ignore[index]
+        item_step["max_depth"] = 8  # type: ignore[index]
+        display_name = contacts["fields"]["displayName"]  # type: ignore[index]
+        field_step = display_name["selector"]["steps"][0]  # type: ignore[index]
+        field_step["max_depth"] = 3  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/deep/name",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=2,
+        )
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(
+            result.items,
+            ({"displayName": "Alice"}, {"displayName": "Bob"}),
+        )
+        self.assertEqual(result.diagnostics.query_count, 4)
+        self.assertEqual(runner.calls[2]["root"], {"kind": "axPath", "axPath": "0/1"})
+        self.assertEqual(runner.calls[2]["query"]["maxDepth"], 8)
+        self.assertEqual(
+            runner.calls[3]["root"],
+            {"kind": "axPath", "axPath": "0/11/1"},
+        )
+        self.assertEqual(runner.calls[3]["query"]["maxDepth"], 3)
+        self.assertEqual(runner.calls[3]["query"]["limit"], 10)
 
     def test_collection_diagnostics_policy_can_suppress_safe_counts(self) -> None:
         raw = _valid_profile()
@@ -2245,7 +2334,9 @@ class CollectionExtractorTests(unittest.TestCase):
                     [
                         {"axPath": "0/11/0", "role": "AXRow"},
                         {"axPath": "0/11/1", "role": "AXRow"},
-                    ]
+                    ],
+                    truncated=True,
+                    truncation_reason="limit",
                 ),
                 _query_payload(
                     [
@@ -2266,8 +2357,152 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.items, ({"displayName": "Alice"},))
         self.assertEqual(result.pagination.limit, 1)
         self.assertEqual(result.pagination.has_more, True)
+        self.assertFalse(result.diagnostics.truncated)
+        self.assertIsNone(result.diagnostics.truncation_reason)
+        self.assertIsNone(result.diagnostics.failure_kind)
         self.assertEqual(result.diagnostics.query_count, 3)
         self.assertEqual(runner.calls[1]["query"]["limit"], 2)
+
+    def test_limit_truncation_with_more_than_lookahead_is_complete(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                        {"axPath": "0/11/2", "role": "AXRow"},
+                    ],
+                    truncated=True,
+                    truncation_reason="limit",
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        },
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        },
+                        {
+                            "axPath": "0/11/2/0",
+                            "role": "AXStaticText",
+                            "value": "Carol",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=1,
+        )
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.items, ({"displayName": "Alice"},))
+        self.assertTrue(result.pagination.has_more)
+        self.assertFalse(result.diagnostics.truncated)
+        self.assertIsNone(result.diagnostics.failure_kind)
+
+    def test_time_budget_truncation_remains_partial_or_failed(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        partial_runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ],
+                    truncated=True,
+                    truncation_reason="time_budget",
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        },
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        partial = CollectionExtractor(
+            SelectorResolver(profile, partial_runner)
+        ).extract("contacts", limit=2)
+
+        self.assertEqual(partial.status, "partial")
+        self.assertEqual(len(partial.items), 2)
+        self.assertTrue(partial.diagnostics.truncated)
+        self.assertEqual(partial.diagnostics.truncation_reason, "time_budget")
+        self.assertEqual(
+            partial.diagnostics.failure_kind,
+            "selector_query_truncated",
+        )
+
+        failed_runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [],
+                    truncated=True,
+                    truncation_reason="time_budget",
+                ),
+            ]
+        )
+
+        failed = CollectionExtractor(
+            SelectorResolver(profile, failed_runner)
+        ).extract("contacts", limit=2)
+
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual(failed.items, ())
+        self.assertTrue(failed.diagnostics.truncated)
+        self.assertEqual(failed.diagnostics.truncation_reason, "time_budget")
+        self.assertEqual(
+            failed.diagnostics.failure_kind,
+            "selector_query_truncated",
+        )
 
     def test_collection_skips_invalid_candidates_before_filling_limit(self) -> None:
         profile = parse_selector_profile(_valid_profile())
@@ -2308,6 +2543,7 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.items, ({"displayName": "Bob"},))
         self.assertEqual(result.pagination.limit, 1)
         self.assertEqual(result.pagination.returned, 1)
+        self.assertEqual(result.pagination.returned, len(result.items))
         self.assertEqual(result.pagination.has_more, True)
         self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
         self.assertEqual(result.diagnostics.query_count, 4)

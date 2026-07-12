@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
 from .diagnostics import selector_diagnostics
 from .matching import (
     constraints_match,
@@ -112,8 +113,10 @@ class CollectionExtractor:
         items: list[dict[str, JsonValue]] = []
         skipped = 0
         field_failures = 0
-        field_query_count = batch_field_diagnostics.query_count
-        field_node_count = batch_field_diagnostics.node_count
+        batch_query_count = batch_field_diagnostics.query_count
+        fallback_query_count = 0
+        batch_node_count = batch_field_diagnostics.node_count
+        fallback_node_count = 0
         field_truncated = batch_field_diagnostics.truncated
         field_truncation_reason = batch_field_diagnostics.truncation_reason
         field_query_failure: SelectorDiagnostics | None = None
@@ -126,8 +129,8 @@ class CollectionExtractor:
                 debug=debug,
                 field_cache=field_cache,
             )
-            field_query_count += field_diagnostics.query_count
-            field_node_count += field_diagnostics.node_count
+            fallback_query_count += field_diagnostics.query_count
+            fallback_node_count += field_diagnostics.node_count
             if field_diagnostics.truncated:
                 field_truncated = True
                 field_truncation_reason = field_diagnostics.truncation_reason
@@ -142,8 +145,8 @@ class CollectionExtractor:
 
         if field_query_failure is not None:
             combined_field_diagnostics = selector_diagnostics(
-                query_count=field_query_count,
-                node_count=field_node_count,
+                query_count=batch_query_count + fallback_query_count,
+                node_count=batch_node_count + fallback_node_count,
                 failure_kind="selector_query_failed",
                 cause_failure_kind=field_query_failure.cause_failure_kind,
                 retryable=field_query_failure.retryable,
@@ -164,6 +167,8 @@ class CollectionExtractor:
         )
         if skipped or truncated:
             status = "partial" if items else "failed"
+        field_query_count = batch_query_count + fallback_query_count
+        field_node_count = batch_node_count + fallback_node_count
         diagnostics = selector_diagnostics(
             tried_selectors=(collection.root_selector_id,),
             query_count=(
@@ -181,11 +186,11 @@ class CollectionExtractor:
             truncation_reason=truncation_reason,
             cache_status=root.diagnostics.cache_status,
             failure_kind=(
-                "selector_field_missing"
-                if skipped
+                "selector_query_truncated"
+                if truncated
                 else (
-                    "selector_query_truncated"
-                    if truncated
+                    "selector_field_missing"
+                    if skipped
                     else item_diagnostics.failure_kind
                 )
             ),
@@ -257,21 +262,23 @@ class CollectionExtractor:
             if constraints_ok:
                 nodes.append(node)
         diagnostics = normalized.diagnostics
+        backend_truncated = bool(diagnostics.get("truncated", False))
+        backend_truncation_reason = _normalized_truncation_reason(diagnostics)
+        completed_lookahead = (
+            backend_truncated
+            and backend_truncation_reason == "limit"
+            and len(nodes) >= limit
+        )
+        truncated = backend_truncated and not completed_lookahead
         return nodes, selector_diagnostics(
             query_count=1,
             node_count=len(normalized.nodes),
-            truncated=bool(diagnostics.get("truncated", False)),
-            truncation_reason=(
-                str(
-                    diagnostics.get("truncationReason")
-                    or diagnostics.get("truncation_reason")
-                )
-                if diagnostics.get("truncated", False)
-                else None
-            ),
-            failure_kind=(
-                "selector_query_truncated"
-                if diagnostics.get("truncated", False)
+            truncated=truncated,
+            truncation_reason=backend_truncation_reason if truncated else None,
+            failure_kind="selector_query_truncated" if truncated else None,
+            message=(
+                f"collection item query truncated: {backend_truncation_reason}"
+                if truncated
                 else None
             ),
         )
@@ -376,12 +383,7 @@ class CollectionExtractor:
         diagnostics = normalized.diagnostics
         truncated = bool(diagnostics.get("truncated", False))
         truncation_reason = (
-            str(
-                diagnostics.get("truncationReason")
-                or diagnostics.get("truncation_reason")
-            )
-            if truncated
-            else None
+            _normalized_truncation_reason(diagnostics) if truncated else None
         )
         for node in normalized.nodes:
             matched, _ = match_node(node, match, self.resolver.profile.locale_aliases)
@@ -445,7 +447,10 @@ class CollectionExtractor:
                 root={"kind": "axPath", "axPath": root_path},
                 query={
                     "scope": "descendants",
-                    "maxDepth": item_step.max_depth + step.max_depth,
+                    "maxDepth": min(
+                        MAX_ACCESSIBILITY_QUERY_DEPTH,
+                        item_step.max_depth + step.max_depth,
+                    ),
                     "limit": max(len(item_paths), len(item_paths) * step.limit),
                     "timeBudgetMs": step.time_budget_ms,
                     "attributes": _query_attributes(step, field.selector.constraints),
@@ -476,11 +481,7 @@ class CollectionExtractor:
             diagnostics = normalized.diagnostics
             if diagnostics.get("truncated", False):
                 truncated = True
-                truncation_reason = str(
-                    diagnostics.get("truncationReason")
-                    or diagnostics.get("truncation_reason")
-                    or "query truncated"
-                )
+                truncation_reason = _normalized_truncation_reason(diagnostics)
             for node in normalized.nodes:
                 item_path = _owning_item_path(node, item_paths)
                 if item_path is None or (item_path, field_name) in cache:
@@ -703,6 +704,23 @@ def _collection_message(
     if parts:
         return "; ".join(parts)
     return "collection field extraction failed"
+
+
+def _normalized_truncation_reason(
+    diagnostics: Mapping[str, Any],
+) -> str:
+    raw_reason = diagnostics.get("truncationReason") or diagnostics.get(
+        "truncation_reason"
+    )
+    if not isinstance(raw_reason, str) or not raw_reason.strip():
+        return "query_truncated"
+    reason = raw_reason.strip()
+    normalized = reason.casefold().replace("-", "_").replace(" ", "_")
+    if normalized.startswith("limit"):
+        return "limit"
+    if normalized in {"timebudget", "time_budget_exceeded"}:
+        return "time_budget"
+    return normalized
 
 
 def _query_failure_diagnostics(

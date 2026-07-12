@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from ..accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
 from .models import (
     AccessibilitySelectorProfile,
     ActionDefinition,
@@ -190,8 +191,11 @@ def _validate_step(
 ) -> None:
     if step.scope not in STEP_SCOPES:
         raise SelectorProfileValidationError(f"{field_name}.scope is invalid")
-    if step.max_depth < 0:
-        raise SelectorProfileValidationError(f"{field_name}.max_depth must be >= 0")
+    if not 0 <= step.max_depth <= MAX_ACCESSIBILITY_QUERY_DEPTH:
+        raise SelectorProfileValidationError(
+            f"{field_name}.max_depth must be between 0 and "
+            f"{MAX_ACCESSIBILITY_QUERY_DEPTH}"
+        )
     if step.limit <= 0:
         raise SelectorProfileValidationError(f"{field_name}.limit must be > 0")
     if step.time_budget_ms <= 0:

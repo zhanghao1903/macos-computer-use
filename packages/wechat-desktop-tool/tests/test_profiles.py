@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
 import tempfile
+from typing import Any
 import unittest
 
+from computer_use_macos.accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
+from computer_use_macos.client import _normalize_accessibility_query_request
 from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_ID,
     DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE,
@@ -157,6 +161,87 @@ class WeChatSelectorProfileTests(unittest.TestCase):
         extractor = build_packaged_collection_extractor(resolver)
 
         self.assertIs(extractor.resolver, resolver)
+
+    def test_packaged_collection_batch_depths_pass_real_normalizer(self) -> None:
+        fixtures = {
+            "contacts": ("displayName", "Ada", 8, 3),
+            "conversations": ("rawLabel", "Ada,hello,09:00", 6, 3),
+            "visibleMessages": ("text", "hello", 6, 3),
+        }
+        for collection_id, fixture in fixtures.items():
+            with self.subTest(collection=collection_id):
+                field_name, field_value, item_depth, field_depth = fixture
+                normalized_requests: list[dict[str, Any]] = []
+                item_paths = ["0/items/0", "0/items/1"]
+
+                def query_runner(
+                    *,
+                    root: Mapping[str, Any],
+                    query: Mapping[str, Any],
+                    include_raw: bool = False,
+                ) -> dict[str, object]:
+                    normalized = _normalize_accessibility_query_request(
+                        target_app="WeChat",
+                        bundle_id="com.tencent.xinWeChat",
+                        root=root,
+                        query=query,
+                        include_raw=include_raw,
+                    )
+                    normalized_requests.append(normalized)
+                    return {
+                        "available": True,
+                        "snapshotId": "frontmost:WeChat:Main",
+                        "nodes": [
+                            {
+                                "axPath": f"{path}/0",
+                                "role": "AXStaticText",
+                                "value": field_value,
+                            }
+                            for path in item_paths
+                        ],
+                        "diagnostics": {"truncated": False},
+                    }
+
+                resolver = build_packaged_selector_resolver(query_runner)
+                extractor = build_packaged_collection_extractor(resolver)
+                collection = resolver.profile.collections[collection_id]
+                self.assertEqual(
+                    collection.item_selector.steps[0].max_depth,
+                    item_depth,
+                )
+                field_selector = collection.fields[field_name].selector
+                self.assertIsNotNone(field_selector)
+                assert field_selector is not None
+                self.assertEqual(field_selector.steps[0].max_depth, field_depth)
+                item_nodes = [
+                    {"axPath": path, "role": "AXRow"}
+                    for path in item_paths
+                ]
+
+                cache, diagnostics = extractor._batch_extract_fields(
+                    collection,
+                    "0/items",
+                    item_nodes,
+                    debug=False,
+                )
+
+                self.assertEqual(diagnostics.query_count, 1)
+                self.assertLess(diagnostics.query_count, len(item_nodes))
+                self.assertEqual(len(normalized_requests), 1)
+                query_payload = normalized_requests[0]["query"]
+                self.assertIsInstance(query_payload, Mapping)
+                self.assertLessEqual(
+                    query_payload["maxDepth"],
+                    MAX_ACCESSIBILITY_QUERY_DEPTH,
+                )
+                self.assertEqual(
+                    query_payload["maxDepth"],
+                    MAX_ACCESSIBILITY_QUERY_DEPTH,
+                )
+                self.assertEqual(
+                    [cache[(path, field_name)].value for path in item_paths],
+                    [field_value, field_value],
+                )
 
     def test_selector_profile_override_loads_from_path(self) -> None:
         packaged_text = (
