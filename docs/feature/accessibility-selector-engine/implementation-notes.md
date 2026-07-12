@@ -3495,3 +3495,54 @@ wheels contained no bytecode caches, installed and passed API smoke in a clean
 environment, and the mixed `0.2.0`/`0.1.1` dependency set remained rejected.
 The build used temporary staged paths and did not delete or rewrite generated
 files in the developer worktree.
+
+## F5 Live Corrective Slice: AX Frame Edge Rounding
+
+Status: implemented after the exact-head moved/resized-window smoke exposed a
+one-point WeChat AX frame discrepancy; targeted tests passed and an exact-head
+live rerun remains required.
+
+Live failure evidence:
+
+- the first proof-v2 run passed system open, readiness, `open_wechat`, and
+  `inspect_window`, then failed closed at `list_conversations` with
+  `wechat_navigation_failed`;
+- the queried Chats control was the expected enabled `AXRadioButton`, had the
+  localized `聊天` label, exposed `AXPress`, and belonged to the current WeChat
+  `AXWindow`;
+- WeChat reported the window left edge at `x=307` and the navigation control
+  left edge at `x=306`, while the control center remained inside the window;
+- strict zero-tolerance rectangle containment rejected the target before any
+  press or coordinate click.
+
+Implemented behavior:
+
+- mapped navigation accepts at most one Accessibility point of edge rounding
+  around the current window frame;
+- the action center must still lie strictly within the reported window bounds;
+- missing, non-finite, empty, disabled, wrong-app, or more-than-one-point
+  outside frames continue to fail closed;
+- packaged fixed coordinates remain ignored, and any coordinate action still
+  comes only from the current validated AX frame and requires a semantic
+  postcondition.
+
+Public and compatibility impact:
+
+- no public API, command, schema, config, or failure kind changed;
+- this only prevents a valid current WeChat control from being rejected due to
+  macOS AX border rounding.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: 103 tests passed. Dedicated cases accept exactly one point of edge
+rounding and reject a 1.1-point edge overrun alongside the existing missing,
+empty, disabled, wrong-app, and far-outside frame cases.
+
+The failed public proof and private diagnostic remain under `/private/tmp` and
+are not tracked. They do not satisfy F5 because the run failed before any
+collection or target-postcondition evidence was produced.

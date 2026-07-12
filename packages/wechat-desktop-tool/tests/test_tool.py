@@ -1691,6 +1691,48 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/2")
 
+    def test_mapped_navigation_accepts_one_point_window_edge_rounding(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _mapped_navigation_frame_response(
+                    ax_path="0/2",
+                    label="通讯录",
+                    x=-1,
+                    y=20,
+                    width=40,
+                    height=30,
+                    actionable=False,
+                ),
+                _coordinate_click_response(),
+                _mapped_navigation_frame_response(
+                    ax_path="0/2",
+                    label="通讯录",
+                    selected=True,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/12/2/0/0/0/1",
+                            "AXStaticText",
+                            value="Ada",
+                        )
+                    ]
+                ),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).list_contacts(limit=1)
+
+        self.assertTrue(result.success)
+        self.assertEqual(app_control.commands[3].operation, "click")
+        self.assertEqual(
+            app_control.commands[3].input["coordinates"],
+            {"x": 19, "y": 35},
+        )
+
     def test_mapped_navigation_ignores_packaged_screen_coordinates(self) -> None:
         profile_text = (
             resources.files("wechat_desktop_tool")
@@ -1766,6 +1808,12 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 ax_path="0/2",
                 label="通讯录",
                 x=2_000,
+                y=20,
+            ),
+            "outside_window_edge_tolerance": _mapped_navigation_frame_response(
+                ax_path="0/2",
+                label="通讯录",
+                x=-1.1,
                 y=20,
             ),
             "empty_target_frame": _mapped_navigation_frame_response(

@@ -54,6 +54,7 @@ _SENSITIVE_INPUT_KEYS = {"text", "message"}
 _MAPPED_NAVIGATION_ACTION_TIMEOUT_MS = 2_000
 _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS = 800
 _MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
+_MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS = 1.0
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -3719,11 +3720,20 @@ def _node_frame_within_query_window(
         return False
     node_x, node_y, node_width, node_height = node_frame
     window_x, window_y, window_width, window_height = window_frame
+    node_right = node_x + node_width
+    node_bottom = node_y + node_height
+    window_right = window_x + window_width
+    window_bottom = window_y + window_height
+    node_center_x = node_x + node_width / 2
+    node_center_y = node_y + node_height / 2
+    tolerance = _MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS
     return (
-        node_x >= window_x
-        and node_y >= window_y
-        and node_x + node_width <= window_x + window_width
-        and node_y + node_height <= window_y + window_height
+        window_x < node_center_x < window_right
+        and window_y < node_center_y < window_bottom
+        and node_x >= window_x - tolerance
+        and node_y >= window_y - tolerance
+        and node_right <= window_right + tolerance
+        and node_bottom <= window_bottom + tolerance
     )
 
 
