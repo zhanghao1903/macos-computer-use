@@ -3726,3 +3726,69 @@ GitHub Actions run `29196280097`, job `86659712229`, passed the same source head
 in 2m25s.
 
 F6 new-head review and merge-readiness refresh are now unblocked.
+
+## F6 Review Remediation: Public Focus, Target Identity, Row Identity, And Pagination
+
+Status: F4 implementation and deterministic verification complete. Authorized
+live send proof was attempted but did not execute because the Codex local-action
+approval service rejected the escalation after its usage limit was reached. No
+message was sent by that attempt.
+
+Findings addressed:
+
+- `PRR-013`: public `focus_contact` now delegates to the same verified
+  `open_contact` control-map/selector flow used by semantic contact opening.
+  `send_message` therefore verifies the target chat before drafting or
+  submitting and no longer enters the obsolete `Command+F`/coarse-observe
+  sequence.
+- `PRR-014`: `accessibility_query` and `accessibility_action` now validate an
+  explicit target against the configured app allowlist, infer its configured
+  bundle id when available, and require a target-app-only request to match the
+  frontmost application when no bundle identity is available.
+- `PRR-015`: executable `AXRow` actionRefs require a concrete row label and
+  carry that label in `preconditions.labelIn`. Execution rejects row refs that
+  lack matching identity evidence before any backend or selector fallback.
+  Parsed conversation items retain the original AX row label for execution
+  while continuing to expose a semantic `displayName`.
+- `PRR-016`: contact and conversation lists explicitly report
+  `pagination.mode="visibleWindow"`, always return `nextPageToken=null`, and
+  reject non-null page tokens with `pagination_not_supported`. The APIs no
+  longer advertise a cursor that cannot advance UI state.
+
+Additional integration work:
+
+- dry-run app-control responses now model the selector-backed visible-contact
+  query, action, and target-title verification path;
+- CLI help and recovery guidance describe verified selector-backed contact
+  selection rather than a search shortcut;
+- release preflight and the root SDK contract test now validate the new
+  selector-backed command sequence;
+- new stable failure kinds are `wechat_action_target_unverified` and
+  `pagination_not_supported`.
+
+Compatibility notes:
+
+- public method names and command schemas are unchanged;
+- `focus_contact` retains its existing result fields and adds the nested
+  `openContact` semantic result as evidence;
+- `search_hotkey`, `search_clear_hotkey`, and `clear_key` remain accepted in
+  shared configuration for compatibility, but normal public contact switching
+  no longer depends on them;
+- callers that previously replayed a synthetic list token must stop and refresh
+  the visible window instead. A non-null token now fails explicitly rather than
+  returning a duplicate first page.
+
+Deterministic proof:
+
+- root suite: 127 tests passed;
+- `app-control-protocol`: 55 tests passed;
+- `computer-use-macos`: 128 tests passed, with one platform-conditional skip;
+- `wechat-desktop-tool`: 122 tests passed;
+- release preflight, `compileall`, and `git diff --check` passed;
+- Ruff was unavailable in the current environment;
+- strict mypy still reports the repository's existing broad baseline (184
+  errors across 15 files), so it is not a passing gate for this slice.
+
+The remaining F5 evidence is one real `send_message` call to
+`文件传输助手` through the restarted local service. It must be run exactly once;
+an unknown post-submit result must not be retried.

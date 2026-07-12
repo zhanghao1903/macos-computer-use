@@ -1905,13 +1905,9 @@ def _validate_wechat_dry_run(payload: dict[str, Any], root: Path) -> None:
     expected = [
         "open_app",
         "observe",
-        "hotkey",
-        "observe",
-        "hotkey",
-        "press_key",
-        "type_text",
-        "press_key",
-        "observe",
+        "accessibility_query",
+        "accessibility_action",
+        "accessibility_query",
         "type_text",
     ]
     if operations != expected:

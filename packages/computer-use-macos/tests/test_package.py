@@ -1197,6 +1197,75 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(runner.timeouts[0], 15.0)
         self.assertEqual(request["query"]["timeBudgetMs"], 10_000)
 
+    def test_accessibility_query_uses_configured_bundle_for_target_app(self) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.query.v1",
+                    "available": True,
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "app": {
+                        "name": "TextEdit",
+                        "bundleId": "com.apple.TextEdit",
+                        "pid": 123,
+                    },
+                    "window": {"title": "Current", "role": "AXWindow"},
+                    "root": {"axPath": "0"},
+                    "nodes": [],
+                    "diagnostics": {"truncated": False, "nodeCount": 0},
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {
+                        "TextEdit": "com.apple.TextEdit",
+                    },
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="TextEdit",
+                root={"kind": "focusedWindow"},
+                command_id="cmd_query_inferred_bundle",
+            )
+        )
+
+        self.assertTrue(observation.success)
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(request["targetApp"], "TextEdit")
+        self.assertEqual(request["bundleId"], "com.apple.TextEdit")
+
+    def test_accessibility_query_rejects_unallowlisted_target_before_worker(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        client = ComputerUseClient.from_config(
+            {"computer_use": {"backend": "direct", "allowed_apps": ["TextEdit"]}},
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_query_command(
+                target_app="WeChat",
+                root={"kind": "focusedWindow"},
+                command_id="cmd_query_unallowlisted",
+            )
+        )
+
+        self.assertFalse(observation.success)
+        self.assertEqual(observation.status, ToolStatus.FAILED)
+        self.assertEqual(runner.calls, [])
+
     def test_package_local_client_supports_accessibility_action_protocol(
         self,
     ) -> None:
@@ -1263,6 +1332,56 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(request["preconditions"]["labelIn"], ["OK"])
         self.assertEqual(action["target"]["role"], "AXButton")
         self.assertEqual(action["method"], "AXUIElementPerformAction")
+
+    def test_accessibility_action_uses_configured_bundle_for_target_app(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": True,
+                    "status": "ok",
+                    "snapshotId": "frontmost:TextEdit:Current",
+                    "action": "AXPress",
+                    "actionAttempted": True,
+                    "target": {
+                        "axPath": "0/1",
+                        "role": "AXButton",
+                        "label": "OK",
+                        "actions": ["AXPress"],
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {
+                        "TextEdit": "com.apple.TextEdit",
+                    },
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                ax_path="0/1",
+                action="AXPress",
+                command_id="cmd_action_inferred_bundle",
+            )
+        )
+
+        self.assertTrue(observation.success)
+        request = json.loads(runner.calls[0][-1])
+        self.assertEqual(request["targetApp"], "TextEdit")
+        self.assertEqual(request["bundleId"], "com.apple.TextEdit")
 
     def test_package_local_client_supports_accessibility_action_axrow_target(
         self,
@@ -1429,6 +1548,11 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn('raw_path.startswith("app/")', source)
         self.assertIn('not raw_root_path.startswith("app/")', source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
+        self.assertIn("app_matches_name(frontmost, target_app)", source)
+        self.assertIn(
+            '"accessibility_query_target_app_not_frontmost"',
+            source,
+        )
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)
         self.assertIn("return None", source)
@@ -1492,6 +1616,8 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn('action == "AXPress" and role == "AXRow"', source)
         self.assertIn("resolve_ax_path", source)
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
+        self.assertIn("app_matches_name(frontmost, target_app)", source)
+        self.assertIn('"target_app_not_frontmost"', source)
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn("return None", source)
 

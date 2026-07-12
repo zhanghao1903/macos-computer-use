@@ -1099,6 +1099,16 @@ class MacOSComputerUseClient:
                 metadata={"readiness": readiness.to_dict()},
             )
 
+        allowlist_failure = self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_QUERY,
+            target_app,
+            bundle_id,
+            require_identity=False,
+        )
+        if allowlist_failure is not None:
+            return allowlist_failure
+        bundle_id = self._effective_accessibility_bundle_id(target_app, bundle_id)
+
         request = _normalize_accessibility_query_request(
             target_app=target_app,
             bundle_id=bundle_id,
@@ -1252,12 +1262,15 @@ class MacOSComputerUseClient:
                 "macOS Accessibility action is unavailable until readiness is ready.",
                 metadata={"readiness": readiness.to_dict()},
             )
-        allowlist_failure = self._accessibility_action_allowlist_failure(
+        allowlist_failure = self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
             target_app,
             bundle_id,
+            require_identity=True,
         )
         if allowlist_failure is not None:
             return allowlist_failure
+        bundle_id = self._effective_accessibility_bundle_id(target_app, bundle_id)
 
         request = _normalize_accessibility_action_request(
             target_app=target_app,
@@ -1378,24 +1391,41 @@ class MacOSComputerUseClient:
         target_app: str | None,
         bundle_id: str | None,
     ) -> ComputerUseResult | None:
+        return self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
+            target_app,
+            bundle_id,
+            require_identity=True,
+        )
+
+    def _accessibility_target_allowlist_failure(
+        self,
+        operation: ComputerUseOperation,
+        target_app: str | None,
+        bundle_id: str | None,
+        *,
+        require_identity: bool,
+    ) -> ComputerUseResult | None:
         metadata = _target_identity_metadata(target_app, bundle_id)
         if target_app is None and bundle_id is None:
+            if not require_identity:
+                return None
             return ComputerUseResult.needs_user(
-                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                operation,
                 "target_app or bundle_id is required for Accessibility action.",
                 metadata=metadata,
             )
         if target_app is not None:
             if target_app not in self._allowed_apps:
                 return ComputerUseResult.blocked(
-                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    operation,
                     f"App is not allowlisted: {target_app}",
                     metadata=metadata,
                 )
             expected_bundle_id = self._allowed_apps.get(target_app)
             if expected_bundle_id and bundle_id and expected_bundle_id != bundle_id:
                 return ComputerUseResult.blocked(
-                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    operation,
                     f"App bundle id is not allowlisted: {bundle_id}",
                     metadata={
                         **metadata,
@@ -1408,11 +1438,23 @@ class MacOSComputerUseClient:
         }
         if bundle_id not in allowed_bundle_ids:
             return ComputerUseResult.blocked(
-                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                operation,
                 f"App bundle id is not allowlisted: {bundle_id}",
                 metadata=metadata,
             )
         return None
+
+    def _effective_accessibility_bundle_id(
+        self,
+        target_app: str | None,
+        bundle_id: str | None,
+    ) -> str | None:
+        if bundle_id is not None:
+            return bundle_id
+        if target_app is None:
+            return None
+        expected_bundle_id = self._allowed_apps.get(target_app)
+        return expected_bundle_id if isinstance(expected_bundle_id, str) else None
 
     def type_text(
         self,
@@ -3082,6 +3124,13 @@ def app_matches_bundle(app: Any, bundle_id: str) -> bool:
         return False
 
 
+def app_matches_name(app: Any, app_name: str) -> bool:
+    try:
+        return str(app.localizedName() or "").casefold() == app_name.casefold()
+    except Exception:
+        return False
+
+
 def app_is_usable(app: Any) -> bool:
     try:
         return not bool(app.isTerminated())
@@ -3091,6 +3140,7 @@ def app_is_usable(app: Any) -> bool:
 
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
     frontmost = workspace.frontmostApplication()
     if bundle_id:
@@ -3114,6 +3164,17 @@ def selected_running_app() -> Any:
         fail(
             "accessibility_query_target_app_not_running",
             f"No running app found for bundle id: {bundle_id}",
+        )
+    if target_app:
+        if (
+            frontmost is not None
+            and app_matches_name(frontmost, target_app)
+            and app_is_usable(frontmost)
+        ):
+            return frontmost
+        fail(
+            "accessibility_query_target_app_not_frontmost",
+            f"Target app is not frontmost: {target_app}",
         )
     return frontmost
 
@@ -3891,6 +3952,13 @@ def app_matches_bundle(app: Any, bundle_id: str) -> bool:
         return False
 
 
+def app_matches_name(app: Any, app_name: str) -> bool:
+    try:
+        return str(app.localizedName() or "").casefold() == app_name.casefold()
+    except Exception:
+        return False
+
+
 def app_is_usable(app: Any) -> bool:
     try:
         return not bool(app.isTerminated())
@@ -3900,6 +3968,7 @@ def app_is_usable(app: Any) -> bool:
 
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
     frontmost = workspace.frontmostApplication()
     if bundle_id:
@@ -3923,6 +3992,17 @@ def selected_running_app() -> Any:
         fail(
             "target_app_not_running",
             f"No running app found for bundle id: {bundle_id}",
+        )
+    if target_app:
+        if (
+            frontmost is not None
+            and app_matches_name(frontmost, target_app)
+            and app_is_usable(frontmost)
+        ):
+            return frontmost
+        fail(
+            "target_app_not_frontmost",
+            f"Target app is not frontmost: {target_app}",
         )
     return frontmost
 

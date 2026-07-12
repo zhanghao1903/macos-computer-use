@@ -78,8 +78,8 @@ def _add_send_message_parser(
         "--allow-focus-select",
         action="store_true",
         help=(
-            "allow the example to press the configured submit key to select a "
-            "contact search result"
+            "allow the example to switch to the requested contact through the "
+            "verified selector-backed open_contact flow"
         ),
     )
 
@@ -302,8 +302,8 @@ def _focus_current_chat_for_example(
             ),
             recovery_hint=(
                 "Open the target chat manually, or rerun with "
-                "--allow-focus-select after confirming the search shortcut is safe "
-                "for this WeChat version."
+                "--allow-focus-select to use verified selector-backed contact "
+                "selection."
             ),
             retryable=True,
             phase="focus_contact",
@@ -390,9 +390,9 @@ def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
 
 
 class DryRunAppControl:
-    def __init__(self) -> None:
+    def __init__(self, *, contact: str | None = None) -> None:
         self.commands: list[ToolCommand] = []
-        self._last_typed_text: str | None = None
+        self._contact = contact
 
     def run_command(
         self,
@@ -403,10 +403,6 @@ class DryRunAppControl:
         del observer
         tool_command = _coerce_command(command)
         self.commands.append(tool_command)
-        if tool_command.operation == "type_text":
-            text = tool_command.input.get("text")
-            if isinstance(text, str) and text:
-                self._last_typed_text = text
         observation: dict[str, Any] = {
             "input": tool_command.input,
             "dryRun": True,
@@ -435,8 +431,11 @@ class DryRunAppControl:
                         },
                     },
                 }
-            elif phase == "verify_contact" and self._last_typed_text is not None:
-                observation["windowTitle"] = f"{self._last_typed_text} - WeChat"
+        elif tool_command.operation == "accessibility_query":
+            observation["accessibilityQuery"] = self._accessibility_query_payload(
+                tool_command,
+                phase=phase,
+            )
         return ToolObservation.ok(
             command_id=tool_command.command_id,
             tool=tool_command.tool,
@@ -444,6 +443,86 @@ class DryRunAppControl:
             summary=f"dry-run app-control command: {tool_command.operation}",
             observation=observation,
         )
+
+    def _accessibility_query_payload(
+        self,
+        command: ToolCommand,
+        *,
+        phase: object,
+    ) -> dict[str, Any]:
+        contact = self._contact or "Dry Run Contact"
+        nodes: list[dict[str, Any]] = []
+        if isinstance(phase, str) and phase.startswith(
+            "control_map_conversation_target_"
+        ):
+            nodes.append(
+                {
+                    "axPath": "0/12/1/0/0",
+                    "role": "AXRow",
+                    "description": f"{contact},dry-run preview,09:00",
+                    "frame": {
+                        "x": 330,
+                        "y": 120,
+                        "width": 270,
+                        "height": 64,
+                    },
+                    "actions": ["AXPress"],
+                    "childrenCount": 0,
+                }
+            )
+        elif isinstance(phase, str) and phase.startswith("verify_contact"):
+            nodes.append(
+                {
+                    "axPath": "0/12/4/2",
+                    "role": "AXStaticText",
+                    "value": contact,
+                    "frame": {
+                        "x": 650,
+                        "y": 120,
+                        "width": 180,
+                        "height": 24,
+                    },
+                    "childrenCount": 0,
+                }
+            )
+
+        target_app = str(command.input.get("targetApp") or "WeChat")
+        bundle_id = str(
+            command.input.get("bundleId") or "com.tencent.xinWeChat"
+        )
+        root = command.input.get("root")
+        normalized_root = (
+            dict(root)
+            if isinstance(root, Mapping)
+            else {"kind": "focusedWindow", "axPath": "0"}
+        )
+        normalized_root.setdefault("axPath", "0")
+        return {
+            "schema": "macos.accessibility.query.v1",
+            "available": True,
+            "snapshotId": f"frontmost:{target_app}:微信 (聊天)",
+            "app": {
+                "name": target_app,
+                "bundleId": bundle_id,
+                "pid": 123,
+            },
+            "window": {
+                "title": "微信 (聊天)",
+                "role": "AXWindow",
+                "frame": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 1_440,
+                    "height": 900,
+                },
+            },
+            "root": normalized_root,
+            "nodes": nodes,
+            "diagnostics": {
+                "returnedNodes": len(nodes),
+                "truncated": False,
+            },
+        }
 
 
 class LocalServiceAppControl:
@@ -521,7 +600,7 @@ def _app_control_for_args(
     if args.token and args.token_file:
         raise ValueError("--token and --token-file are mutually exclusive")
     if args.dry_run:
-        return DryRunAppControl()
+        return DryRunAppControl(contact=getattr(args, "contact", None))
 
     socket_path = args.socket_path
     token = args.token

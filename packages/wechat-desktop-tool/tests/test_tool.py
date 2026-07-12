@@ -838,6 +838,36 @@ def _normalized_row(
     )
 
 
+def _visible_open_contact_responses(
+    contact: str,
+    *,
+    app_bundle_id: str = "com.tencent.xinWeChat",
+) -> list[dict[str, Any]]:
+    row_label = f"{contact},hello,09:00"
+    return [
+        {},
+        _accessibility_query_response(
+            [_normalized_row("0/12/1/0/0", row_label)],
+            app_bundle_id=app_bundle_id,
+        ),
+        _accessibility_action_response(
+            ax_path="0/12/1/0/0",
+            role="AXRow",
+            label=row_label,
+        ),
+        _accessibility_query_response(
+            [
+                _normalized_node(
+                    "0/12/4/2",
+                    "AXStaticText",
+                    value=contact,
+                )
+            ],
+            app_bundle_id=app_bundle_id,
+        ),
+    ]
+
+
 def _top_level_query_response(
     *,
     chats_selected: bool = True,
@@ -1002,7 +1032,9 @@ class WeChatDesktopToolTests(unittest.TestCase):
         from wechat_desktop_tool import adapter, observations, recipes
         from wechat_desktop_tool.models import WeChatWindow as ModelWeChatWindow
 
-        app_control = FakeAppControl()
+        app_control = FakeAppControl(
+            _visible_open_contact_responses("Ada") + [{}, {}]
+        )
         tool = build_wechat_tool(app_control)
 
         self.assertIsInstance(tool, WeChatDesktopTool)
@@ -1400,7 +1432,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         tool = WeChatDesktopTool(app_control)
 
-        result = tool.list_contacts(limit=2, page_token="contacts:next:snapshot")
+        result = tool.list_contacts(limit=2)
 
         self.assertTrue(result.success)
         self.assertEqual(result.operation, "list_contacts")
@@ -1420,8 +1452,12 @@ class WeChatDesktopToolTests(unittest.TestCase):
             "AXRow",
         )
         self.assertEqual(result.observation["pagination"]["limit"], 2)
+        self.assertEqual(
+            result.observation["pagination"]["mode"],
+            "visibleWindow",
+        )
         self.assertEqual(result.observation["pagination"]["hasMore"], True)
-        self.assertIsNotNone(result.observation["pagination"]["nextPageToken"])
+        self.assertIsNone(result.observation["pagination"]["nextPageToken"])
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
@@ -1969,6 +2005,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(rows[0]["actionRef"]["action"], "AXPress")
         self.assertEqual(rows[0]["actionRef"]["target"]["role"], "AXRow")
         self.assertEqual(rows[0]["actionRef"]["target"]["actions"], ["AXPress"])
+        self.assertEqual(
+            rows[0]["actionRef"]["preconditions"]["labelIn"],
+            ["文件传输助手,hello,09:00,置顶"],
+        )
         self.assertIn("createdAt", rows[0]["actionRef"])
         self.assertIn("expiresAt", rows[0]["actionRef"])
         self.assertEqual(rows[1]["displayName"], "目标联系人")
@@ -1993,6 +2033,60 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["AXRow", "AXCell", "AXStaticText"],
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
+
+    def test_visible_window_list_does_not_publish_false_continuation_token(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/11/1/0/0",
+                            "Ada,first,09:00",
+                        ),
+                        _normalized_row(
+                            "0/11/1/0/1",
+                            "Bob,second,09:01",
+                            y=184,
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).list_conversations(limit=1)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.observation["pagination"],
+            {
+                "mode": "visibleWindow",
+                "limit": 1,
+                "pageToken": None,
+                "hasMore": True,
+                "nextPageToken": None,
+            },
+        )
+        self.assertEqual(
+            [item["displayName"] for item in result.observation["items"]],
+            ["Ada"],
+        )
+
+    def test_visible_window_list_rejects_unsupported_page_token(self) -> None:
+        app_control = FakeAppControl()
+
+        result = WeChatDesktopTool(app_control).list_contacts(
+            limit=30,
+            page_token="contacts:next:stale",
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "pagination_not_supported")
+        self.assertEqual(result.recovery_hint, "Retry without pageToken.")
+        self.assertEqual(result.observation["pagination"]["nextPageToken"], None)
+        self.assertEqual(app_control.commands, [])
 
     def test_list_conversations_skips_press_when_current_nav_node_is_selected(
         self,
@@ -2210,6 +2304,80 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertIn("execute_action", result.error.evidence)
         self.assertNotIn("execute_action:selector_fallback", result.error.evidence)
+
+    def test_execute_action_rejects_row_without_identity_precondition(
+        self,
+    ) -> None:
+        app_control = FakeAppControl([_accessibility_action_response()])
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "chats.visible.0.open",
+            "kind": "chats.open",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/12/1/0/0",
+                "role": "AXRow",
+                "label": "Ada,hello,09:00",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRow"],
+                "actionIn": ["AXPress"],
+            },
+            "fallbacks": [
+                {
+                    "method": "selector_click",
+                    "selector": {"role": "AXRow", "name": "Ada,hello,09:00"},
+                }
+            ],
+        }
+
+        result = WeChatDesktopTool(app_control).execute_action(action_ref)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_precondition_failed")
+        self.assertEqual(result.observation["actionId"], "chats.visible.0.open")
+        self.assertEqual(app_control.commands, [])
+
+    def test_execute_action_accepts_row_with_matching_identity_precondition(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                _accessibility_action_response(
+                    ax_path="0/12/1/0/0",
+                    role="AXRow",
+                    label="Ada,hello,09:00",
+                )
+            ]
+        )
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "chats.visible.0.open",
+            "kind": "chats.open",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/12/1/0/0",
+                "role": "AXRow",
+                "label": "Ada,hello,09:00",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRow"],
+                "labelIn": ["Ada,hello,09:00"],
+                "actionIn": ["AXPress"],
+            },
+        }
+
+        result = WeChatDesktopTool(app_control).execute_action(action_ref)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            app_control.commands[0].input["preconditions"]["labelIn"],
+            ["Ada,hello,09:00"],
+        )
 
     def test_execute_action_rejects_expired_action_ref_before_backend(self) -> None:
         expired_at = (
@@ -2513,7 +2681,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[3].input["action"], "AXPress")
-        self.assertNotIn("labelIn", app_control.commands[3].input["preconditions"])
+        self.assertEqual(
+            app_control.commands[3].input["preconditions"]["labelIn"],
+            ["文件传输助手,hello,09:00,置顶"],
+        )
         self.assertNotIn(
             "type_text",
             [command.operation for command in app_control.commands],
@@ -3346,24 +3517,9 @@ class WeChatDesktopToolTests(unittest.TestCase):
             "Log in to WeChat Desktop before running this command.",
         )
 
-    def test_focus_contact_runs_search_sequence(self) -> None:
+    def test_focus_contact_delegates_to_verified_open_contact(self) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "windowTitle": "File Transfer - WeChat",
-                    }
-                },
-            ]
+            _visible_open_contact_responses("File Transfer")
         )
         tool = WeChatDesktopTool(app_control)
 
@@ -3376,52 +3532,29 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
-        self.assertEqual(
-            app_control.commands[2].input["bundleId"],
-            "com.tencent.xinWeChat",
-        )
-        self.assertEqual(app_control.commands[3].input["includeAccessibility"], True)
-        self.assertEqual(app_control.commands[3].input["includeVisibleText"], True)
-        self.assertEqual(app_control.commands[4].input["keys"], ["Command", "A"])
-        self.assertEqual(app_control.commands[5].input["key"], "Delete")
-        self.assertEqual(app_control.commands[6].input["text"], "File Transfer")
-        self.assertEqual(app_control.commands[7].input["key"], "Return")
-        self.assertEqual(app_control.commands[8].input["includeVisibleText"], True)
         self.assertEqual(result.observation["currentChatTitle"], "File Transfer")
         self.assertEqual(result.observation["confidence"], 0.95)
+        self.assertEqual(result.observation["openContact"]["status"], "opened")
+        self.assertNotIn(
+            "hotkey",
+            [command.operation for command in app_control.commands],
+        )
 
-    def test_focus_contact_reports_ambiguous_search_results(self) -> None:
+    def test_focus_contact_propagates_open_contact_ambiguity(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                    }
-                },
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "contactMatches": [
-                            {"displayName": "Ada"},
-                            {"displayName": "Ada Lovelace"},
-                        ]
-                    }
-                },
+                _accessibility_query_response(
+                    [
+                        _normalized_row("0/12/1/0/0", "Ada,first,09:00"),
+                        _normalized_row("0/12/1/0/1", "Ada,second,09:01", y=184),
+                    ]
+                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -3432,214 +3565,18 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.status, ToolStatus.NOT_FOUND)
         self.assertEqual(result.failure_kind, "contact_ambiguous")
         self.assertEqual(
-            result.observation["candidateContacts"],
-            ["Ada", "Ada Lovelace"],
+            [item["displayName"] for item in result.observation["candidates"]],
+            ["Ada", "Ada"],
         )
+        self.assertEqual(result.observation["failedPhase"], "open_contact")
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
+                "accessibility_query",
             ],
         )
-
-    def test_focus_contact_unknown_search_focus_never_types_or_presses_return(
-        self,
-    ) -> None:
-        cases = {
-            "no_accessibility_snapshot": {},
-            "accessibility_snapshot_unavailable": {
-                "accessibility": {
-                    "available": False,
-                    "failureKind": "accessibility_snapshot_timeout",
-                }
-            },
-            "no_focused_element": {
-                "accessibility": {
-                    "available": True,
-                }
-            },
-            "focused_text_field_is_not_identifiable": {
-                "accessibility": {
-                    "available": True,
-                    "focusedElement": {
-                        "role": "AXTextField",
-                        "roleDescription": "text field",
-                        "frame": {
-                            "x": 400,
-                            "y": 400,
-                            "width": 240,
-                            "height": 28,
-                        },
-                    },
-                    "textFields": [],
-                }
-            },
-        }
-        for expected_reason, extra_observation in cases.items():
-            with self.subTest(reason=expected_reason):
-                focus_observation = {
-                    "frontmostApp": "WeChat",
-                    "frontmostBundleId": "com.tencent.xinWeChat",
-                    "windowTitle": "微信 (聊天)",
-                    **extra_observation,
-                }
-                app_control = FakeAppControl(
-                    [
-                        {},
-                        {
-                            "observation": {
-                                "frontmostApp": "WeChat",
-                                "frontmostBundleId": "com.tencent.xinWeChat",
-                                "windowTitle": "微信 (聊天)",
-                            }
-                        },
-                        {},
-                        {"observation": focus_observation},
-                    ]
-                )
-                result = WeChatDesktopTool(app_control).focus_contact("Ada")
-
-                self.assertFalse(result.success)
-                self.assertEqual(result.failure_kind, "search_not_focused")
-                self.assertEqual(
-                    result.observation["searchFocus"]["reason"],
-                    expected_reason,
-                )
-                operations = [command.operation for command in app_control.commands]
-                self.assertEqual(
-                    operations,
-                    ["open_app", "observe", "hotkey", "observe"],
-                )
-                self.assertNotIn("type_text", operations)
-                self.assertNotIn("press_key", operations)
-
-    def test_focus_contact_stops_when_accessibility_focus_is_chat_input(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "accessibility": {
-                            "available": True,
-                            "focusedElement": {
-                                "role": "AXTextArea",
-                                "roleDescription": "text area",
-                                "frame": {
-                                    "x": 520,
-                                    "y": 700,
-                                    "width": 460,
-                                    "height": 120,
-                                },
-                            },
-                            "textFields": [
-                                {
-                                    "role": "AXTextField",
-                                    "roleDescription": "search field",
-                                    "frame": {
-                                        "x": 80,
-                                        "y": 120,
-                                        "width": 240,
-                                        "height": 28,
-                                    },
-                                },
-                                {
-                                    "role": "AXTextArea",
-                                    "roleDescription": "text area",
-                                    "frame": {
-                                        "x": 520,
-                                        "y": 700,
-                                        "width": 460,
-                                        "height": 120,
-                                    },
-                                },
-                            ],
-                        }
-                    }
-                },
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.focus_contact("Ada")
-
-        self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_READY)
-        self.assertEqual(result.failure_kind, "search_not_focused")
-        self.assertEqual(
-            result.observation["searchFocus"]["reason"],
-            "focused_text_field_is_bottom_candidate",
-        )
-        self.assertEqual(
-            [command.operation for command in app_control.commands],
-            ["open_app", "observe", "hotkey", "observe"],
-        )
-
-    def test_focus_contact_fails_when_verified_chat_title_mismatches(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "windowTitle": "Bob - WeChat",
-                    }
-                },
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.focus_contact("Ada")
-
-        self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_FOUND)
-        self.assertEqual(result.failure_kind, "contact_not_found")
-        self.assertIn("Bob", result.summary)
-        self.assertIn("verify_contact", result.evidence)
-
-    def test_focus_contact_rejects_verified_non_wechat_window(self) -> None:
-        app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "TextEdit",
-                        "frontmostBundleId": "com.apple.TextEdit",
-                        "windowTitle": "File Transfer - WeChat",
-                    }
-                },
-            ]
-        )
-        tool = WeChatDesktopTool(app_control)
-
-        result = tool.focus_contact("File Transfer")
-
-        self.assertFalse(result.success)
-        self.assertEqual(result.status, ToolStatus.NOT_READY)
-        self.assertEqual(result.failure_kind, "wechat_not_ready")
-        self.assertIn("com.apple.TextEdit", result.summary)
-        self.assertIn("verify_contact", result.evidence)
 
     def test_draft_message_types_without_submitting(self) -> None:
         app_control = FakeAppControl()
@@ -3803,7 +3740,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertIn("submit", result.evidence)
 
     def test_send_message_runs_focus_draft_submit_flow(self) -> None:
-        app_control = FakeAppControl()
+        app_control = FakeAppControl(_visible_open_contact_responses("Ada"))
         tool = WeChatDesktopTool(app_control)
 
         result = tool.send_message(contact="Ada", message="hello")
@@ -3816,30 +3753,22 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
         )
+        self.assertNotIn(
+            "hotkey",
+            [command.operation for command in app_control.commands],
+        )
 
     def test_send_message_preserves_submit_unknown_attempt_facts(self) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
+            _visible_open_contact_responses("Ada")
+            + [
                 {},
                 ToolObservation.failure(
                     command_id="cmd_lower",
@@ -3872,7 +3801,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
     def test_send_message_can_verify_visible_message_after_submit(self) -> None:
         app_control = FakeAppControl(
-            [{} for _ in range(12)]
+            _visible_open_contact_responses("Ada")
+            + [{}, {}, {}]
             + [
                 _accessibility_query_response(
                     [
@@ -3897,13 +3827,9 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
                 "open_app",
@@ -3915,7 +3841,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
     def test_send_message_can_verify_visible_query_text_after_submit(self) -> None:
         app_control = FakeAppControl(
-            [{} for _ in range(12)]
+            _visible_open_contact_responses("Ada")
+            + [{}, {}, {}]
             + [
                 _accessibility_query_response(
                     [
@@ -3942,22 +3869,19 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self,
     ) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "messages": [{"direction": "incoming", "text": "hi"}]
-                    }
-                },
+            _visible_open_contact_responses("Ada")
+            + [{}, {}, {}]
+            + [
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="Ada",
+                        ),
+                        _normalized_row("0/11/4/0/0/0", "hi"),
+                    ]
+                )
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -4169,21 +4093,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
     def test_run_command_observer_receives_progress_events(self) -> None:
         app_control = FakeAppControl(
-            [
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "windowTitle": "File Transfer - WeChat",
-                    }
-                },
-            ]
+            _visible_open_contact_responses("File Transfer")
         )
         tool = WeChatDesktopTool(app_control)
         observer = RecordingObserver()
@@ -4201,24 +4111,16 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ToolEventType.PROGRESS,
             ToolEventType.PROGRESS,
             ToolEventType.PROGRESS,
-            ToolEventType.PROGRESS,
-            ToolEventType.PROGRESS,
-            ToolEventType.PROGRESS,
-            ToolEventType.PROGRESS,
             ToolEventType.OBSERVATION,
         ])
         self.assertEqual(
             [event.phase for event in observer.events[1:-1]],
             [
-                "open_wechat",
-                "verify_wechat_window",
-                "focus_search",
-                "verify_search_focus",
-                "select_search_text",
-                "clear_search_text",
-                "type_contact",
-                "select_contact",
-                "verify_contact",
+                "open_contact.open_wechat",
+                "open_contact.verify_wechat_window",
+                "open_contact.control_map_conversation_target_0",
+                "open_contact.control_map_open_visible_contact",
+                "open_contact.verify_contact",
             ],
         )
         self.assertEqual(
@@ -4227,11 +4129,16 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertEqual(
             observer.events[3].data["appControlObservation"]["operation"],
-            "hotkey",
+            "accessibility_query",
         )
 
     def test_from_config_uses_shared_wechat_config(self) -> None:
-        app_control = FakeAppControl()
+        app_control = FakeAppControl(
+            _visible_open_contact_responses(
+                "Ada",
+                app_bundle_id="com.example.Weixin",
+            )
+        )
         config = AppControlConfig.from_dict(
             {
                 "computer_use": {"backend": "direct"},
@@ -4271,18 +4178,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[1].input["bundleId"],
             "com.example.Weixin",
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "K"])
+        self.assertEqual(app_control.commands[2].operation, "accessibility_query")
         self.assertEqual(
             app_control.commands[2].input["bundleId"],
             "com.example.Weixin",
         )
-        self.assertEqual(app_control.commands[3].input["includeAccessibility"], True)
-        self.assertEqual(app_control.commands[4].input["keys"], ["Command", "L"])
-        self.assertEqual(app_control.commands[5].input["key"], "Backspace")
-        self.assertEqual(app_control.commands[7].input["key"], "Enter")
-        self.assertEqual(app_control.commands[8].operation, "observe")
+        self.assertEqual(app_control.commands[3].operation, "accessibility_action")
+        self.assertEqual(app_control.commands[4].operation, "accessibility_query")
         self.assertEqual(
-            app_control.commands[8].input["bundleId"],
+            app_control.commands[4].input["bundleId"],
             "com.example.Weixin",
         )
         self.assertEqual(result.observation["bundleId"], "com.example.Weixin")
@@ -4370,13 +4274,9 @@ class WeChatDesktopCliTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
             ],
         )
@@ -4426,11 +4326,13 @@ class WeChatDesktopCliTests(unittest.TestCase):
             ["open_app", "observe"],
         )
 
-    def test_examples_send_message_live_allows_focus_select_with_safe_hotkey(
+    def test_examples_send_message_live_allows_selector_backed_focus_select(
         self,
     ) -> None:
         stdout = StringIO()
-        app_control = FakeAppControl()
+        app_control = FakeAppControl(
+            _visible_open_contact_responses("Ada") + [{}, {}]
+        )
         original = cli_module._app_control_for_args
         cli_module._app_control_for_args = lambda args, parser: app_control
 
@@ -4462,24 +4364,25 @@ class WeChatDesktopCliTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
+        self.assertEqual(
+            app_control.commands[2].input["query"]["match"]["descriptionContains"],
+            "Ada,",
+        )
 
-    def test_examples_send_message_live_allows_command_f_focus_select_hotkey(
+    def test_examples_send_message_ignores_legacy_search_hotkey_for_visible_contact(
         self,
     ) -> None:
         stdout = StringIO()
-        app_control = FakeAppControl()
+        app_control = FakeAppControl(
+            _visible_open_contact_responses("Ada") + [{}, {}]
+        )
         original = cli_module._app_control_for_args
         cli_module._app_control_for_args = lambda args, parser: app_control
 
@@ -4519,18 +4422,17 @@ class WeChatDesktopCliTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
         )
-        self.assertEqual(app_control.commands[2].input["keys"], ["Command", "F"])
+        self.assertNotIn(
+            "hotkey",
+            [command.operation for command in app_control.commands],
+        )
 
     def test_examples_send_message_live_default_drafts_current_chat(self) -> None:
         stdout = StringIO()
@@ -4700,13 +4602,9 @@ class WeChatDesktopCliTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
@@ -4816,13 +4714,9 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
             ],
         )
@@ -4849,13 +4743,9 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
@@ -4886,21 +4776,21 @@ class WeChatDesktopSmokeScriptTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],
         )
-        self.assertEqual(payload["appControlCommands"][6]["input"]["text"], "Ada")
-        self.assertEqual(payload["appControlCommands"][7]["input"]["key"], "Return")
-        self.assertEqual(payload["appControlCommands"][9]["input"]["text"], "hello")
-        self.assertEqual(payload["appControlCommands"][10]["input"]["key"], "Return")
+        self.assertEqual(
+            payload["appControlCommands"][2]["input"]["query"]["match"][
+                "descriptionContains"
+            ],
+            "Ada,",
+        )
+        self.assertEqual(payload["appControlCommands"][5]["input"]["text"], "hello")
+        self.assertEqual(payload["appControlCommands"][6]["input"]["key"], "Return")
 
     def test_smoke_script_accepts_config_without_socket_path(self) -> None:
         module = _load_wechat_smoke_module()

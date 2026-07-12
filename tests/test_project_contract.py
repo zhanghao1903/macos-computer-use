@@ -126,6 +126,38 @@ class ProjectContractTests(unittest.TestCase):
         self.assertIn("docs/quickstart.md", readme)
 
     def test_success_standard_flow_uses_protocol_round_trip(self) -> None:
+        def query_response(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+            return {
+                "observation": {
+                    "accessibilityQuery": {
+                        "schema": "macos.accessibility.query.v1",
+                        "available": True,
+                        "snapshotId": "frontmost:WeChat:微信 (聊天)",
+                        "app": {
+                            "name": "WeChat",
+                            "bundleId": "com.tencent.xinWeChat",
+                            "pid": 123,
+                        },
+                        "window": {
+                            "title": "微信 (聊天)",
+                            "role": "AXWindow",
+                            "frame": {
+                                "x": 0,
+                                "y": 0,
+                                "width": 1440,
+                                "height": 900,
+                            },
+                        },
+                        "root": {"kind": "focusedWindow", "axPath": "0"},
+                        "nodes": nodes,
+                        "diagnostics": {
+                            "returnedNodes": len(nodes),
+                            "truncated": False,
+                        },
+                    }
+                }
+            }
+
         app_control = ProtocolRecordingClient(
             [
                 {},
@@ -136,33 +168,42 @@ class ProjectContractTests(unittest.TestCase):
                         "windowTitle": "微信 (聊天)",
                     }
                 },
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                        "windowTitle": "微信 (聊天)",
-                        "accessibility": {
-                            "available": True,
-                            "focusedElement": {
-                                "role": "AXTextField",
-                                "roleDescription": "search field",
-                                "description": "搜索",
+                query_response(
+                    [
+                        {
+                            "axPath": "0/12/1/0/0",
+                            "role": "AXRow",
+                            "description": "File Transfer,hello,09:00",
+                            "frame": {
+                                "x": 330,
+                                "y": 120,
+                                "width": 270,
+                                "height": 64,
                             },
-                        },
-                    }
-                },
+                            "actions": ["AXPress"],
+                            "childrenCount": 0,
+                        }
+                    ]
+                ),
+                {},
+                query_response(
+                    [
+                        {
+                            "axPath": "0/12/4/2",
+                            "role": "AXStaticText",
+                            "value": "File Transfer",
+                            "frame": {
+                                "x": 650,
+                                "y": 120,
+                                "width": 180,
+                                "height": 24,
+                            },
+                            "childrenCount": 0,
+                        }
+                    ]
+                ),
                 {},
                 {},
-                {},
-                {},
-                {
-                    "observation": {
-                        "frontmostApp": "WeChat",
-                        "frontmostBundleId": "com.tencent.xinWeChat",
-                        "windowTitle": "File Transfer - WeChat",
-                    }
-                },
             ]
         )
         wechat = build_wechat_tool(app_control)
@@ -184,13 +225,9 @@ class ProjectContractTests(unittest.TestCase):
             [
                 "open_app",
                 "observe",
-                "hotkey",
-                "observe",
-                "hotkey",
-                "press_key",
-                "type_text",
-                "press_key",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "type_text",
                 "press_key",
             ],

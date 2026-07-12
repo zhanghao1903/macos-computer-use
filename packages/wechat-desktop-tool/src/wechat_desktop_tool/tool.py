@@ -615,6 +615,29 @@ class WeChatDesktopTool:
     ) -> ToolObservation:
         limit = _positive_int(command.input.get("limit"), default=30)
         page_token = _optional_string_input(command, "pageToken", "page_token")
+        if page_token is not None:
+            return _failure(
+                command,
+                status=ToolStatus.FAILED,
+                failure_kind="pagination_not_supported",
+                message=(
+                    "WeChat visible-window lists do not support continuation "
+                    "page tokens. Request a larger limit or refresh the list."
+                ),
+                recovery_hint="Retry without pageToken.",
+                retryable=False,
+                observation={
+                    "schema": schema,
+                    "section": section,
+                    "pagination": {
+                        "mode": "visibleWindow",
+                        "limit": limit,
+                        "pageToken": page_token,
+                        "hasMore": False,
+                        "nextPageToken": None,
+                    },
+                },
+            )
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
@@ -693,10 +716,6 @@ class WeChatDesktopTool:
         )
         rows = page_rows[:limit]
         semantic_has_more = len(page_rows) > limit
-        next_page_token = _next_collection_page_token(section, collection)
-        if semantic_has_more and next_page_token is None:
-            cursor = collection.snapshot_id or "snapshot"
-            next_page_token = f"{section}:next:{cursor}"
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
@@ -707,10 +726,11 @@ class WeChatDesktopTool:
                 "section": section,
                 "items": rows,
                 "pagination": {
+                    "mode": "visibleWindow",
                     "limit": limit,
                     "pageToken": page_token,
                     "hasMore": semantic_has_more or _collection_has_more(collection),
-                    "nextPageToken": next_page_token,
+                    "nextPageToken": None,
                 },
                 "availableActions": [
                     {
@@ -772,10 +792,6 @@ class WeChatDesktopTool:
             return None
         rows = page_rows[:limit]
         semantic_has_more = len(page_rows) > limit
-        next_page_token = None
-        if semantic_has_more or _query_truncated(query_result):
-            cursor = _query_snapshot_id(_query_payload(query_result)) or "snapshot"
-            next_page_token = f"{section}:next:{cursor}"
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
@@ -786,10 +802,11 @@ class WeChatDesktopTool:
                 "section": section,
                 "items": rows,
                 "pagination": {
+                    "mode": "visibleWindow",
                     "limit": limit,
                     "pageToken": page_token,
                     "hasMore": semantic_has_more or _query_truncated(query_result),
-                    "nextPageToken": next_page_token,
+                    "nextPageToken": None,
                 },
                 "source": {
                     "mode": "control_map",
@@ -1903,7 +1920,7 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         if not result.success:
-            if result.failure_kind == "wechat_action_ref_expired":
+            if result.tool == WECHAT_TOOL:
                 return result
             return _from_app_control_failure(
                 command,
@@ -1968,6 +1985,58 @@ class WeChatDesktopTool:
         )
 
     def _focus_contact(
+        self,
+        command: ToolCommand,
+        *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        contact = _required_input(command, "contact")
+        opened = self._open_contact(
+            self._command("open_contact", {"contact": contact}, parent=command),
+            phase_events=phase_events,
+        )
+        if not opened.success:
+            return _nested_failure(command, "open_contact", opened)
+
+        current_chat = opened.observation.get("currentChat")
+        current_chat_title = (
+            _string_value(current_chat.get("title"))
+            if isinstance(current_chat, Mapping)
+            else None
+        )
+        confidence = opened.observation.get("confidence")
+        if not isinstance(confidence, int | float) or isinstance(confidence, bool):
+            confidence = _contact_confidence(contact, current_chat_title)
+        environment: dict[str, JsonValue] = {
+            "configuredAppName": self._config.app_name,
+            "frontmostApp": self._config.app_name,
+        }
+        if self._config.bundle_id is not None:
+            environment["configuredBundleId"] = self._config.bundle_id
+            environment["frontmostBundleId"] = self._config.bundle_id
+        if current_chat_title is not None:
+            environment["windowTitle"] = current_chat_title
+
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Focused WeChat contact through verified open_contact.",
+            observation={
+                "focusedContact": contact,
+                "confidence": float(confidence),
+                "appName": self._config.app_name,
+                "bundleId": self._config.bundle_id,
+                "frontmostApp": self._config.app_name,
+                "windowTitle": current_chat_title,
+                "currentChatTitle": current_chat_title,
+                "wechatEnvironment": environment,
+                "openContact": opened.observation,
+            },
+            evidence={"openContact": opened.to_dict()},
+        )
+
+    def _focus_contact_legacy(
         self,
         command: ToolCommand,
         *,
@@ -2872,8 +2941,10 @@ class WeChatDesktopTool:
         snapshot_id: str | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        if str(node.get("role") or "") == "AXRow" and "AXPress" not in _node_actions(
-            node
+        role = str(node.get("role") or "")
+        node_label = _node_label(node)
+        if role == "AXRow" and (
+            "AXPress" not in _node_actions(node) or node_label is None
         ):
             coordinates = _node_center_coordinates(node)
             if coordinates is not None:
@@ -2931,14 +3002,24 @@ class WeChatDesktopTool:
                 return result
 
         input_payload = self._target_app_input()
-        if _node_label(node) is not None:
+        if role == "AXRow" and node_label is None:
+            return _failure(
+                command,
+                status=ToolStatus.FAILED,
+                failure_kind="wechat_action_target_unverified",
+                message="Could not verify the identity of the WeChat row target.",
+                recovery_hint="Refresh the WeChat list and retry the semantic action.",
+                retryable=True,
+                evidence=evidence,
+            )
+        if node_label is not None:
             input_payload["selector"] = {
-                "role": str(node.get("role") or ""),
-                "name": str(_node_label(node) or ""),
+                "role": role,
+                "name": node_label,
             }
         else:
             input_payload["selector"] = {
-                "role": str(node.get("role") or ""),
+                "role": role,
                 "index": 1,
             }
         result = self._app_control_command(
@@ -2969,6 +3050,13 @@ class WeChatDesktopTool:
                 "expiresAt": _action_ref_expiry_value(action_ref),
             }
             return expiry_failure
+        identity_failure = _action_ref_identity_failure(command, action_ref)
+        if identity_failure is not None:
+            evidence[phase] = {
+                "failureKind": "action_ref_identity_unverified",
+                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
+            }
+            return identity_failure
         input_payload = self._accessibility_action_input(action_ref)
         result = self._app_control_command(
             command,
@@ -3672,6 +3760,54 @@ def _action_ref_expiry_failure(
     )
 
 
+def _action_ref_identity_failure(
+    command: ToolCommand,
+    action_ref: Mapping[str, Any],
+) -> ToolObservation | None:
+    target = action_ref.get("target")
+    if not isinstance(target, Mapping):
+        return None
+    role = _optional_string_from_mapping(target, "role")
+    if role is None or role.casefold() not in {"axrow", "row"}:
+        return None
+    target_label = _optional_string_from_mapping(target, "label", "name")
+    preconditions = action_ref.get("preconditions")
+    label_values = (
+        preconditions.get("labelIn")
+        if isinstance(preconditions, Mapping)
+        else None
+    )
+    identity_verified = (
+        target_label is not None
+        and isinstance(label_values, list | tuple)
+        and target_label in label_values
+    )
+    if identity_verified:
+        return None
+
+    action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_precondition_failed",
+        message=(
+            "WeChat row actionRef does not contain a verifiable target "
+            f"identity: {action_id}"
+        ),
+        recovery_hint=(
+            "Re-run list_conversations or use open_contact(displayName) to "
+            "resolve the current row."
+        ),
+        retryable=True,
+        observation={
+            "schema": "wechat.execute_action.v1",
+            "status": "failed",
+            "actionId": action_id,
+            "failureKind": "wechat_action_precondition_failed",
+        },
+    )
+
+
 def _action_ref_from_node(
     node: Mapping[str, Any],
     *,
@@ -3688,6 +3824,8 @@ def _action_ref_from_node(
     if "AXPress" not in _node_actions(node):
         return None
     label = _node_label(node)
+    if role == "AXRow" and label is None:
+        return None
     target: dict[str, JsonValue] = {
         "axPath": ax_path,
         "role": role,
@@ -3699,7 +3837,7 @@ def _action_ref_from_node(
         "roleIn": [role],
         "actionIn": ["AXPress"],
     }
-    if label is not None and role != "AXRow":
+    if label is not None:
         preconditions["labelIn"] = _label_precondition_values(label)
     if isinstance(node.get("enabled"), bool):
         preconditions["enabled"] = bool(node["enabled"])
@@ -3987,7 +4125,10 @@ def _execute_action_failure_kind(result: ToolObservation) -> str:
     failure_kind = _accessibility_action_failure_kind(result)
     if failure_kind == "wechat_action_ref_expired":
         return "wechat_action_ref_expired"
-    if failure_kind == "precondition_failed":
+    if failure_kind in {
+        "precondition_failed",
+        "wechat_action_precondition_failed",
+    }:
         return "wechat_action_precondition_failed"
     return "wechat_action_failed"
 
@@ -4227,7 +4368,10 @@ def _row_items_from_nodes(
             "id": item_id,
             "displayName": parsed["displayName"],
             "actionId": f"{item_id}.open",
-            "element": _element_from_query_node(row, label=parsed["displayName"]),
+            "element": _element_from_query_node(
+                row,
+                label=_node_label(row) or parsed["displayName"],
+            ),
             "confidence": 0.88,
         }
         action_ref = _action_ref_from_node(
@@ -4635,18 +4779,6 @@ def _next_page_token(
 
 def _collection_has_more(result: Any) -> bool:
     return bool(result.pagination.has_more or result.diagnostics.truncated)
-
-
-def _next_collection_page_token(
-    section: str,
-    result: Any,
-    *,
-    direction: str = "next",
-) -> str | None:
-    if not _collection_has_more(result):
-        return None
-    cursor = result.pagination.next_cursor or result.snapshot_id or "snapshot"
-    return f"{section}:{direction}:{cursor}"
 
 
 def _string_value(value: object) -> str | None:
