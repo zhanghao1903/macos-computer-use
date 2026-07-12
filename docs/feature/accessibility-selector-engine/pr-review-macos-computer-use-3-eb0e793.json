@@ -1,0 +1,757 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+    "reviewed_at": "2026-07-12T15:19:48Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "complete base-to-head diff and PR metadata",
+      "selector models, validation, matching, resolver, cache, and collections",
+      "Accessibility query and action workers plus target identity",
+      "WeChat semantic list, open, read, action, focus, and send call paths",
+      "configuration, packaging, release proof, workflows, tests, and lifecycle docs",
+      "authorized live WeChat focus-only counterexamples"
+    ],
+    "excluded_scope": [
+      "signed helper application end-to-end execution",
+      "real PyPI, TestPyPI, and GitHub Release publication",
+      "intentional wrong-app desktop mutation",
+      "live duplicate-contact and reordered-row mutation"
+    ]
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "The previous 12 findings are resolved, but four new blocking correctness and desktop-safety findings remain in public focus/send compatibility, AX target identity, row actionRef identity, and pagination continuation.",
+    "blocking_finding_ids": [
+      "PRR-013",
+      "PRR-014",
+      "PRR-015",
+      "PRR-016"
+    ]
+  },
+  "summary": "The selector, cache, collection, privacy-proof, packaging, and live read/open remediation is effective, but public focus/send still uses an obsolete path, target-app-only AX requests can operate on the wrong app, conversation row actionRefs do not revalidate identity, and emitted page tokens cannot advance.",
+  "change_map": [
+    {
+      "area": "selector core",
+      "change": "Add validated profiles, bounded resolution, cache revalidation, and collection extraction.",
+      "external_behavior": "WeChat semantic APIs resolve mapped or selector Accessibility targets.",
+      "risk": "High",
+      "validation": "Source review, package tests, prior counterexamples, and live semantic proof."
+    },
+    {
+      "area": "Accessibility transport",
+      "change": "Add a warm query worker, indexed root resolution, AXPress/AXSetFocus, and frame-derived click fallback.",
+      "external_behavior": "Reads and actions can target application Accessibility elements.",
+      "risk": "High",
+      "validation": "Worker/action data-flow review and target identity analysis."
+    },
+    {
+      "area": "WeChat semantic APIs",
+      "change": "Migrate list/open/read paths while retaining legacy focus/send methods.",
+      "external_behavior": "Existing consumers should retain contact switching, reads, and sends.",
+      "risk": "High",
+      "validation": "Unit tests plus authorized live focus comparison."
+    },
+    {
+      "area": "release and packaging",
+      "change": "Coordinate package version 0.2.0 and add privacy-safe source-bound proof v2.",
+      "external_behavior": "Clean installs use a coordinated package set and release assets exclude private observations.",
+      "risk": "Medium",
+      "validation": "Current CI and prior exact-code-head wheel/preflight/live proof."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-001",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "privacy",
+      "title": "Public selector proof exposed private WeChat observations",
+      "location": {
+        "path": "examples/wechat_selector_engine_smoke_test.py",
+        "line_start": 156,
+        "line_end": null,
+        "symbol": "run_selector_engine_smoke_test",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The original proof copied full live observations into release assets.",
+      "trigger": "Generate and publish the original selector smoke report.",
+      "impact": "Contacts, messages, paths, and window data could become public.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Proof v2 now builds a whitelist-only public object and keeps raw live data only in an explicit private output.",
+          "reference": "examples/wechat_selector_engine_smoke_test.py:_build_selector_proof_v2"
+        }
+      ],
+      "remediation": "Completed: proof v2, forbidden-key/canary validation, and validate-before-copy bundling.",
+      "verification": "Strict preflight and sensitive canary tests pass; exact-code-head public proof contains no raw observation.",
+      "status": "resolved",
+      "fingerprint": "selector-proof-private-data"
+    },
+    {
+      "id": "PRR-002",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "Unknown search focus allowed keyboard input",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 5390,
+        "line_end": null,
+        "symbol": "_search_focus_failure",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "Unknown focus previously advanced into clear, type, and Return.",
+      "trigger": "Accessibility could not identify the focused search field.",
+      "impact": "Contact text could be typed into the wrong editable target.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current code accepts only state=verified and tests assert unknown states emit no text or Return.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py"
+        }
+      ],
+      "remediation": "Completed: all unknown focus states fail closed.",
+      "verification": "WeChat package tests and live focus counterexamples stop before drafting or submitting.",
+      "status": "resolved",
+      "fingerprint": "wechat-search-focus-unknown"
+    },
+    {
+      "id": "PRR-003",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "Fixed global coordinates could click unrelated UI",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 842,
+        "line_end": null,
+        "symbol": "_execute_mapped_control",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The original mapped path executed sampled screen coordinates before validating a current target.",
+      "trigger": "Move, resize, or relocate the WeChat window.",
+      "impact": "Navigation could click arbitrary desktop UI.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Current execution derives coordinates only from a just-queried in-window AX frame and verifies selected state afterward.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:_execute_mapped_control"
+        }
+      ],
+      "remediation": "Completed: fixed coordinate execution removed; current frame and postcondition required.",
+      "verification": "Frame containment and selected-state tests pass; live moved-window proof passed.",
+      "status": "resolved",
+      "fingerprint": "wechat-fixed-coordinate"
+    },
+    {
+      "id": "PRR-004",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Single-result lookup made contact ambiguity unreachable",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 1129,
+        "line_end": null,
+        "symbol": "_query_mapped_conversation_target",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The original mapped target query returned at most one same-name candidate.",
+      "trigger": "Two visible contacts share the requested display name.",
+      "impact": "The first candidate could be opened without disambiguation.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current lookup requests two candidates and same-name fixtures fail before action.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py"
+        }
+      ],
+      "remediation": "Completed: preserve two candidates and return contact_ambiguous before action.",
+      "verification": "Mapped and search duplicate-candidate tests pass.",
+      "status": "resolved",
+      "fingerprint": "wechat-contact-limit-one"
+    },
+    {
+      "id": "PRR-005",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "Unsupported helper mode reached selector operations",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 114,
+        "line_end": null,
+        "symbol": "WeChatDesktopTool.__init__",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The helper skeleton did not implement selector AX operations.",
+      "trigger": "Construct a selector-backed WeChat tool with backend=helper.",
+      "impact": "Core semantic operations failed after construction.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current configuration preserves backend identity and tool construction rejects helper mode before any transport command.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py"
+        }
+      ],
+      "remediation": "Completed: unsupported helper mode fails fast; direct-backed service remains supported.",
+      "verification": "Construction boundary tests pass.",
+      "status": "resolved",
+      "fingerprint": "wechat-helper-selector-parity"
+    },
+    {
+      "id": "PRR-006",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Cache hits did not reapply selector predicates",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "line_start": 400,
+        "line_end": null,
+        "symbol": "SelectorResolver._validate_cached",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The original cache check validated only a partial signature.",
+      "trigger": "A same-role element replaced the cached target at the same path.",
+      "impact": "Resolution could return the wrong element as a cache hit.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current cache validation rebuilds the candidate through the fresh matcher, state, action, constraint, relation, and signature path.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "Completed: full predicate revalidation and stale eviction.",
+      "verification": "Same-role reuse, action loss, state, relation, frame, and expiry tests pass.",
+      "status": "resolved",
+      "fingerprint": "selector-cache-partial-validation"
+    },
+    {
+      "id": "PRR-007",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Backend query failures were mapped to not-found",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "line_start": 840,
+        "line_end": null,
+        "symbol": "_normalize_query_payload",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "Availability, cause, and retryability were discarded from failed query payloads.",
+      "trigger": "Permission, timeout, or transport failure produced no nodes.",
+      "impact": "Callers received selector_not_found and chose the wrong recovery path.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Normalized outcomes now preserve backend cause and stop traversal as selector_query_failed.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "Completed: preserve available, failure kind, message, and retryability.",
+      "verification": "Permission, timeout, transport, and successful-empty tests pass.",
+      "status": "resolved",
+      "fingerprint": "selector-query-failure-swallowed"
+    },
+    {
+      "id": "PRR-008",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "performance",
+      "title": "Batch field depth exceeded the AX client maximum",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "line_start": 446,
+        "line_end": null,
+        "symbol": "CollectionExtractor._batch_extract_fields",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "Packaged item and field depths combined to 11 while the client maximum was 8.",
+      "trigger": "Batch extraction ran for contacts, conversations, or messages.",
+      "impact": "The optimization failed normalization or regressed to many field queries.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "A shared depth limit caps combined batch requests and packaged profile batch tests use the real normalizer.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "Completed: shared maximum depth 8 and bounded batch planning.",
+      "verification": "Packaged contact, conversation, and message batch tests pass.",
+      "status": "resolved",
+      "fingerprint": "collection-batch-depth-eleven"
+    },
+    {
+      "id": "PRR-009",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Normal pagination lookahead was treated as truncation",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "line_start": 228,
+        "line_end": null,
+        "symbol": "CollectionExtractor._query_items",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The N+1 limit sentinel inherited backend truncated=true.",
+      "trigger": "At least N+1 accepted rows were visible.",
+      "impact": "A complete page was returned as partial/failed.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current code clears limit truncation only when the complete lookahead candidate is present and retains real time-budget truncation.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "Completed: distinguish completed limit lookahead from incomplete traversal.",
+      "verification": "N, N+1, and time-budget cases pass.",
+      "status": "resolved",
+      "fingerprint": "collection-lookahead-truncation"
+    },
+    {
+      "id": "PRR-010",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "dependency",
+      "title": "Declared dependency floors lacked required selector surfaces",
+      "location": {
+        "path": "packages/wechat-desktop-tool/pyproject.toml",
+        "line_start": 15,
+        "line_end": null,
+        "symbol": "project.dependencies",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "Old dependency floors could resolve packages without selectors or selector_profile_path.",
+      "trigger": "Install the new WeChat wheel with an allowed 0.1.x dependency set.",
+      "impact": "Installation succeeded but import/configuration failed at runtime.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "All three packages are coordinated at 0.2.0, dependency floors require 0.2.0, and wheel checks reject a local 0.1.1-only dependency set.",
+          "reference": "scripts/wheel_check.py"
+        }
+      ],
+      "remediation": "Completed: coordinated versions and clean mixed-version rejection proof.",
+      "verification": "Wheel build/install/import/API smoke and dependency rejection pass.",
+      "status": "resolved",
+      "fingerprint": "wechat-dependency-floor"
+    },
+    {
+      "id": "PRR-011",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "deployment",
+      "title": "Release workflow omitted the computer-use source root",
+      "location": {
+        "path": ".github/workflows/release.yml",
+        "line_start": 18,
+        "line_end": null,
+        "symbol": "jobs.publish.steps.Run unit tests",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "WeChat release tests could not import computer_use_macos.selectors in a clean environment.",
+      "trigger": "Run the release test command without editable workspace packages.",
+      "impact": "Release publication failed during test discovery.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "The release command includes all source roots and release preflight has a removal regression test.",
+          "reference": ".github/workflows/release.yml"
+        }
+      ],
+      "remediation": "Completed: add the backend source root and protect it with preflight.",
+      "verification": "Clean source-path release commands and CI pass.",
+      "status": "resolved",
+      "fingerprint": "release-wechat-pythonpath"
+    },
+    {
+      "id": "PRR-012",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "testing",
+      "title": "Strict selector proof accepted zero-result extraction",
+      "location": {
+        "path": "scripts/release_preflight.py",
+        "line_start": 2550,
+        "line_end": null,
+        "symbol": "_validate_wechat_selector_engine_smoke_report",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "The original strict check accepted true booleans with empty collections.",
+      "trigger": "Supply a success envelope with zero contact, conversation, and message evidence.",
+      "impact": "Release proof did not demonstrate the feature's extraction paths.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Current proof validation requires non-zero count-consistent collections, exact checks, source SHA, bounded timings, and privacy rules.",
+          "reference": "tests/test_release_preflight.py"
+        }
+      ],
+      "remediation": "Completed: strict proof v2 thresholds and structural consistency checks.",
+      "verification": "Zero, empty, mismatched, stale, slow, and sensitive negative tests pass.",
+      "status": "resolved",
+      "fingerprint": "selector-proof-zero-result"
+    },
+    {
+      "id": "PRR-013",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "Public focus_contact and send_message remain on an obsolete live path",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 1970,
+        "line_end": null,
+        "symbol": "WeChatDesktopTool._focus_contact",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "open_contact uses verified selectors, but focus_contact still uses a hotkey plus coarse observe and send_message still calls focus_contact.",
+      "trigger": "Call focus_contact or send_message for the authorized File Transfer target on the current WeChat client.",
+      "impact": "The public contact-switch operation returns search_not_focused and the convenience send flow cannot reach draft or submit.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "Live focus-only smokes failed before typing with both Command+F (1781 ms) and Command+K (1278 ms); no draft or submission occurred.",
+          "reference": "authorized live review run on 2026-07-12"
+        },
+        {
+          "kind": "code",
+          "description": "_send_message directly invokes _focus_contact instead of the verified _open_contact path.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:2470"
+        }
+      ],
+      "remediation": "Make focus_contact delegate to or share open_contact's selector-backed contract and make send_message use that verified target switch.",
+      "verification": "Add call-sequence tests and run authorized live focus and send proof to File Transfer with title verification before draft/submit.",
+      "status": "open",
+      "fingerprint": "wechat-public-focus-send-legacy-path"
+    },
+    {
+      "id": "PRR-014",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "Target-app-only AX requests can read or act on the wrong frontmost application",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 3092,
+        "line_end": null,
+        "symbol": "_accessibility_query_script.selected_running_app",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "Query and action worker scripts compare only bundleId and otherwise return the frontmost application without checking targetApp.",
+      "trigger": "Use an allowlisted app name without a configured bundle id while a different app is frontmost.",
+      "impact": "Queries can return another app's UI and actions can press a same-path element in the wrong application.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Both selected_running_app implementations return frontmost when REQUEST.bundleId is empty; action allowlist accepts an allowlisted target_app with no bundle mapping.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:3092,3901"
+        },
+        {
+          "kind": "spec",
+          "description": "Public method signatures make bundle_id optional, while the AX design requires process selection by bundle id.",
+          "reference": "docs/api.md and docs/wechat-ax-query-design/README.md"
+        }
+      ],
+      "remediation": "Resolve the configured expected bundle or verify requested app identity before any AX read/action; reject unallowlisted query identities and fail closed when identity is unprovable.",
+      "verification": "Add wrong-frontmost target-app-only query/action tests, bundle mismatch tests, and a positive configured-name-to-bundle test with no worker call on failure.",
+      "status": "open",
+      "fingerprint": "ax-target-app-without-bundle"
+    },
+    {
+      "id": "PRR-015",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Conversation-row actionRefs can press a different contact after list reordering",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 3702,
+        "line_end": null,
+        "symbol": "_action_ref_from_node",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "AXRow actionRefs omit labelIn even when the target stores a contact-bearing label; the low-level executor receives only the weaker preconditions.",
+      "trigger": "Execute a listed row actionRef after unread or pinned state moves a different AXRow to the same path within the five-minute TTL.",
+      "impact": "execute_action can open and report success for a different contact, enabling subsequent reads or drafts against the wrong chat.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "A current-head AXRow actionRef with a contact label contained only roleIn, actionIn, and enabled preconditions.",
+          "reference": "current-head _action_ref_from_node counterexample"
+        },
+        {
+          "kind": "spec",
+          "description": "The actionRef lifecycle requires app/window/signature revalidation before execution.",
+          "reference": "docs/feature/accessibility-selector-engine/design.md"
+        }
+      ],
+      "remediation": "Publish row refs only when current semantic identity can be revalidated; otherwise omit the ref and require open_contact(displayName).",
+      "verification": "Simulate same-role path reuse with a changed label and assert no AXPress/fallback; retain positive unchanged and unlabeled no-ref cases.",
+      "status": "open",
+      "fingerprint": "wechat-row-actionref-no-identity"
+    },
+    {
+      "id": "PRR-016",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Visible-window list APIs return continuation tokens that repeat the first page",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 617,
+        "line_end": null,
+        "symbol": "WeChatDesktopTool._list_row_items_with_selector_profile",
+        "side": "RIGHT",
+        "commit_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb"
+      },
+      "observation": "pageToken is parsed and echoed but never affects root, offset, scroll state, or query; both list paths fabricate a next token when more rows are visible.",
+      "trigger": "Pass the returned nextPageToken into a second list call while the UI remains unchanged.",
+      "impact": "The same rows and equivalent token repeat, producing duplicates or an unbounded agent loop.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "page_token has no consumer beyond serialization, while tokens are synthesized from section and snapshot at lines 699 and 778.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:617-790"
+        },
+        {
+          "kind": "spec",
+          "description": "The approved visible-window MVP contract requires next_cursor to remain None.",
+          "reference": "docs/feature/accessibility-selector-engine/design.md"
+        }
+      ],
+      "remediation": "Keep nextPageToken null and reject unsupported token input, or implement and verify real scroll/cursor continuation before advertising it.",
+      "verification": "Add a two-call test that rejects unsupported input or returns a disjoint second page, and assert a repeating token cannot be emitted.",
+      "status": "open",
+      "fingerprint": "wechat-visible-window-false-cursor"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-013",
+      "action": "Unify public focus/send with the verified selector-backed open_contact path and run authorized live target/send proof.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-014",
+      "action": "Enforce target application identity before AX query or action.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-015",
+      "action": "Revalidate conversation row identity or stop publishing the actionRef.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-016",
+      "action": "Remove false continuation tokens or implement real continuation.",
+      "status": "open"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "High",
+      "description": "Target-app-only AX requests can touch or read the wrong process.",
+      "mitigation": "Resolve PRR-014 and add wrong-frontmost negative tests.",
+      "owner": null
+    },
+    {
+      "category": "data-integrity",
+      "level": "High",
+      "description": "A stale conversation row actionRef can open the wrong contact.",
+      "mitigation": "Resolve PRR-015 with semantic identity revalidation.",
+      "owner": null
+    },
+    {
+      "category": "api-compatibility",
+      "level": "High",
+      "description": "Existing focus_contact and send_message are unavailable on the live client.",
+      "mitigation": "Resolve PRR-013 by using a single verified contact-switch implementation.",
+      "owner": null
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Medium",
+      "description": "False pagination tokens can cause duplicate pages or loops.",
+      "mitigation": "Resolve PRR-016 with honest visible-window semantics or real continuation.",
+      "owner": null
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "Latest authorized selector proof kept measured semantic APIs below three seconds.",
+      "mitigation": "Preserve current bounded query/action budgets during remediation.",
+      "owner": null
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "uv run pytest packages/app-control-protocol/tests -q",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "uv run pytest packages/computer-use-macos/tests -q",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "125 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "uv run pytest packages/wechat-desktop-tool/tests -q",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "122 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "git diff --check origin/main...HEAD",
+        "environment": "local git",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors.",
+        "evidence_ref": null
+      },
+      {
+        "command": "WECHAT_TOOL_ALLOW_FOCUS_SELECT=1 ... wechat_desktop_tool.examples.wechat_smoke",
+        "environment": "authorized live WeChat, packaged Command+F, local socket service",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "focus_contact returned search_not_focused in 1781 ms before draft or submit.",
+        "evidence_ref": "PRR-013"
+      },
+      {
+        "command": "APP_CONTROL_WECHAT_SEARCH_HOTKEY=Command,K WECHAT_TOOL_ALLOW_FOCUS_SELECT=1 ... wechat_desktop_tool.examples.wechat_smoke",
+        "environment": "authorized live WeChat, prior Command+K override, local socket service",
+        "head_sha": "eb0e793b04dc05c4c9e1773380d73990a3d6dcbb",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "focus_contact returned the same search_not_focused failure in 1278 ms before draft or submit.",
+        "evidence_ref": "PRR-013"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "test",
+        "observed_at": "2026-07-12T15:19:48Z",
+        "status": "PASS",
+        "summary": "GitHub Actions run 29196700910, job 86660857594, passed in 1m47s for the reviewed head.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29196700910/job/86660857594"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "wrong-app live AX action",
+        "reason": "Static code proof is conclusive and intentionally mutating another application would add risk without increasing confidence."
+      },
+      {
+        "check": "signed helper application smoke",
+        "reason": "Selector-backed WeChat helper mode is explicitly unsupported in 0.2.0 and no signed reviewed helper artifact was available."
+      },
+      {
+        "check": "real package publication",
+        "reason": "No PyPI, TestPyPI, or GitHub Release publication was authorized."
+      },
+      {
+        "check": "ruff",
+        "reason": "Ruff is not installed in the current environment."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is valid only for head eb0e793b04dc05c4c9e1773380d73990a3d6dcbb.",
+    "Live operations were limited to the authorized WeChat target and stopped before drafting or submitting.",
+    "The exact public selector proof belongs to code head 6a74c1d677c767bc68b993f038739fe092c9c204; final exact-head proof must be regenerated after fixes.",
+    "Unrelated dirty and untracked workspace files were excluded."
+  ],
+  "open_questions": [
+    "Should unsupported pageToken input return invalid_input or remain an always-null compatibility field until scrolling exists?",
+    "Should conversation row actionRefs be omitted in 0.2.0 or can WeChat expose a stable current row signature?"
+  ],
+  "assumptions": [
+    "Existing focus_contact and send_message behavior is part of the compatibility contract.",
+    "target_app identifies the requested app even when bundle_id is omitted.",
+    "An actionRef authorizes only its represented semantic target, not any later same-role element at the same AX path.",
+    "Visible-window extraction must not advertise a cursor that cannot advance."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-009",
+      "category": "maintainability",
+      "recommendation": "Split the large WeChat tool module by semantic operation after the merge gate is green.",
+      "value": "Reduces review and regression surface without expanding the current remediation."
+    },
+    {
+      "id": "NOTE-010",
+      "category": "observability",
+      "recommendation": "Preserve per-step Accessibility timing fields during all fixes.",
+      "value": "Keeps performance evidence comparable to the current sub-three-second baseline."
+    },
+    {
+      "id": "NOTE-011",
+      "category": "documentation",
+      "recommendation": "Mark this report stale and create a new snapshot report after remediation.",
+      "value": "Preserves stable finding history and auditability."
+    }
+  ]
+}

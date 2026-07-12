@@ -2,174 +2,148 @@
 
 ## Current Review Status
 
-`REQUEST_CHANGES` for reviewed head `07fa052`. The frozen review identified 12
-blocking findings that are not covered by the green CI suite. The previous
-merge-ready statement is superseded; PR #3 must remain draft until the findings
-in the
-[frozen review report](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-07fa052.md)
-are remediated and a new-head review passes.
+`REQUEST_CHANGES` for head
+`eb0e793b04dc05c4c9e1773380d73990a3d6dcbb`. The current F6 report is
+[`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md).
 
-The original design remains the historical baseline. Remediation is specified
-in the separate
-[2026-07-12 remediation design](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/design-remediation-2026-07-12.md).
-That proposal passed F2 technical review. The separate
-[remediation implementation plan](https://github.com/zhanghao1903/macos-computer-use/blob/codex/accessibility-selector-engine/docs/feature/accessibility-selector-engine/implementation-plan-remediation-2026-07-12.md)
-must receive its own review before code changes begin.
+The 12 blockers from the previous `07fa052` snapshot are resolved. Four new
+blocking findings remain:
+
+- `PRR-013`: public `focus_contact`/`send_message` still use an obsolete live
+  path;
+- `PRR-014`: target-app-only AX requests do not prove the selected process;
+- `PRR-015`: conversation row actionRefs do not revalidate contact identity;
+- `PRR-016`: emitted pagination tokens cannot advance.
+
+PR #3 remains draft until those findings are fixed and a new-head review passes.
 
 ## Problem
 
-WeChat semantic APIs previously depended on brittle hard-coded Accessibility
-paths and row scans. When WeChat changes layout, locale labels, or row
-structure, package consumers have little room to recover without rebuilding the
-tool package or changing application code.
+WeChat semantic APIs previously depended on brittle Accessibility paths and
+broad row scans. Layout, locale, and row-structure changes made contact,
+conversation, and message operations slow and difficult to adapt without
+repackaging the tool.
 
 ## Solution
 
 This feature adds an internal Accessibility selector engine owned by
-`computer-use-macos` and migrates WeChat semantic reads/actions to packaged
-selector profiles owned by `wechat-desktop-tool`.
+`computer-use-macos` and a packaged WeChat selector/control map owned by
+`wechat-desktop-tool`.
 
-The implementation keeps selector resolution internal for this PR. It does not
-add public `resolve_selector` or `extract_collection` protocol commands.
-It also hardens WeChat live operation paths by validating focused windows,
-resolving chained selectors under prior step results, filtering noisy contact
-rows before filling caller limits, opening visible rows through selector-derived
-actionRefs, and verifying focus after safe selector click, `AXSetFocus`,
-hotkey, or configured coordinate fallback attempts. It also handles live WeChat
-`AXRow` targets that omit action names or reject `AXPress` by using the queried
-AX frame with policy-gated Quartz coordinate clicks, then verifies the opened
-chat title before allowing message reads to continue.
+The implementation includes:
+
+- validated selector, matcher, constraint, relation, confidence, cache,
+  collection, and actionRef contracts;
+- bounded AX query execution with a warm subprocess, scoped roots, safe
+  attributes, node/time/depth limits, and per-step timing;
+- fast stable-path control-map resolution with selector fallback;
+- current-frame, policy-gated coordinate fallback and selected-state/title
+  postconditions;
+- selector-backed contacts, conversations, `open_contact`, and visible message
+  reads;
+- optional application-injected `wechat.selector_profile_path`;
+- coordinated `0.2.0` package dependencies and clean wheel checks;
+- privacy-safe, source-bound selector release proof v2.
+
+No public `resolve_selector` or `extract_collection` protocol operation is
+introduced in this feature.
 
 ## Consumer Impact
 
-Package consumers continue to call the existing WeChat semantic APIs:
+Consumers continue to use semantic methods:
 
 - `inspect_window`
 - `list_contacts`
 - `list_conversations`
 - `open_contact`
+- `focus_contact`
 - `read_visible_messages`
 - `read_contact_messages`
+- `send_message`
 
-New optional configuration allows applications to inject a local WeChat selector
-profile without rebuilding the package:
+New optional configuration:
 
 - `[wechat] selector_profile_path`
 - `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH`
 
-If an override profile is missing, unreadable, invalid TOML, or fails selector
-validation, the tool falls back to the packaged profile.
+Missing, unreadable, invalid, or policy-invalid override profiles fall back to
+the packaged profile. `computer_use.backend=helper` is rejected when building a
+selector-backed WeChat tool in `0.2.0`; direct and direct-backed local service
+modes remain supported.
 
-The SDK recent-messages example now reads one configured contact instead of
-iterating over a contact page. It defaults to `文件传输助手`, accepts
-`--contact` and `--message-limit`, records separate `openContact` and
-`readVisibleMessages` results, and prints returned message rows.
+The SDK recent-messages example reads one configurable contact, defaults to
+`文件传输助手`, accepts `--contact` and `--message-limit`, verifies the opened
+chat title, and prints returned semantic message rows.
 
-## Public API And Compatibility
+## API and Safety
 
-- Existing WeChat semantic schemas remain compatible:
+- Existing semantic schema names remain:
+  - `wechat.window.v1`
   - `wechat.contacts.v1`
   - `wechat.conversations.v1`
   - `wechat.messages.v1`
   - `wechat.open_contact.v1`
-- No public selector command or generic selector protocol is exposed in this
-  feature.
-- `open_contact` may return additive `openMethod` detail such as
-  `visible_action_ref` or `search`.
-- `accessibility_action` now permits `AXSetFocus` on a resolved Accessibility
-  element path by setting `AXFocused=true`. Callers still need a follow-up focus
-  verification before typing.
-- `open_contact` now fails with `contact_not_found` when the queried active chat
-  title does not match the requested contact; composed message reads stop at
-  that failure instead of returning another conversation's rows.
-- `click_coordinate` retains its existing API and opt-in policy while reporting
-  additive `method = quartz_cg_event` metadata after native execution.
-- `wechat-desktop-tool` imports `computer_use_macos.selectors` only through
-  `wechat_desktop_tool.profiles`, preserving the package boundary.
+- `accessibility_action` supports verified `AXPress` and `AXSetFocus`.
+- Mapped navigation verifies app/window identity, role, localized label,
+  enabled state, current frame containment, action availability, and selected
+  state after mutation.
+- `open_contact` verifies the resulting chat title before reads continue.
+- Unknown search focus fails before clear, paste, or Return.
+- Coordinate clicks remain disabled unless configured and use only a current
+  queried AX frame.
+- Message submission remains explicit; selector resolution does not submit
+  text.
+- Public release proof excludes contact names, messages, window titles, local
+  paths, tokens, raw AX nodes, and operation observations.
 
-Example-only migration: callers of
-`examples/wechat_contacts_recent_messages_test.py` should replace
-`--max-contacts` / `--stop-on-error` with `--contact`. Package API callers do
-not need to migrate.
-
-## Safety And Authorization
-
-The selector engine does not expose arbitrary raw AX data or unrestricted raw
-coordinate actions as a WeChat application-facing contract. Coordinate clicks
-remain disabled unless the service configuration enables
-`allow_coordinate_click`; target frames come from bounded Accessibility
-queries, and `open_contact` verifies the resulting chat title. WeChat APIs
-continue to return semantic models and structured failures. Message submission
-remains explicit and is not hidden behind selector resolution.
+The current review requires the same safety model to be applied to the legacy
+focus/send path, target-app-only AX operations, row actionRefs, and pagination
+before merge.
 
 ## Verification
 
-Latest 2026-07-10 checks recorded in `verification.md`:
+Current reviewed head:
 
-- protocol package: 54 tests passed
-- `computer-use-macos`: 112 tests passed, 1 skipped
-- `wechat-desktop-tool`: 103 tests passed
-- SDK examples: 9 tests passed
-- root repository: 109 tests passed, including wheel and release preflight
-- Python compile and whitespace checks: passed
-- alternate-root regression: `0/12` empty then `0/11` successful, passed for
-  conversation listing and `open_contact`
-- real targeted WeChat smoke: `文件传输助手` verified and 30 rows printed
+- `app-control-protocol`: 55 tests passed;
+- `computer-use-macos`: 125 tests passed;
+- `wechat-desktop-tool`: 122 tests passed;
+- whitespace diff check: passed;
+- GitHub Actions run `29196700910`, job `86660857594`: passed.
 
-Earlier feature checks also recorded there include:
+Latest exact-code-head selector proof (`6a74c1d...`):
 
-- GitHub Actions PR #3 `test`: passed
-- selector collection batch field extraction: package tests passed
-- release-preflight source-path recovery: 3 targeted tests passed
-- CI workflow WeChat dependency-path recovery: 2 targeted tests passed
-- CI-equivalent `env -u PYTHONPATH python scripts/release_preflight.py`: passed
-- `computer-use-macos` targeted package tests: 108 tests passed, 1 skipped
-- WeChat tool/profile tests: 91 tests passed
-- Python compile check: passed
-- live WeChat selector-engine smoke: passed
-- release preflight with the live smoke report: passed
+- all 10 checks passed;
+- 11 contacts, 14 conversations, and 30 visible messages;
+- all measured public selector-backed APIs below 3 seconds;
+- offscreen verified-search contact switch below 3 seconds;
+- expired actionRef rejected before backend execution;
+- frame-derived coordinate rule, target postcondition, and focus gate passed;
+- raw observation absent and no message submitted;
+- strict source-bound preflight passed.
 
-The complete historical test and smoke evidence remains in `verification.md`.
+F6 counterexamples:
 
-## Manual Proof Status
+- default `Command+F` `focus_contact` failed safely in 1781 ms;
+- prior `Command+K` override failed at the same focus verification in 1278 ms;
+- neither run drafted or submitted;
+- an AXRow actionRef carried a contact label in its target but omitted it from
+  executable preconditions;
+- code inspection proved target-app-only AX workers select the frontmost app
+  without checking its name;
+- code inspection proved list `pageToken` is echoed but never consumed.
 
-The consolidated real macOS/WeChat smoke checklist passed on 2026-07-08 through
-the trusted local socket service:
+## Required Before Merge
 
-- report path:
-  `/private/tmp/selector-live-selector-engine-smoke-return-20260708.json`
-- `inspect_window`: passed
-- `list_conversations(limit=30)`: passed with 30 rows and action refs
-- `open_contact("文件传输助手")`: passed
-- `read_visible_messages(limit=30)`: passed with 30 message rows
-- `list_contacts(limit=30)`: passed with 30 contacts
-- valid `selector_profile_path` override: passed
-- invalid selector profile fallback: passed
-- expired actionRef rejection: passed with `wechat_action_ref_expired`
-
-`scripts/release_preflight.py --wechat-smoke-report
-/private/tmp/selector-live-selector-engine-smoke-return-20260708.json` accepted
-the report and verified `external-proof:wechat_selector_engine_smoke`.
-
-Earlier desktop blockers and rerun commands remain documented in
-`live-smoke-recovery.md` for troubleshooting. They are no longer merge blockers
-for this branch because the consolidated smoke proof has passed.
-
-The latest targeted recent-messages smoke also passed through an isolated
-service using the current source:
-
-- `currentChat = 文件传输助手`
-- `messageCount = 30`
-- `failedStep = null`
-- `openWeChat = 463 ms`
-- `openContact = 1175 ms`
-- `readVisibleMessages = 2052 ms`
-
-The private smoke JSON remained under `/private/tmp` and is not committed.
+1. Resolve `PRR-013` through `PRR-016` with deterministic regression tests.
+2. Run the user-authorized live focus/send smoke to `文件传输助手` after the
+   target title is verified.
+3. Regenerate the privacy-safe proof for the final exact source SHA.
+4. Run package/root/wheel/preflight suites and current-head CI.
+5. Produce a fresh F6 report with no open blocking findings.
 
 ## Release Note
 
-Add internal selector profile support and selector-backed WeChat semantic
-operations, plus optional `wechat.selector_profile_path` override config;
-verify requested chat titles before reading messages and use policy-gated
-Quartz clicks for WeChat rows without `AXPress`.
+Add an internal Accessibility selector engine, packaged WeChat selector/control
+maps, selector-backed semantic contact and message operations, optional
+`wechat.selector_profile_path`, bounded AX performance diagnostics, and a
+privacy-safe release proof.
