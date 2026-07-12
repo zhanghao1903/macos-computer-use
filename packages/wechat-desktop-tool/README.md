@@ -56,16 +56,17 @@ while keeping the stable `wechat.desktop` tool name.
   `accessibility_query` calls to return the normalized `wechat.window.v1`
   model with navigation, regions, actionables, and available semantic actions.
 - `list_contacts`: switch to the contacts tab and return visible contact rows
-  with stable `actionId`, element reference, and pagination metadata.
+  with stable `actionId`, element reference, and visible-window pagination
+  metadata. Continuation tokens are not supported.
 - `list_conversations`: return visible chat rows with display name, preview,
   timestamp, badges, pinned/muted flags, and row open actions.
-- `open_contact`: locate the search box, type a contact query, inspect search
-  result rows, and open a single matching contact. Multiple matches return a
-  semantic `needs_disambiguation` result instead of selecting implicitly.
-- `focus_contact`: open WeChat, verify the foreground window, open search,
-  type a contact, select it, and verify the selected chat window with
-  `observe`; a verified mismatched chat title returns `contact_not_found`,
-  while a verified non-WeChat foreground window returns `wechat_not_ready`.
+- `open_contact`: first resolve a visible conversation row, then use the
+  verified selector-backed search flow when the target is not visible. It
+  opens exactly one match and verifies the resulting chat title. Multiple
+  matches return `contact_ambiguous` instead of selecting implicitly.
+- `focus_contact`: compatibility API that delegates to `open_contact` and
+  returns its verified target result. It no longer depends on a global search
+  hotkey or coarse focused-window observation.
 - `observe_current_chat`: ask the app-control backend for the current chat
   state and map visible messages into semantic chat fields after checking any
   reported foreground app identity.
@@ -142,9 +143,8 @@ does not identify the current chat, set `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1`
 after manually verifying the target chat. It submits only when
 `WECHAT_TOOL_ALLOW_SEND=1` is set. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted as a
 compatibility alias. Automated contact switching requires
-`WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`; the default
-`wechat.search_hotkey = ["Command", "F"]` is verified before contact text is
-typed.
+`WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`; it uses the selector-backed
+`open_contact` flow and verifies the target chat before drafting or submitting.
 
 To run the read-only window inspection example:
 
@@ -167,6 +167,8 @@ app_control_tool = "macos.computer_use"
 # Optional custom selector profile. Invalid files fall back to the packaged
 # WeChat selector profile.
 # selector_profile_path = "./profiles/wechat-local.toml"
+# Accepted for compatibility with older integrations. Normal contact switching
+# uses selector-backed open_contact and does not depend on these fields.
 search_hotkey = ["Command", "F"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"
@@ -179,8 +181,10 @@ default_timeout_ms = 30000
 
 Import `WECHAT_FAILURE_KINDS` when callers need stable routing for
 package-owned semantic failures such as `contact_not_found`, `draft_failed`,
-`input_not_focused`, `wechat_action_ref_expired`, `submit_failed`,
-`submit_unknown`, and `send_unverified`.
+`input_not_focused`, `pagination_not_supported`,
+`wechat_action_precondition_failed`, `wechat_action_ref_expired`,
+`wechat_action_target_unverified`, `submit_failed`, `submit_unknown`, and
+`send_unverified`.
 
 Selector-backed reads classify backend query failures into stable top-level
 kinds: `missing_accessibility`, `accessibility_query_timeout`,

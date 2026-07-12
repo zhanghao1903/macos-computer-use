@@ -134,6 +134,9 @@ python -m pip install --force-reinstall \
 
 ## WeChat Navigation Safety Changes
 
+- `focus_contact` now delegates to verified `open_contact`, and `send_message`
+  uses that same target-switch path before drafting. Legacy search-hotkey
+  configuration remains accepted but no longer drives normal contact switching.
 - Search focus is now fail closed. `focus_contact` and `open_contact` return
   `failureKind="search_not_focused"` for every unknown Accessibility focus
   state and do not clear, type, or press Return.
@@ -145,3 +148,9 @@ python -m pip install --force-reinstall \
   the current window, and verifies the selected state after the action.
 - Contact and conversation rows that do not advertise `AXPress` no longer
   include an `actionRef` with an unexecutable `AXPress` precondition.
+- Executable row actionRefs now include the exact row label in
+  `preconditions.labelIn`; refs without verifiable row identity are rejected
+  before backend execution.
+- Contact and conversation list pagination is explicitly visible-window only.
+  `nextPageToken` is always null, and non-null page tokens now return
+  `pagination_not_supported` instead of replaying the first visible page.

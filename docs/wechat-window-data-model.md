@@ -575,8 +575,10 @@ read_visible_messages(limit=20) -> visible message rows
 read_contact_messages(contact, limit=30) -> open_contact + read_visible_messages
 ```
 
-The older keyboard-oriented `focus_contact`, `draft_message`, `submit_draft`,
-and `send_message` APIs remain available for compatibility and send workflows.
+The compatibility `focus_contact`, `draft_message`, `submit_draft`, and
+`send_message` APIs remain available for send workflows. `focus_contact` now
+delegates to verified `open_contact`; normal target switching is no longer a
+keyboard-search workflow.
 Future UI action APIs should prefer semantic action ids and fresh
 `accessibility_query` reads instead of raw AX tree paths.
 

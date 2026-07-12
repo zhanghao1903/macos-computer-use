@@ -167,9 +167,9 @@ The real smoke does not press Return to select a searched contact by default.
 That prevents a misfocused search shortcut from sending text in the current
 chat. `WECHAT_TOOL_ASSUME_CURRENT_CHAT=1` means you manually verified that the
 currently open chat is the requested contact. Live automated contact switching
-requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`. The default search hotkey is
-`wechat.search_hotkey = ["Command", "F"]`; the tool verifies that WeChat search
-is focused before typing the contact.
+requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`. The tool uses the selector-backed
+`open_contact` flow and verifies the target chat before drafting or submitting;
+it does not use the legacy global search hotkey path.
 
 Submitting is intentionally outside the quickstart. Run submit smoke only after
 the caller has completed its own authorization policy and set

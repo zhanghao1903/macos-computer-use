@@ -1512,3 +1512,71 @@ or `/private/tmp/` value in the copied selector asset or aggregate proof.
 
 F5 is complete for Accessibility Selector Engine review remediation. F6 may
 now start from this exact head.
+
+## F5 Follow-Up Verification For PRR-013 Through PRR-016
+
+Date: 2026-07-12.
+
+Reviewed implementation commit:
+`5aa6266d` (`fix: close selector review follow-ups`) on
+`codex/accessibility-selector-engine`.
+
+### Automated regression
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests` | 127 passed in 42.04 s |
+| Protocol package | `PYTHONPATH=packages/app-control-protocol/src .venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | 55 passed |
+| macOS package | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests` | 128 passed, 1 skipped |
+| WeChat package | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | 122 passed |
+| Pytest cross-check | Package suites run separately | 55, 128, and 122 passed |
+| Release preflight | `.venv/bin/python scripts/release_preflight.py` | Passed; only expected unavailable external-proof and socket warnings |
+| Compile | `.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Worktree diff | `git diff --check` | Passed |
+| Branch diff | `git diff --check origin/main...HEAD` | Passed |
+
+Named counterexamples now pass for:
+
+- selector-backed `focus_contact` and `send_message` command ordering with no
+  global-search hotkey;
+- target-app-only query/action requests using the configured bundle and
+  rejecting unallowlisted targets before worker execution;
+- row actionRef creation and execution with exact label identity, including
+  fail-closed missing-identity cases;
+- visible-window pagination with null continuation and explicit rejection of a
+  caller-supplied token;
+- CLI dry-run, smoke entrypoint, root SDK contract, and release-preflight
+  command-sequence consumers.
+
+Ruff could not run because no `ruff` executable/module is installed in the
+project or Anaconda environment. Strict mypy ran and reported the existing
+repository baseline of 184 errors across 15 files; broad type cleanup remains
+outside this remediation scope and is not represented as a passing gate.
+
+### Live send proof status
+
+The user explicitly authorized one live smoke that may send only to
+`文件传输助手`. The local service was restarted from the current worktree, but
+the client command did not start: Codex rejected the local-action escalation
+because its approval service had reached the current usage limit. The rejection
+occurred before process creation, so no contact switch, draft, submit, or
+message send happened.
+
+The remaining exact-code proof command is:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+WECHAT_TOOL_CONTACT="文件传输助手" \
+WECHAT_TOOL_MESSAGE="accessibility selector smoke 2026-07-12" \
+WECHAT_TOOL_CONFIG=./app-control.toml \
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+WECHAT_TOOL_ALLOW_FOCUS_SELECT=1 \
+WECHAT_TOOL_ALLOW_SEND=1 \
+.venv/bin/python -m wechat_desktop_tool.examples.wechat_smoke
+```
+
+Run it at most once. If submission returns `unknown`, do not retry until the
+message state is checked manually. F5 follow-up proof and fresh-head F6 approval
+remain open until this command succeeds or an equivalent public
+`send_message` proof is captured against the reviewed implementation.

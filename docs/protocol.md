@@ -353,6 +353,8 @@ app_control_tool = "macos.computer_use"
 # Optional custom selector profile. Invalid files fall back to the packaged
 # WeChat selector profile.
 # selector_profile_path = "./profiles/wechat-local.toml"
+# Legacy compatibility fields. Selector-backed open_contact owns normal contact
+# switching in 0.2.0.
 search_hotkey = ["Command", "F"]
 search_clear_hotkey = ["Command", "A"]
 clear_key = "Delete"

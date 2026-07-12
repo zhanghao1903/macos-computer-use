@@ -10,8 +10,8 @@ and `observe`.
 The package owns:
 
 - WeChat operation names and typed inputs.
-- WeChat-specific configuration such as app name, bundle id, search hotkey,
-  submit key, search clear keys, message length limit, and default timeout.
+- WeChat-specific configuration such as app name, bundle id, selector profile,
+  submit key, legacy search fields, message length limit, and default timeout.
 - Mapping app-control observations into WeChat `ToolObservation` results.
 
 The package does not own:
@@ -265,6 +265,7 @@ Response shape:
     }
   ],
   "pagination": {
+    "mode": "visibleWindow",
     "limit": 30,
     "pageToken": null,
     "hasMore": false,
@@ -276,12 +277,15 @@ Response shape:
 }
 ```
 
-The current implementation returns visible rows only. Pagination tokens are
-reserved for scroll-based follow-up reads.
+The current implementation returns visible rows only and does not scroll.
+`nextPageToken` is always null. Passing a non-null page token returns
+`pagination_not_supported` instead of replaying the first visible page.
 
 An item includes `actionRef` only when its current AX node advertises an
 executable `AXPress`. Rows without `AXPress` remain readable but do not publish
-an actionRef that the backend cannot execute.
+an actionRef that the backend cannot execute. Executable row refs also include
+the exact current row label in `preconditions.labelIn`; execution rejects a row
+ref whose identity cannot be verified.
 
 ### `list_conversations`
 
@@ -317,7 +321,9 @@ Response shape:
     }
   ],
   "pagination": {
+    "mode": "visibleWindow",
     "limit": 30,
+    "pageToken": null,
     "hasMore": false,
     "nextPageToken": null
   }
@@ -436,28 +442,26 @@ semantic observations:
 }
 ```
 
-`focus_contact` emits this app-control sequence:
+`focus_contact` delegates to `open_contact`. The common fast path emits:
 
 1. `open_app` with the configured WeChat app name.
-2. `observe` to verify the foreground WeChat window before sending search keys.
-3. `hotkey` with the configured search hotkey.
-4. `observe` with Accessibility and visible text enabled to verify search
-   focus.
-5. `hotkey` with the configured search clear hotkey.
-6. `press_key` with the configured clear key.
-7. `type_text` with the contact name.
-8. `press_key` with the configured submit key.
-9. `observe` with visible text enabled to verify the selected chat window.
+2. `observe` to verify the foreground WeChat window.
+3. `accessibility_query` for a visible conversation matching the requested
+   contact.
+4. `accessibility_action` or a policy-allowed current-frame click for that
+   verified row.
+5. `accessibility_query` for the current chat title postcondition.
 
-Only a positively identified WeChat search field is accepted at step 4. A
-missing, unavailable, incomplete, or otherwise unknown Accessibility focus
-observation returns `search_not_focused` before clear, type, or Return is sent.
+When the conversation is not visible, `open_contact` resolves the known WeChat
+search box, verifies exact-element focus, replaces the current query, resolves
+one result, and applies the same chat-title postcondition. Unknown focus or
+multiple semantic matches fail before opening a row or drafting a message.
 
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event
 uses the top-level WeChat command id, stores the app-control operation and
 observation in `data`, and uses nested phase names such as
-`focus_contact.open_wechat` inside `send_message`.
+`open_contact.open_wechat` inside `focus_contact` and `send_message`.
 If a lower app-control backend echoes command input, WeChat progress events and
 evidence redact nested `input.text` / `input.message` values before returning
 them; semantic outputs expose message hashes, counts, and requested visible
@@ -482,12 +486,9 @@ login status while observing WeChat, the tool returns `not_ready` with
 When `focus_contact` verifies a current chat title that clearly does not match
 the requested contact, it returns `not_found` with
 `failureKind="contact_not_found"` instead of reporting a low-confidence success.
-If the backend cannot report a chat title, the operation remains best-effort and
-exposes that uncertainty through the returned confidence value.
-If a backend can report unresolved search candidates through fields such as
-`contactMatches`, `candidateContacts`, or `searchResults`, and more than one
-candidate is present, `focus_contact` returns `not_found` with
-`failureKind="contact_ambiguous"` instead of selecting one implicitly.
+If the selector flow cannot verify a chat title, it fails instead of reporting a
+best-effort focus. Multiple matching rows return `contact_ambiguous` before any
+candidate is opened.
 
 Selector-backed list, open, and read operations distinguish backend query
 failure from a successful empty result. Their stable top-level failure kinds
@@ -567,10 +568,10 @@ the shared protocol schemas before the CLI returns them.
 For live runs, the example verifies that the current chat already matches the
 contact and then drafts the message. Use `--assume-current-chat` only when the
 user has manually verified the current chat but the WeChat window title is too
-generic to prove it. Live `--allow-focus-select` uses the configured contact
-search hotkey, defaulting to `Command+F`, and verifies that WeChat search is
-focused before typing the contact. Add `--submit` only when the caller has
-already completed its own authorization and confirmation policy.
+generic to prove it. Live `--allow-focus-select` uses the verified
+selector-backed `open_contact` flow and proves the target chat before drafting.
+Add `--submit` only when the caller has already completed its own authorization
+and confirmation policy.
 
 ## Current Limitations
 
@@ -581,6 +582,8 @@ already completed its own authorization and confirmation policy.
 - `list_contacts`, `list_conversations`, and `read_visible_messages` return
   visible or currently loaded rows exposed by macOS Accessibility. They do not
   export the full WeChat contact database or complete chat history.
+- Contact and conversation lists do not implement cursor continuation in
+  `0.2.0`; callers must refresh after scrolling the WeChat UI.
 - `observe_current_chat` remains a legacy observe-backed summary API. When a
   lower backend supplies `observation.messages` or `textExtract`, its parsing is
   still best-effort.

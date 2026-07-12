@@ -83,8 +83,8 @@ python -m wechat_desktop_tool.examples.wechat_smoke
 ```
 
 Live automated contact selection requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`.
-The default search hotkey is `wechat.search_hotkey = ["Command", "F"]`, and the
-tool verifies that WeChat search is focused before typing the contact.
+The tool uses the selector-backed `open_contact` flow and verifies the target
+chat before drafting or submitting.
 
 ## Submit Smoke
 
@@ -119,9 +119,9 @@ python -m wechat_desktop_tool.examples.wechat_smoke \
 ```
 
 To switch to the specified contact before sending, explicitly opt into both
-contact selection and sending. The tool uses `wechat.search_hotkey`, defaulting
-to `["Command", "F"]`, and verifies that WeChat search is focused before any
-contact text is typed:
+contact selection and sending. The tool resolves a visible conversation row or
+the verified WeChat search box, opens one target, and verifies the resulting
+chat title before any message text is drafted:
 
 ```bash
 WECHAT_TOOL_CONTACT="File Transfer" \

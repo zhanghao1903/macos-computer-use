@@ -501,7 +501,7 @@ Public operations:
 | `execute_action` | `wechat.execute_action(action_ref)` | Execute an action returned by `inspect_window` or list APIs. | Depends |
 | `read_visible_messages` | `wechat.read_visible_messages(limit=20)` | Return visible loaded message rows in current chat. | Opens/focuses app |
 | `read_contact_messages` | `wechat.read_contact_messages(contact, limit=30)` | Compose `open_contact` and `read_visible_messages`. | Yes |
-| `focus_contact` | `wechat.focus_contact(contact)` | Compatibility keyboard-search flow used by send-message. | Yes |
+| `focus_contact` | `wechat.focus_contact(contact)` | Compatibility wrapper over verified `open_contact`, used by send-message. | Yes |
 | `observe_current_chat` | `wechat.observe_current_chat()` | Legacy observe-backed current chat summary. | No |
 | `draft_message` | `wechat.draft_message(message)` | Type bounded text into the focused chat input. | Yes |
 | `submit_draft` | `wechat.submit_draft()` | Press the configured submit key. | Yes |
@@ -527,8 +527,8 @@ result = wechat.run_command(list_contacts_command(limit=30))
 |---|---|---|---|
 | `open_wechat_command()` | `open_wechat` | none | Open/focus WeChat and verify foreground identity. |
 | `inspect_window_command(...)` | `inspect_window` | optional flags | Returns `wechat.window.v1`. |
-| `list_contacts_command(...)` | `list_contacts` | optional limit/page token | Visible contacts page only. |
-| `list_conversations_command(...)` | `list_conversations` | optional limit/page token | Visible conversations page only. |
+| `list_contacts_command(...)` | `list_contacts` | optional limit | Visible contacts only; non-null page tokens are rejected. |
+| `list_conversations_command(...)` | `list_conversations` | optional limit | Visible conversations only; non-null page tokens are rejected. |
 | `open_contact_command(contact)` | `open_contact` | contact text | May return `needs_disambiguation`. |
 | `execute_action_command(action_ref)` | `execute_action` | `actionRef` returned by a read-model API | Executes `accessibility_action` first, then allowed fallback. |
 | `read_visible_messages_command(...)` | `read_visible_messages` | optional limit | Visible loaded messages only. |
@@ -623,14 +623,24 @@ List APIs return visible rows only:
         "id": "chats.visible.0.open",
         "kind": "chats.open",
         "preferredMethod": "accessibility_action",
-        "target": {"axPath": "0/11/1/0/0", "role": "AXRow"},
+        "target": {
+          "axPath": "0/11/1/0/0",
+          "role": "AXRow",
+          "label": "文件传输助手,hello,09:00,置顶"
+        },
         "action": "AXPress",
+        "preconditions": {
+          "roleIn": ["AXRow"],
+          "labelIn": ["文件传输助手,hello,09:00,置顶"],
+          "actionIn": ["AXPress"]
+        },
         "createdAt": "2026-07-08T10:00:00Z",
         "expiresAt": "2026-07-08T10:05:00Z"
       }
     }
   ],
   "pagination": {
+    "mode": "visibleWindow",
     "limit": 30,
     "pageToken": null,
     "hasMore": false,
@@ -638,6 +648,10 @@ List APIs return visible rows only:
   }
 }
 ```
+
+List APIs do not scroll or implement cursor continuation in `0.2.0`.
+`nextPageToken` is always `null`; passing a non-null `pageToken` returns
+`failureKind="pagination_not_supported"` instead of replaying the first page.
 
 WeChat `actionRef` values are short-lived recommendations. Generated refs
 include `createdAt` and `expiresAt`; `execute_action` rejects expired or
