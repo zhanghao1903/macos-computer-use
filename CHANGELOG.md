@@ -57,6 +57,9 @@
 
 ### Fixed
 
+- Route public WeChat focus/send through verified `open_contact`, enforce
+  target-app and row action identity before Accessibility actions, and replace
+  synthetic list continuation tokens with explicit visible-window semantics.
 - Keep WeChat contact, conversation, and visible-message APIs below the
   three-second target by querying visible rows, skipping selected navigation,
   replacing stale global-search text, and verifying the active chat across

@@ -4,143 +4,129 @@
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
-- Reviewed head: `eb0e793b04dc05c4c9e1773380d73990a3d6dcbb`
-- Status: `REQUEST_CHANGES`; not merge-ready
+- Reviewed head: `feb937d7aaac0aff9747dd802e03d5d6eb063707`
+- Status: `INCOMPLETE`; not yet merge-ready
 - Current review:
-  [`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md)
+  [`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md)
 
 ## Decision
 
-PR #3 remains draft and must not be merged at the reviewed head. The F6 review
-closed the 12 findings from the historical `07fa052` snapshot, but identified
-four new blocking findings while tracing public compatibility and desktop
-action paths:
+No open code finding remains on the reviewed source. `PRR-001` through
+`PRR-016` have implementation and named deterministic closure evidence.
 
-- `PRR-013`: `focus_contact` and `send_message` still use the obsolete
-  hotkey/coarse-observe implementation and fail on the authorized live client;
-- `PRR-014`: target-app-only Accessibility requests can select the wrong
-  frontmost process when no bundle id is supplied;
-- `PRR-015`: conversation-row actionRefs omit semantic identity preconditions
-  and can press a different contact after row reordering;
-- `PRR-016`: visible-window list methods return continuation tokens that do not
-  advance and repeat the first page.
+Merge readiness remains incomplete for two external evidence gates:
 
-The review decision is `REQUEST_CHANGES`. Remediation must retain these IDs,
-add deterministic regression coverage, and receive a fresh head-bound F6
-review before this document can return to `APPROVE`.
+1. the exact-code public `send_message` smoke to `文件传输助手` did not execute
+   because the local-action approval service reached its usage limit;
+2. current GitHub Actions status could not be read for the same reason.
+
+The failed live attempt stopped before process creation. It did not switch a
+contact, draft text, submit, or send a message. This document must not change to
+merge-ready until both gates are observed.
 
 ## Completed Scope
 
-The implementation currently provides:
+The implementation now provides:
 
-- internal selector profile models, parsing, validation, matching, confidence,
-  relations, fallbacks, cache, and collection extraction;
-- bounded Accessibility queries with a warm worker, indexed/attribute root
-  resolution, safe attribute filtering, query budgets, and step timing;
-- generic verified `AXPress` and `AXSetFocus` actions plus policy-gated,
-  current-frame coordinate fallback;
-- packaged WeChat selector profile and control map for navigation, contacts,
-  conversations, chat panels, and visible messages;
-- semantic `inspect_window`, list, `open_contact`, message read, and actionRef
-  execution results;
+- internal selector profile models, validation, matching, confidence,
+  relations, bounded fallbacks, cache, and collection extraction;
+- warm bounded Accessibility queries with indexed/attribute root resolution,
+  safe attributes, budgets, and timing diagnostics;
+- verified AX actions plus policy-gated current-frame coordinate fallback;
+- packaged WeChat selector/control maps for navigation, contacts,
+  conversations, chat panels, search, and visible messages;
+- semantic inspect, list, open, focus, read, actionRef, draft, and send paths;
 - application-injected `wechat.selector_profile_path` with packaged fallback;
 - coordinated package version/dependency floor `0.2.0`;
 - privacy-safe, source-bound selector release proof v2 and strict preflight.
 
 No public `resolve_selector` or `extract_collection` protocol command was
-added. Those remain a future feature.
+added. Helper-side selector parity and cursor/scroll pagination remain future
+features.
 
-## Previous Findings
+## Finding Ledger
 
-The current review retains and marks these historical findings resolved:
-
-| Finding | Current status | Closure |
+| Finding | Status | Closure |
 |---|---|---|
 | `PRR-001` | Resolved | Whitelist-only public proof v2 and recursive privacy rejection. |
 | `PRR-002` | Resolved | Unknown search focus stops before text or Return. |
-| `PRR-003` | Resolved | Current in-window frame only; selected-state postcondition. |
+| `PRR-003` | Resolved | Current in-window frame only, with semantic postcondition. |
 | `PRR-004` | Resolved | Two-candidate ambiguity checked before action. |
 | `PRR-005` | Resolved | Unsupported selector-backed helper mode fails at construction. |
 | `PRR-006` | Resolved | Full cache predicate and signature revalidation. |
-| `PRR-007` | Resolved | Backend query causes preserved as failures. |
+| `PRR-007` | Resolved | Backend query causes remain failures, not not-found. |
 | `PRR-008` | Resolved | Shared maximum query depth and bounded batch plan. |
 | `PRR-009` | Resolved | Completed N+1 lookahead separated from truncation. |
-| `PRR-010` | Resolved | Coordinated `0.2.0` dependency set and clean wheel proof. |
+| `PRR-010` | Resolved | Coordinated `0.2.0` dependencies and clean wheel proof. |
 | `PRR-011` | Resolved | Correct release source paths protected by preflight. |
-| `PRR-012` | Resolved | Non-zero, consistent, exact-head strict proof requirements. |
+| `PRR-012` | Resolved | Exact-head, non-zero, consistent, private-safe proof requirements. |
+| `PRR-013` | Resolved in code; live gate pending | Public focus/send delegates to verified `open_contact`; no legacy global-search hotkey in the tested sequence. |
+| `PRR-014` | Resolved | Explicit AX targets are allowlisted and bundle/name identity is proven. |
+| `PRR-015` | Resolved | Row refs carry exact label preconditions; unlabeled rows emit no action or coordinate click. |
+| `PRR-016` | Resolved | Visible-window lists return null continuation and reject non-null tokens. |
 
-The historical report remains immutable at
-[`pr-review-macos-computer-use-3-07fa052.md`](./pr-review-macos-computer-use-3-07fa052.md).
+Historical reports remain immutable:
 
-## Current Verification
+- [`pr-review-macos-computer-use-3-07fa052.md`](./pr-review-macos-computer-use-3-07fa052.md)
+- [`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md)
 
-Reviewed head `eb0e793b...`:
+## Verification
 
+Latest code head `ca6d4a8...`, followed only by verification documentation:
+
+- root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 125 tests passed;
-- `wechat-desktop-tool`: 122 tests passed;
-- `git diff --check origin/main...HEAD`: passed;
-- GitHub Actions `test`: passed, run `29196700910`, job `86660857594`;
-- PR metadata: draft and GitHub reports `MERGEABLE`, but review policy blocks
-  merge while findings remain.
+- `computer-use-macos`: 128 tests passed, 1 skipped;
+- `wechat-desktop-tool`: 123 tests passed;
+- package wheel build/install/rejection checks passed through the root suite;
+- compile and diff checks passed.
 
-Exact code head `6a74c1d...` proof, before the F5 documentation-only commit:
+Exact review head `feb937d...`:
 
-- all 10 selector smoke checks passed;
-- 11 contacts, 14 conversations, and 30 visible messages were proven;
-- `openWeChat=251 ms`, `inspectWindow=330 ms`,
-  `listConversations=336 ms`, `openContact=829 ms`,
-  `readVisibleMessages=1095 ms`, and `listContacts=1446 ms`;
-- offscreen verified-search `openContact=2457 ms` and
-  `readVisibleMessages=1282 ms`;
-- no raw observation and no message submission;
-- strict source-bound preflight passed.
+- release preflight passed public API, docs, config, command-builder,
+  dry-run-smoke, packaging metadata, and workflow checks;
+- current external proofs remain warnings;
+- no current GitHub check result was observed.
 
-F6 compatibility counterexamples on `eb0e793b...`:
+Historical exact-code selector proof remains valid for the shared semantic
+read/open implementation: 11 contacts, 14 conversations, 30 visible messages,
+all measured APIs below 3000 ms, target-title postcondition passed, and no raw
+observation or message submission. It does not prove the newly unified public
+send wrapper.
 
-- packaged `Command+F` `focus_contact`: failed safely with
-  `search_not_focused` in 1781 ms;
-- prior `Command+K` override: same failure in 1278 ms;
-- both stopped before drafting or submitting;
-- generated AXRow actionRef contained a target label but no `labelIn`
-  precondition.
+Ruff is unavailable. Strict mypy reports the existing broad baseline of 184
+errors in 15 files and is not treated as a passing gate.
 
-The exact selector proof must be regenerated after remediation because its
-source SHA must equal the final reviewed head.
+## Public Contract
 
-## Public Impact
+- `focus_contact` is now a compatibility wrapper over verified
+  `open_contact`; `send_message` uses that same target switch before drafting;
+- target-app-only AX query/action requests fail closed unless process identity
+  is proven;
+- executable AXRow actionRefs require exact identity in
+  `preconditions.labelIn`;
+- contact and conversation lists are visible-window-only, always return
+  `nextPageToken=null`, and reject non-null continuation input;
+- legacy search-hotkey config remains parseable but does not drive normal
+  contact switching;
+- message submission remains explicit, with unknown submit outcomes marked
+  non-retryable until manual inspection.
 
-The intended public behavior remains:
+## Remaining Evidence
 
-- existing WeChat semantic method names and response schema names stay stable;
-- selector internals and raw AX structures are not the primary application
-  contract;
-- message drafting/submission remains explicit and target-verified;
-- coordinate fallback remains policy-gated and frame-derived;
-- selector profile overrides do not require repackaging the application.
-
-The current head does not yet satisfy that contract for `focus_contact`,
-`send_message`, target-app-only AX requests, row actionRefs, or pagination.
-
-## Required Remediation
-
-1. `PRR-013`: route public focus/send through the verified `open_contact`
-   implementation, add call-sequence tests, and run the user-authorized live
-   focus/send smoke to `文件传输助手`.
-2. `PRR-014`: resolve or verify target app identity before AX query/action;
-   add wrong-frontmost and bundle mismatch tests.
-3. `PRR-015`: revalidate row semantic identity or stop publishing row
-   actionRefs; add same-path changed-label tests.
-4. `PRR-016`: keep continuation null/reject unsupported page tokens, or
-   implement real disjoint continuation with two-call tests.
-5. Re-run package/root suites, wheel/preflight checks, authorized live proof,
-   current-head CI, and a new F6 PR review.
+1. Restart `computer-use-macos serve` from the final code worktree.
+2. Run the command recorded in `verification.md` exactly once with target
+   `文件传输助手` and `WECHAT_TOOL_ALLOW_SEND=1`.
+3. If the result is `unknown`, inspect WeChat manually and do not retry.
+4. Record target postcondition, submit result, and elapsed public API time.
+5. Read current PR checks and require green CI for the pushed code head.
+6. Refresh this file and the F6 report decision to `APPROVE` only after both
+   evidence gates pass.
 
 ## Repository Hygiene
 
 - Private smoke JSON, tokens, raw data, distribution output, package-local lock
-  files, and unrelated dirty skill/docs/example changes are not part of the
-  feature commits.
-- Current review artifacts contain only bounded, sanitized evidence.
-- `CHANGELOG.md`, API docs, migration notes, release checklist, and PR text must
-  be refreshed again only after the four blockers are resolved.
+  files, and unrelated dirty skill/docs/example changes are excluded.
+- Review artifacts contain bounded semantic evidence only.
+- The feature changelog entry must be staged independently from unrelated local
+  changelog edits.

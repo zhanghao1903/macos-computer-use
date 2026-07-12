@@ -2,55 +2,47 @@
 
 ## Current Review Status
 
-`REQUEST_CHANGES` for head
-`eb0e793b04dc05c4c9e1773380d73990a3d6dcbb`. The current F6 report is
-[`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md).
+`INCOMPLETE` for reviewed head
+`feb937d7aaac0aff9747dd802e03d5d6eb063707`. The fresh F6 report is
+[`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md).
 
-The 12 blockers from the previous `07fa052` snapshot are resolved. Four new
-blocking findings remain:
-
-- `PRR-013`: public `focus_contact`/`send_message` still use an obsolete live
-  path;
-- `PRR-014`: target-app-only AX requests do not prove the selected process;
-- `PRR-015`: conversation row actionRefs do not revalidate contact identity;
-- `PRR-016`: emitted pagination tokens cannot advance.
-
-PR #3 remains draft until those findings are fixed and a new-head review passes.
+No open code finding remains. `PRR-001` through `PRR-016` are resolved in the
+source and deterministic regression suites. PR #3 remains draft until one
+exact-code public send smoke to `文件传输助手` and current green GitHub CI are
+observed.
 
 ## Problem
 
-WeChat semantic APIs previously depended on brittle Accessibility paths and
-broad row scans. Layout, locale, and row-structure changes made contact,
-conversation, and message operations slow and difficult to adapt without
-repackaging the tool.
+WeChat semantic APIs depended on brittle Accessibility paths and broad scans.
+Layout, locale, row structure, app focus, and list reordering could make
+contact, conversation, message, and action workflows slow or unsafe to adapt.
 
 ## Solution
 
 This feature adds an internal Accessibility selector engine owned by
 `computer-use-macos` and a packaged WeChat selector/control map owned by
-`wechat-desktop-tool`.
-
-The implementation includes:
+`wechat-desktop-tool`:
 
 - validated selector, matcher, constraint, relation, confidence, cache,
   collection, and actionRef contracts;
-- bounded AX query execution with a warm subprocess, scoped roots, safe
-  attributes, node/time/depth limits, and per-step timing;
-- fast stable-path control-map resolution with selector fallback;
-- current-frame, policy-gated coordinate fallback and selected-state/title
-  postconditions;
-- selector-backed contacts, conversations, `open_contact`, and visible message
-  reads;
+- bounded AX query execution with a warm worker, scoped roots, safe attributes,
+  node/time/depth limits, and step timing;
+- stable control-map resolution with bounded selector fallback;
+- current-frame, policy-gated coordinate fallback and semantic postconditions;
+- selector-backed contacts, conversations, contact opening/focus, and visible
+  message reads;
+- verified app identity and exact row actionRef identity preconditions;
+- honest visible-window list pagination with no synthetic cursor;
 - optional application-injected `wechat.selector_profile_path`;
-- coordinated `0.2.0` package dependencies and clean wheel checks;
+- coordinated `0.2.0` dependencies and clean wheel checks;
 - privacy-safe, source-bound selector release proof v2.
 
 No public `resolve_selector` or `extract_collection` protocol operation is
-introduced in this feature.
+introduced.
 
 ## Consumer Impact
 
-Consumers continue to use semantic methods:
+Consumers keep the existing semantic methods:
 
 - `inspect_window`
 - `list_contacts`
@@ -61,89 +53,72 @@ Consumers continue to use semantic methods:
 - `read_contact_messages`
 - `send_message`
 
+Behavior changes:
+
+- `focus_contact` delegates to verified `open_contact`; `send_message` proves
+  the requested chat before drafting or submitting;
+- legacy search-hotkey configuration remains accepted but does not drive normal
+  contact switching;
+- AXRow actionRefs include the exact current label in `labelIn` and fail before
+  any backend/coordinate work when identity is missing;
+- contact/conversation `nextPageToken` is always null, and non-null page tokens
+  return `pagination_not_supported`;
+- helper-backed WeChat selector construction remains unsupported in `0.2.0`;
+  direct and direct-backed local service modes remain supported.
+
 New optional configuration:
 
 - `[wechat] selector_profile_path`
 - `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH`
 
-Missing, unreadable, invalid, or policy-invalid override profiles fall back to
-the packaged profile. `computer_use.backend=helper` is rejected when building a
-selector-backed WeChat tool in `0.2.0`; direct and direct-backed local service
-modes remain supported.
+Invalid or policy-invalid override profiles fall back to the packaged profile.
 
-The SDK recent-messages example reads one configurable contact, defaults to
-`文件传输助手`, accepts `--contact` and `--message-limit`, verifies the opened
-chat title, and prints returned semantic message rows.
+## Safety
 
-## API and Safety
-
-- Existing semantic schema names remain:
-  - `wechat.window.v1`
-  - `wechat.contacts.v1`
-  - `wechat.conversations.v1`
-  - `wechat.messages.v1`
-  - `wechat.open_contact.v1`
-- `accessibility_action` supports verified `AXPress` and `AXSetFocus`.
-- Mapped navigation verifies app/window identity, role, localized label,
-  enabled state, current frame containment, action availability, and selected
-  state after mutation.
-- `open_contact` verifies the resulting chat title before reads continue.
-- Unknown search focus fails before clear, paste, or Return.
-- Coordinate clicks remain disabled unless configured and use only a current
-  queried AX frame.
-- Message submission remains explicit; selector resolution does not submit
-  text.
-- Public release proof excludes contact names, messages, window titles, local
-  paths, tokens, raw AX nodes, and operation observations.
-
-The current review requires the same safety model to be applied to the legacy
-focus/send path, target-app-only AX operations, row actionRefs, and pagination
-before merge.
+- app/window identity is verified before Accessibility reads and actions;
+- unknown search focus fails before replacing or typing contact text;
+- same-name candidates fail before action;
+- coordinates come only from a current in-window AX frame and remain
+  policy-gated;
+- stale/reordered row refs fail exact identity preconditions;
+- opened contact title is verified before reads, drafts, or sends continue;
+- submit uncertainty is non-retryable until manual inspection;
+- public release proof excludes contacts, messages, titles, local paths,
+  tokens, raw AX nodes, and operation observations.
 
 ## Verification
 
-Current reviewed head:
-
+- root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 125 tests passed;
-- `wechat-desktop-tool`: 122 tests passed;
-- whitespace diff check: passed;
-- GitHub Actions run `29196700910`, job `86660857594`: passed.
+- `computer-use-macos`: 128 tests passed, 1 skipped;
+- `wechat-desktop-tool`: 123 tests passed;
+- wheel/build/install compatibility checks passed through the root suite;
+- exact-head release preflight, compile, and diff checks passed;
+- historical exact-code selector proof recorded 11 contacts, 14
+  conversations, 30 visible messages, and every measured semantic API below
+  3000 ms.
 
-Latest exact-code-head selector proof (`6a74c1d...`):
+Not yet observed:
 
-- all 10 checks passed;
-- 11 contacts, 14 conversations, and 30 visible messages;
-- all measured public selector-backed APIs below 3 seconds;
-- offscreen verified-search contact switch below 3 seconds;
-- expired actionRef rejected before backend execution;
-- frame-derived coordinate rule, target postcondition, and focus gate passed;
-- raw observation absent and no message submitted;
-- strict source-bound preflight passed.
+- exact-code public `send_message` smoke after focus-path unification;
+- current GitHub Actions for the pushed final code head;
+- Ruff, which is not installed.
 
-F6 counterexamples:
-
-- default `Command+F` `focus_contact` failed safely in 1781 ms;
-- prior `Command+K` override failed at the same focus verification in 1278 ms;
-- neither run drafted or submitted;
-- an AXRow actionRef carried a contact label in its target but omitted it from
-  executable preconditions;
-- code inspection proved target-app-only AX workers select the frontmost app
-  without checking its name;
-- code inspection proved list `pageToken` is echoed but never consumed.
+The authorized live command did not start because the local-action approval
+service reached its usage limit. No message was sent by that attempt.
 
 ## Required Before Merge
 
-1. Resolve `PRR-013` through `PRR-016` with deterministic regression tests.
-2. Run the user-authorized live focus/send smoke to `文件传输助手` after the
-   target title is verified.
-3. Regenerate the privacy-safe proof for the final exact source SHA.
-4. Run package/root/wheel/preflight suites and current-head CI.
-5. Produce a fresh F6 report with no open blocking findings.
+1. Run the documented public send smoke exactly once against
+   `文件传输助手`; do not retry an unknown submit result.
+2. Confirm the target-title postcondition, submit result, and public API time.
+3. Confirm current PR checks are green.
+4. Reissue the short F6 merge decision as `APPROVE` when both evidence gates
+   pass.
 
 ## Release Note
 
 Add an internal Accessibility selector engine, packaged WeChat selector/control
-maps, selector-backed semantic contact and message operations, optional
-`wechat.selector_profile_path`, bounded AX performance diagnostics, and a
-privacy-safe release proof.
+maps, verified selector-backed contact and message operations, exact actionRef
+identity, visible-window list semantics, optional profile injection, bounded AX
+performance diagnostics, and privacy-safe release proof.
