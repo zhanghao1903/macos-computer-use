@@ -1,10 +1,11 @@
 # Accessibility Selector Engine Verification
 
-- Verification date: 2026-07-07
+- Verification date: 2026-07-12
 - Branch: `codex/accessibility-selector-engine`
-- Scope: automated F5 verification snapshot after Slice 5D
-- Status: automated checks passed; real WeChat selector-engine smoke passed on
-  2026-07-08; public selector protocol remains deferred
+- Scope: historical selector-engine evidence plus F5 review-remediation
+  verification
+- Status: review-remediation automation passed on exact head `ebee2dd`; a new
+  explicitly authorized real WeChat proof is still required before F5 closes
 
 ## Automated Checks
 
@@ -1328,3 +1329,85 @@ desktop proof for the older `0/11` branch. That compatibility branch is covered
 by deterministic command-sequence tests; the existing `0/12` live smoke remains
 the real desktop proof for mapped target lookup, coordinate click, title
 verification, and message reading.
+
+## F5 Review-Remediation Integration Verification
+
+Date: 2026-07-12.
+
+Exact tested source:
+
+- commit: `ebee2dd272d29caed2d6b1423f90f4d14e3a408d`;
+- branch: `codex/accessibility-selector-engine`;
+- Python: `3.12.7` in both the project and clean release environments;
+- clean interpreter:
+  `/tmp/accessibility-selector-release-clean-20260712/bin/python`;
+- package isolation probe: `app_control_protocol`, `computer_use_macos`, and
+  `wechat_desktop_tool` were all absent from the clean interpreter before the
+  source-path tests ran.
+
+### Exact clean release commands
+
+The four unit-test commands from `.github/workflows/release.yml` ran with only
+their declared `PYTHONPATH` source roots and no installed workspace package:
+
+| Area | Result | Wall time |
+| --- | --- | ---: |
+| Root repository | Passed: 124 tests | 44.34 s |
+| `app-control-protocol` | Passed: 55 tests | 0.11 s |
+| `computer-use-macos` | Passed: 125 tests, 1 skipped | 0.52 s |
+| `wechat-desktop-tool` | Passed: 116 tests | 0.52 s |
+
+The root suite includes release preflight, wheel-check orchestration,
+source-path mutation tests, strict proof-v2 validation, and package-boundary
+coverage. The skipped macOS test is the existing environment-dependent test,
+not a selector remediation failure.
+
+### Build and repository gates
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Compile | `.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Default preflight | `.venv/bin/python scripts/release_preflight.py` | Passed in 1.26 s; only expected unavailable external-proof and sandbox socket warnings remained |
+| Real wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py --wheel-dir /tmp/accessibility-selector-f5-wheels-ebee2dd` | Passed in 9.37 s |
+| Branch diff | `git diff --check origin/main...HEAD` | Passed |
+| Worktree diff | `git diff --check` | Passed |
+
+The actual wheel run occurred after `compileall` had populated ignored cache
+directories. It proved:
+
+- all three packages built as version `0.2.0` from temporary sanitized source
+  trees;
+- `wheel-no-bytecode` passed for every wheel, with no `.pyc` or
+  `__pycache__` member;
+- dependency metadata and required selector/profile resources were present;
+- the complete wheel set installed in a clean virtual environment;
+- package imports and public API smoke passed from the installed wheels;
+- pip rejected `wechat-desktop-tool==0.2.0` with the local `0.1.1`
+  protocol/backend dependency set.
+
+The project `.venv` does not include `pip`, `setuptools`, or `wheel`, so the
+Anaconda Python was used only as the wheel build driver. Wheel installation and
+API checks still ran in a new temporary virtual environment without source-tree
+imports.
+
+### Live proof status
+
+No desktop operation ran during this remediation verification. The live proof
+from 2026-07-08 remains useful historical coverage but is not source-bound
+proof for `ebee2dd` and cannot close the current gate.
+
+After explicit user authorization, the remaining smoke must use a moved or
+resized WeChat window and the exact head above, then:
+
+1. open one unique configured contact without drafting or sending content;
+2. list at least one contact and one conversation;
+3. read between 1 and 30 visible messages;
+4. keep every measured semantic API at or below 3000 ms;
+5. prove the target postcondition and expired actionRef rejection;
+6. emit public proof v2 and pass strict preflight for the exact source SHA;
+7. pass sensitive-canary scanning while keeping private debug data outside the
+   repository and release bundle.
+
+F5 remains open until this authorized proof is captured and recorded. F6
+new-head review and merge-readiness refresh must not start before that gate is
+resolved.
