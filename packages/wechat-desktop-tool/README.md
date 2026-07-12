@@ -182,6 +182,12 @@ package-owned semantic failures such as `contact_not_found`, `draft_failed`,
 `input_not_focused`, `wechat_action_ref_expired`, `submit_failed`,
 `submit_unknown`, and `send_unverified`.
 
+Selector-backed reads classify backend query failures into stable top-level
+kinds: `missing_accessibility`, `accessibility_query_timeout`,
+`app_control_transport_failed`, and `accessibility_query_failed`. The exact
+backend cause remains available as `diagnostics.causeFailureKind`; use the
+top-level kind for routing and the nested cause for diagnostics.
+
 ## Package Boundary
 
 `wechat-desktop-tool` depends on `app-control-protocol` and a client that

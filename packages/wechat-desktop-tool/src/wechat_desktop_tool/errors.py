@@ -9,6 +9,10 @@ WECHAT_NOT_READY = "wechat_not_ready"
 WECHAT_NOT_LOGGED_IN = "wechat_not_logged_in"
 WECHAT_WINDOW_UNAVAILABLE = "wechat_window_unavailable"
 WECHAT_NAVIGATION_FAILED = "wechat_navigation_failed"
+WECHAT_NAVIGATION_TARGET_UNVERIFIED = "wechat_navigation_target_unverified"
+WECHAT_NAVIGATION_POSTCONDITION_FAILED = (
+    "wechat_navigation_postcondition_failed"
+)
 WECHAT_ACTION_FAILED = "wechat_action_failed"
 WECHAT_ACTION_PRECONDITION_FAILED = "wechat_action_precondition_failed"
 WECHAT_ACTION_REF_EXPIRED = "wechat_action_ref_expired"
@@ -28,6 +32,10 @@ SEND_UNVERIFIED = "send_unverified"
 MAIN_CONTENT_NOT_FOUND = "main_content_not_found"
 MESSAGE_REGION_NOT_FOUND = "message_region_not_found"
 QUERY_ROOT_NOT_FOUND = "query_root_not_found"
+MISSING_ACCESSIBILITY = "missing_accessibility"
+ACCESSIBILITY_QUERY_TIMEOUT = "accessibility_query_timeout"
+APP_CONTROL_TRANSPORT_FAILED = "app_control_transport_failed"
+ACCESSIBILITY_QUERY_FAILED = "accessibility_query_failed"
 
 FOCUS_FAILED = "focus_failed"
 FOCUS_CONTACT_FAILED = "focus_contact_failed"
@@ -43,6 +51,8 @@ WECHAT_FAILURE_KINDS = (
     WECHAT_NOT_LOGGED_IN,
     WECHAT_WINDOW_UNAVAILABLE,
     WECHAT_NAVIGATION_FAILED,
+    WECHAT_NAVIGATION_TARGET_UNVERIFIED,
+    WECHAT_NAVIGATION_POSTCONDITION_FAILED,
     WECHAT_ACTION_FAILED,
     WECHAT_ACTION_PRECONDITION_FAILED,
     WECHAT_ACTION_REF_EXPIRED,
@@ -62,6 +72,10 @@ WECHAT_FAILURE_KINDS = (
     MAIN_CONTENT_NOT_FOUND,
     MESSAGE_REGION_NOT_FOUND,
     QUERY_ROOT_NOT_FOUND,
+    MISSING_ACCESSIBILITY,
+    ACCESSIBILITY_QUERY_TIMEOUT,
+    APP_CONTROL_TRANSPORT_FAILED,
+    ACCESSIBILITY_QUERY_FAILED,
     FOCUS_FAILED,
     FOCUS_CONTACT_FAILED,
     DRAFT_MESSAGE_FAILED,

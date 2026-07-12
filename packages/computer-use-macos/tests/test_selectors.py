@@ -1289,6 +1289,434 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(refreshed.diagnostics.query_count, 2)
         self.assertEqual(second_runner.calls[0]["root"], {"kind": "axPath", "axPath": "0/1"})
 
+    def test_resolver_cache_revalidates_matcher_and_required_actions(self) -> None:
+        invalid_cached_nodes = {
+            "changed_matcher": {
+                "axPath": "0/1",
+                "role": "AXRadioButton",
+                "description": "Chats",
+                "actions": ["AXPress"],
+            },
+            "required_action_removed": {
+                "axPath": "0/1",
+                "role": "AXRadioButton",
+                "description": "Contacts",
+                "actions": [],
+            },
+        }
+        for case, invalid_cached_node in invalid_cached_nodes.items():
+            with self.subTest(case=case):
+                profile = parse_selector_profile(_valid_profile())
+                resolver = SelectorResolver(
+                    profile,
+                    FakeQueryRunner(
+                        [
+                            _query_payload(
+                                [
+                                    {
+                                        "axPath": "0/1",
+                                        "role": "AXRadioButton",
+                                        "description": "Contacts",
+                                        "actions": ["AXPress"],
+                                    }
+                                ]
+                            )
+                        ]
+                    ),
+                    app_bundle_id="com.example.Sample",
+                    window_fingerprint="main",
+                )
+                self.assertEqual(
+                    resolver.resolve("navigation.contacts").status,
+                    "resolved",
+                )
+                refresh_runner = FakeQueryRunner(
+                    [
+                        _query_payload([invalid_cached_node]),
+                        _query_payload(
+                            [
+                                {
+                                    "axPath": "0/2",
+                                    "role": "AXRadioButton",
+                                    "description": "Contacts",
+                                    "actions": ["AXPress"],
+                                }
+                            ]
+                        ),
+                    ]
+                )
+                resolver.query_runner = refresh_runner
+
+                refreshed = resolver.resolve("navigation.contacts")
+
+                self.assertEqual(refreshed.status, "resolved")
+                self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/2")
+                self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+                self.assertEqual(refreshed.diagnostics.query_count, 2)
+                validation_query = refresh_runner.calls[0]["query"]
+                self.assertIn("AXDescription", validation_query["attributes"])
+                self.assertTrue(validation_query["actions"])
+
+    def test_resolver_cache_revalidates_state_and_frame_constraints(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["steps"][0]["enabled"] = True  # type: ignore[index]
+        selector["steps"][0]["visible"] = True  # type: ignore[index]
+        selector["cache"]["key_attributes"] = ["AXIdentifier"]  # type: ignore[index]
+        selector["constraints"] = [  # type: ignore[index]
+            {"kind": "selected", "value": False, "required": True},
+            {
+                "kind": "frameWithin",
+                "value": {"x": 0, "y": 0, "width": 300, "height": 200},
+                "required": True,
+            },
+        ]
+        profile = parse_selector_profile(raw)
+        valid_node = {
+            "axPath": "0/1",
+            "role": "AXRadioButton",
+            "description": "Contacts",
+            "actions": ["AXPress"],
+            "enabled": True,
+            "hidden": False,
+            "selected": False,
+            "AXIdentifier": "contacts-navigation",
+            "frame": {"x": 10, "y": 10, "width": 100, "height": 20},
+        }
+        invalid_overrides = {
+            "enabled": {"enabled": False},
+            "visible": {"hidden": True},
+            "selected": {"selected": True},
+            "frame": {
+                "frame": {"x": 400, "y": 10, "width": 100, "height": 20}
+            },
+        }
+        for case, override in invalid_overrides.items():
+            with self.subTest(case=case):
+                resolver = SelectorResolver(
+                    profile,
+                    FakeQueryRunner([_query_payload([valid_node])]),
+                    app_bundle_id="com.example.Sample",
+                    window_fingerprint="main",
+                )
+                self.assertEqual(
+                    resolver.resolve("navigation.contacts").status,
+                    "resolved",
+                )
+                invalid_node = {**valid_node, **override}
+                fresh_node = {**valid_node, "axPath": "0/2"}
+                refresh_runner = FakeQueryRunner(
+                    [
+                        _query_payload([invalid_node]),
+                        _query_payload([fresh_node]),
+                    ]
+                )
+                resolver.query_runner = refresh_runner
+
+                refreshed = resolver.resolve("navigation.contacts")
+
+                self.assertEqual(refreshed.status, "resolved")
+                self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/2")
+                self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+                attributes = refresh_runner.calls[0]["query"]["attributes"]
+                self.assertIn("AXEnabled", attributes)
+                self.assertIn("AXHidden", attributes)
+                self.assertIn("AXSelected", attributes)
+                self.assertIn("AXFrame", attributes)
+                self.assertIn("AXIdentifier", attributes)
+
+    def test_resolver_cache_revalidates_relation_geometry(self) -> None:
+        raw = _valid_profile()
+        raw["selectors"]["anchors"] = {  # type: ignore[index]
+            "searchBox": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 10,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXTextField"],
+                        "match": {
+                            "attributes": {
+                                "AXPlaceholderValue": {"equals": "Search"}
+                            }
+                        },
+                    }
+                ],
+                "cache": {"mode": "disabled"},
+            }
+        }
+        raw["selectors"]["buttons"] = {  # type: ignore[index]
+            "openResult": {
+                "root": {"kind": "focusedWindow"},
+                "steps": [
+                    {
+                        "scope": "descendants",
+                        "max_depth": 2,
+                        "limit": 10,
+                        "time_budget_ms": 500,
+                        "role_in": ["AXButton"],
+                        "relation": {
+                            "anchor_selector_id": "anchors.searchBox",
+                            "relation": "rightOf",
+                            "max_distance": 50,
+                        },
+                    }
+                ],
+            }
+        }
+        profile = parse_selector_profile(raw)
+        anchor = {
+            "axPath": "0/0",
+            "role": "AXTextField",
+            "placeholderValue": "Search",
+            "frame": {"x": 10, "y": 10, "width": 100, "height": 20},
+        }
+        target = {
+            "axPath": "0/1",
+            "role": "AXButton",
+            "frame": {"x": 120, "y": 10, "width": 40, "height": 20},
+        }
+        resolver = SelectorResolver(
+            profile,
+            FakeQueryRunner([_query_payload([anchor]), _query_payload([target])]),
+            app_bundle_id="com.example.Sample",
+            window_fingerprint="main",
+        )
+        self.assertEqual(resolver.resolve("buttons.openResult").status, "resolved")
+        moved_target = {
+            **target,
+            "frame": {"x": 0, "y": 10, "width": 8, "height": 20},
+        }
+        fresh_target = {**target, "axPath": "0/2"}
+        refresh_runner = FakeQueryRunner(
+            [
+                _query_payload([anchor]),
+                _query_payload([moved_target]),
+                _query_payload([fresh_target]),
+            ]
+        )
+        resolver.query_runner = refresh_runner
+
+        refreshed = resolver.resolve("buttons.openResult")
+
+        self.assertEqual(refreshed.status, "resolved")
+        self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+        self.assertEqual(refreshed.diagnostics.query_count, 3)
+
+    def test_resolver_pick_all_bypasses_single_element_cache(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["pick"] = "all"  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        nodes = [
+            {
+                "axPath": "0/1",
+                "role": "AXRadioButton",
+                "description": "Contacts",
+                "actions": ["AXPress"],
+            },
+            {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "description": "Contacts",
+                "actions": ["AXPress"],
+            },
+        ]
+        first_runner = FakeQueryRunner([_query_payload(nodes)])
+        resolver = SelectorResolver(
+            profile,
+            first_runner,
+            app_bundle_id="com.example.Sample",
+            window_fingerprint="main",
+        )
+        cold = resolver.resolve("navigation.contacts")
+        second_runner = FakeQueryRunner([_query_payload(nodes)])
+        resolver.query_runner = second_runner
+
+        hot = resolver.resolve("navigation.contacts")
+
+        cold_paths = [item.element_ref.ax_path for item in cold.elements]
+        hot_paths = [item.element_ref.ax_path for item in hot.elements]
+        self.assertEqual(cold.status, "resolved")
+        self.assertEqual(hot.status, "resolved")
+        self.assertEqual(hot_paths, cold_paths)
+        self.assertEqual(hot.diagnostics.cache_status, "miss")
+        self.assertEqual(len(second_runner.calls), 1)
+        self.assertEqual(second_runner.calls[0]["root"], {"kind": "focusedWindow"})
+
+    def test_resolver_preserves_query_failure_causes_and_empty_success(self) -> None:
+        failures = {
+            "permission": (
+                {
+                    "available": False,
+                    "failureKind": "missing_accessibility",
+                    "message": "permission denied",
+                    "retryable": False,
+                },
+                "missing_accessibility",
+                False,
+            ),
+            "timeout_wrapped": (
+                {
+                    "accessibilityQuery": {
+                        "available": False,
+                        "failureKind": "accessibility_query_timeout",
+                        "message": "query timed out",
+                        "retryable": True,
+                    }
+                },
+                "accessibility_query_timeout",
+                True,
+            ),
+            "transport_observation_wrapped": (
+                {
+                    "observation": {
+                        "accessibilityQuery": {
+                            "available": False,
+                            "diagnostics": {
+                                "failureKind": "helper_transport_failed",
+                                "message": "socket unavailable",
+                                "retryable": True,
+                            },
+                        }
+                    }
+                },
+                "helper_transport_failed",
+                True,
+            ),
+        }
+        profile = parse_selector_profile(_valid_profile())
+        for case, (payload, cause, retryable) in failures.items():
+            with self.subTest(case=case):
+                result = SelectorResolver(
+                    profile,
+                    FakeQueryRunner([payload]),
+                ).resolve("navigation.contacts")
+
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(
+                    result.diagnostics.failure_kind,
+                    "selector_query_failed",
+                )
+                self.assertEqual(result.diagnostics.cause_failure_kind, cause)
+                self.assertEqual(result.diagnostics.retryable, retryable)
+
+        empty = SelectorResolver(
+            profile,
+            FakeQueryRunner(
+                [
+                    {
+                        "available": True,
+                        "nodes": [],
+                        "diagnostics": {"truncated": False},
+                    }
+                ]
+            ),
+        ).resolve("navigation.contacts")
+
+        self.assertEqual(empty.status, "not_found")
+        self.assertEqual(empty.diagnostics.failure_kind, "selector_not_found")
+        self.assertIsNone(empty.diagnostics.cause_failure_kind)
+
+    def test_resolver_stops_when_fallback_query_fails(self) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["fallbacks"] = ["fallback"]  # type: ignore[index]
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload([]),
+                {
+                    "available": False,
+                    "failureKind": "helper_transport_failed",
+                    "message": "helper unavailable",
+                    "retryable": True,
+                },
+            ]
+        )
+
+        result = SelectorResolver(profile, runner).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.diagnostics.failure_kind, "selector_query_failed")
+        self.assertEqual(
+            result.diagnostics.cause_failure_kind,
+            "helper_transport_failed",
+        )
+        self.assertEqual(result.diagnostics.query_count, 2)
+
+    def test_resolver_cache_query_failure_stops_and_evicts_entry(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        resolver = SelectorResolver(
+            profile,
+            FakeQueryRunner(
+                [
+                    _query_payload(
+                        [
+                            {
+                                "axPath": "0/1",
+                                "role": "AXRadioButton",
+                                "description": "Contacts",
+                                "actions": ["AXPress"],
+                            }
+                        ]
+                    )
+                ]
+            ),
+            app_bundle_id="com.example.Sample",
+            window_fingerprint="main",
+        )
+        self.assertEqual(
+            resolver.resolve("navigation.contacts").status,
+            "resolved",
+        )
+        failure_runner = FakeQueryRunner(
+            [
+                {
+                    "available": False,
+                    "failureKind": "missing_accessibility",
+                    "message": "permission denied",
+                    "retryable": False,
+                }
+            ]
+        )
+        resolver.query_runner = failure_runner
+
+        failed = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual(failed.diagnostics.failure_kind, "selector_query_failed")
+        self.assertEqual(
+            failed.diagnostics.cause_failure_kind,
+            "missing_accessibility",
+        )
+        self.assertEqual(failed.diagnostics.cache_status, "stale")
+        self.assertEqual(len(failure_runner.calls), 1)
+        fresh_runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/2",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                )
+            ]
+        )
+        resolver.query_runner = fresh_runner
+
+        recovered = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(recovered.status, "resolved")
+        self.assertEqual(recovered.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(fresh_runner.calls[0]["root"], {"kind": "focusedWindow"})
+
     def test_resolver_refreshes_expired_cache_without_validating_old_path(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         current_time = [datetime(2026, 7, 7, 0, 0, tzinfo=UTC)]
@@ -1350,6 +1778,79 @@ class SelectorResolverTests(unittest.TestCase):
 
 
 class CollectionExtractorTests(unittest.TestCase):
+    def test_collection_preserves_item_query_failure(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                {
+                    "available": False,
+                    "failureKind": "accessibility_query_timeout",
+                    "message": "item query timed out",
+                    "retryable": True,
+                },
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=2,
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.diagnostics.failure_kind, "selector_query_failed")
+        self.assertEqual(
+            result.diagnostics.cause_failure_kind,
+            "accessibility_query_timeout",
+        )
+        self.assertTrue(result.diagnostics.retryable)
+
+    def test_collection_preserves_field_query_failure(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload([{"axPath": "0/11/0", "role": "AXRow"}]),
+                {
+                    "available": False,
+                    "failureKind": "helper_transport_failed",
+                    "message": "helper socket unavailable",
+                    "retryable": True,
+                },
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=1,
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.diagnostics.failure_kind, "selector_query_failed")
+        self.assertEqual(
+            result.diagnostics.cause_failure_kind,
+            "helper_transport_failed",
+        )
+        self.assertTrue(result.diagnostics.retryable)
+
     def test_extracts_semantic_items_from_row_descendants(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         runner = FakeQueryRunner(

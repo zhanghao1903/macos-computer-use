@@ -261,6 +261,8 @@ class SelectorDiagnostics:
     truncation_reason: str | None = None
     cache_status: CacheStatus = "disabled"
     failure_kind: str | None = None
+    cause_failure_kind: str | None = None
+    retryable: bool | None = None
     message: str | None = None
 
 

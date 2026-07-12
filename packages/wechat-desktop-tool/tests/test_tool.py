@@ -727,6 +727,26 @@ def _failed_accessibility_action_response() -> ToolObservation:
     )
 
 
+def _failed_accessibility_query_response(
+    failure_kind: str,
+    message: str,
+    *,
+    retryable: bool,
+) -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_query",
+        tool="macos.computer_use",
+        operation="accessibility_query",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind=failure_kind,
+            message=message,
+            retryable=retryable,
+        ),
+        summary=message,
+    )
+
+
 def _normalized_node(
     ax_path: str,
     role: str,
@@ -1591,6 +1611,42 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[2].timeout_ms, 800)
         self.assertEqual(app_control.commands[3].timeout_ms, 2_000)
         self.assertEqual(app_control.commands[4].timeout_ms, 1_200)
+
+    def test_list_contacts_preserves_selector_permission_failure(self) -> None:
+        permission_failure = _failed_accessibility_query_response(
+            "missing_accessibility",
+            "Accessibility permission is required",
+            retryable=False,
+        )
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (通讯录)",
+                    }
+                },
+                permission_failure,
+                permission_failure,
+                permission_failure,
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).list_contacts(limit=1)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, ToolStatus.NOT_READY)
+        self.assertEqual(result.failure_kind, "missing_accessibility")
+        self.assertFalse(result.retryable)
+        self.assertIn("Grant Accessibility permission", result.recovery_hint)
+        diagnostics = result.observation["selector"]["diagnostics"]
+        self.assertEqual(diagnostics["failureKind"], "selector_query_failed")
+        self.assertEqual(
+            diagnostics["causeFailureKind"],
+            "missing_accessibility",
+        )
 
     def test_mapped_navigation_click_uses_current_validated_frame_center(
         self,
@@ -2775,6 +2831,53 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["open_app", "observe", "accessibility_query"],
         )
 
+    def test_open_contact_preserves_selector_query_failure_recovery(self) -> None:
+        cases = (
+            (
+                "timeout",
+                "accessibility_query_timeout",
+                "Accessibility query timed out",
+                "accessibility_query_timeout",
+                ToolStatus.FAILED,
+                "Retry",
+            ),
+            (
+                "transport",
+                "helper_transport_failed",
+                "Helper socket unavailable",
+                "app_control_transport_failed",
+                ToolStatus.NOT_READY,
+                "Restore",
+            ),
+        )
+        for case, cause, message, expected_kind, expected_status, hint in cases:
+            with self.subTest(case=case):
+                query_failure = _failed_accessibility_query_response(
+                    cause,
+                    message,
+                    retryable=True,
+                )
+                app_control = FakeAppControl(
+                    [{}, query_failure, query_failure, query_failure]
+                )
+
+                result = WeChatDesktopTool(app_control).open_contact("Ada")
+
+                self.assertFalse(result.success)
+                self.assertEqual(result.status, expected_status)
+                self.assertEqual(result.failure_kind, expected_kind)
+                self.assertTrue(result.retryable)
+                self.assertIn(hint, result.recovery_hint)
+                diagnostics = result.observation["selector"]["diagnostics"]
+                self.assertEqual(
+                    diagnostics["failureKind"],
+                    "selector_query_failed",
+                )
+                self.assertEqual(
+                    diagnostics["causeFailureKind"],
+                    cause,
+                )
+
     def test_open_contact_maps_missing_search_box_to_wechat_failure(self) -> None:
         app_control = FakeAppControl(
             [
@@ -3691,6 +3794,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         )
                     ]
                 ),
+                _accessibility_query_response([]),
             ]
         )
         tool = WeChatDesktopTool(app_control)

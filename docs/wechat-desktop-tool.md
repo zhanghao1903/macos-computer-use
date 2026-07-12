@@ -469,6 +469,14 @@ If a backend can report unresolved search candidates through fields such as
 candidate is present, `focus_contact` returns `not_found` with
 `failureKind="contact_ambiguous"` instead of selecting one implicitly.
 
+Selector-backed list, open, and read operations distinguish backend query
+failure from a successful empty result. Their stable top-level failure kinds
+are `missing_accessibility`, `accessibility_query_timeout`,
+`app_control_transport_failed`, and `accessibility_query_failed`. The selector
+or collection diagnostics retain `failureKind="selector_query_failed"`, the
+exact backend `causeFailureKind`, and backend retryability. A successful query
+with no match continues to use the operation-specific not-found failure.
+
 When `draft_message` cannot type because the chat input is not focused, and the
 backend reports `failureKind="input_not_focused"` or an explicit diagnostic
 such as `inputFocused=false`, the tool returns `not_ready` with

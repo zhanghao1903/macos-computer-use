@@ -2978,11 +2978,15 @@ class _WeChatSelectorQueryRunner:
         return {
             "schema": "macos.accessibility.query.v1",
             "available": False,
+            "failureKind": result.failure_kind or "accessibility_query_failed",
+            "message": result.message or result.summary,
+            "retryable": result.retryable,
             "nodes": [],
             "diagnostics": {
                 "truncated": False,
                 "failureKind": result.failure_kind or "accessibility_query_failed",
-                "message": result.summary,
+                "message": result.message or result.summary,
+                "retryable": result.retryable,
             },
         }
 
@@ -3047,6 +3051,21 @@ def _failure_from_selector_result(
     message: str,
     evidence: dict[str, JsonValue],
 ) -> ToolObservation:
+    if result.diagnostics.failure_kind == "selector_query_failed":
+        return _failure_from_selector_query(
+            command,
+            result.diagnostics,
+            message=message,
+            observation_key="selector",
+            semantic_payload={
+                "id": result.selector_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            },
+            evidence=evidence,
+        )
     status = (
         ToolStatus.NOT_FOUND
         if result.status in {"not_found", "failed"}
@@ -3079,6 +3098,21 @@ def _failure_from_collection_result(
     message: str,
     evidence: dict[str, JsonValue],
 ) -> ToolObservation:
+    if result.diagnostics.failure_kind == "selector_query_failed":
+        return _failure_from_selector_query(
+            command,
+            result.diagnostics,
+            message=message,
+            observation_key="collection",
+            semantic_payload={
+                "id": result.collection_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            },
+            evidence=evidence,
+        )
     return _failure(
         command,
         status=ToolStatus.NOT_FOUND,
@@ -3098,6 +3132,75 @@ def _failure_from_collection_result(
     )
 
 
+def _failure_from_selector_query(
+    command: ToolCommand,
+    diagnostics: Any,
+    *,
+    message: str,
+    observation_key: str,
+    semantic_payload: dict[str, JsonValue],
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    cause = diagnostics.cause_failure_kind or "accessibility_query_failed"
+    cause_text = cause.casefold()
+    diagnostic_message = diagnostics.message or message
+    context = f"{cause_text} {diagnostic_message.casefold()}"
+    if (
+        any(
+            token in context
+            for token in ("permission", "accessibility_not_trusted")
+        )
+        or cause_text == "missing_accessibility"
+    ):
+        status = ToolStatus.NOT_READY
+        mapped_failure_kind = "missing_accessibility"
+        default_retryable = False
+        recovery_hint = (
+            "Grant Accessibility permission to the process or helper that runs "
+            "app-control, then retry."
+        )
+    elif "timeout" in context or "timed_out" in context:
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "accessibility_query_timeout"
+        default_retryable = True
+        recovery_hint = (
+            "Retry the bounded Accessibility query after app state settles."
+        )
+    elif any(
+        token in context
+        for token in (
+            "transport",
+            "socket",
+            "connection",
+            "local_service",
+            "helper",
+        )
+    ):
+        status = ToolStatus.NOT_READY
+        mapped_failure_kind = "app_control_transport_failed"
+        default_retryable = True
+        recovery_hint = "Restore the configured app-control transport, then retry."
+    else:
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "accessibility_query_failed"
+        default_retryable = True
+        recovery_hint = "Restore Accessibility query readiness and retry."
+    return _failure(
+        command,
+        status=status,
+        failure_kind=mapped_failure_kind,
+        message=diagnostic_message,
+        recovery_hint=recovery_hint,
+        retryable=(
+            diagnostics.retryable
+            if diagnostics.retryable is not None
+            else default_retryable
+        ),
+        observation={observation_key: semantic_payload},
+        evidence=evidence,
+    )
+
+
 def _selector_diagnostics_payload(diagnostics: Any) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
         "triedSelectors": list(diagnostics.tried_selectors),
@@ -3110,6 +3213,10 @@ def _selector_diagnostics_payload(diagnostics: Any) -> dict[str, JsonValue]:
         payload["truncationReason"] = diagnostics.truncation_reason
     if diagnostics.failure_kind is not None:
         payload["failureKind"] = diagnostics.failure_kind
+    if diagnostics.cause_failure_kind is not None:
+        payload["causeFailureKind"] = diagnostics.cause_failure_kind
+    if diagnostics.retryable is not None:
+        payload["retryable"] = diagnostics.retryable
     if diagnostics.message is not None:
         payload["message"] = diagnostics.message
     return payload

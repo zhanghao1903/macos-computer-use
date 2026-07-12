@@ -3118,3 +3118,94 @@ Result: 112 tests passed, 1 skipped.
 
 Real moved/resized-window smoke remains deferred to the authorized F5
 verification phase; no live contact action was executed in this slice.
+
+## F4 Remediation Slice 2: Selector Cache And Query Failure Semantics
+
+Status: implemented and ready for a slice-scoped commit.
+
+Review findings closed:
+
+- `PRR-006`: a cached AX path is a hint only and must satisfy the same final
+  matcher, required actions, enabled/visible state, required constraints,
+  relation, and frame rules as a fresh candidate;
+- `PRR-007`: backend permission, timeout, and transport failures remain failed
+  query outcomes, while only a successful empty query becomes
+  `selector_not_found`.
+
+Internal model changes:
+
+- `SelectorDiagnostics` adds nullable `cause_failure_kind` and `retryable`
+  fields while retaining `failure_kind="selector_query_failed"` as the generic
+  selector-level category;
+- `_NormalizedQueryOutcome` is a private frozen resolver object that preserves
+  availability, snapshot id, bounded nodes, backend diagnostics, cause,
+  bounded message, and retryability across direct, wrapped, and observation-
+  wrapped query payloads;
+- no selector command, protocol schema, package top-level export, or public
+  selector API was added.
+
+Implemented behavior:
+
+- failed query outcomes stop fresh traversal, cache validation, fallback
+  traversal, item extraction, batch field extraction, and per-item field
+  extraction immediately;
+- cache validation now builds its self-query from matcher attributes, cache key
+  attributes, role/action needs, enabled/visible/selected state, structural
+  constraint flags, and frame data;
+- cached candidates use the same candidate builder and confidence predicate as
+  fresh candidates, then retain cache-signature role and key-attribute checks;
+- matcher changes, required-action loss, state changes, relation/frame changes,
+  expiry, and backend failure evict the old entry; backend failure does not
+  trigger a second automatic query;
+- multi-step selectors bypass the single-path cache because validating only the
+  final node cannot prove all intermediate predicates;
+- selectors with `pick="all"` neither read nor write the single-element cache,
+  preserving cold/hot result equivalence;
+- collection diagnostics preserve query causes from root, item, batch, and
+  field queries instead of converting them to missing fields;
+- WeChat selector and collection failures map to stable top-level kinds for
+  missing permission, query timeout, transport failure, or an uncategorized
+  query failure; they retain the exact backend cause as `causeFailureKind`
+  alongside `selector_query_failed` in bounded diagnostics and provide
+  category-specific recovery guidance;
+- the public WeChat failure-kind declaration now includes those stable query
+  categories and the two navigation-internal failure values added in Slice 1.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/computer-use-macos/tests -p test_selectors.py
+```
+
+Result: 60 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests -p test_tool.py
+```
+
+Result: 100 tests passed.
+
+The full `wechat-desktop-tool` test discovery also passed 113 tests, including
+the public failure-kind boundary contract.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 121 tests passed, 1 skipped.
+
+```bash
+.venv/bin/python -m py_compile \
+  packages/computer-use-macos/src/computer_use_macos/selectors/*.py \
+  packages/computer-use-macos/tests/test_selectors.py \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py \
+  packages/wechat-desktop-tool/tests/test_tool.py
+```
+
+Result: passed. Ruff remains unavailable in the current environment. No live
+WeChat operation was required for deterministic cache/failure semantics.

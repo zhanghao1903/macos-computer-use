@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -29,6 +30,7 @@ from .models import (
     JsonValue,
     ResolvedElement,
     SelectorCacheEntry,
+    SelectorConstraint,
     SelectorDefinition,
     SelectorDiagnostics,
     SelectorEvidence,
@@ -47,6 +49,21 @@ class AccessibilityQueryRunner(Protocol):
         include_raw: bool = False,
     ) -> Mapping[str, Any]:
         """Run one bounded Accessibility query and return its payload."""
+
+
+@dataclass(frozen=True)
+class _NormalizedQueryOutcome:
+    available: bool
+    snapshot_id: str | None
+    nodes: tuple[Mapping[str, Any], ...]
+    diagnostics: Mapping[str, Any]
+    failure_kind: str | None = None
+    message: str | None = None
+    retryable: bool | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.available and self.failure_kind is None
 
 
 class SelectorResolver:
@@ -116,22 +133,41 @@ class SelectorResolver:
         query_count += relation_query_count
         node_count += relation_node_count
 
-        cached = (
-            None
-            if _selector_uses_relation(selector)
-            else self._cached_result(selector)
-        )
+        cached = self._cached_result(selector)
         if cached is not None:
             cache_status = "stale"
             if not self._cache_entry_expired(cached):
-                cache_status = "hit"
-                validation = self._validate_cached(selector, cached, debug=debug)
+                validation = self._validate_cached(
+                    selector,
+                    cached,
+                    debug=debug,
+                    relation_anchor_elements=relation_anchor_elements.get(
+                        len(selector.steps) - 1,
+                        (),
+                    ),
+                )
                 query_count += validation.diagnostics.query_count
                 node_count += validation.diagnostics.node_count
                 if validation.status == "resolved":
-                    return validation
+                    return self._with_resolution_context(
+                        validation,
+                        tried=stack + (selector_id,),
+                        query_count=query_count,
+                        node_count=node_count,
+                        cache_status="hit",
+                    )
+                self.cache.delete(cached)
+                if validation.diagnostics.failure_kind == "selector_query_failed":
+                    return self._with_resolution_context(
+                        validation,
+                        tried=stack + (selector_id,),
+                        query_count=query_count,
+                        node_count=node_count,
+                        cache_status="stale",
+                    )
                 cache_status = "stale"
-            self.cache.delete(cached)
+            else:
+                self.cache.delete(cached)
         elif selector.cache.mode != "disabled":
             cache_status = "miss"
 
@@ -159,9 +195,18 @@ class SelectorResolver:
                 )
                 query_count += 1
                 normalized = _normalize_query_payload(payload)
-                nodes = normalized["nodes"]
-                node_count += len(nodes)
-                diagnostics = normalized["diagnostics"]
+                node_count += len(normalized.nodes)
+                if not normalized.succeeded:
+                    return self._query_failure_result(
+                        selector,
+                        normalized,
+                        tried=stack + (selector_id,),
+                        query_count=query_count,
+                        node_count=node_count,
+                        cache_status=cache_status,
+                    )
+                nodes = normalized.nodes
+                diagnostics = normalized.diagnostics
                 if bool(diagnostics.get("truncated", False)):
                     truncated = True
                     truncation_reason = str(
@@ -216,6 +261,21 @@ class SelectorResolver:
                 )
                 if fallback_result.status == "resolved":
                     return fallback_result
+                if (
+                    fallback_result.diagnostics.failure_kind
+                    == "selector_query_failed"
+                ):
+                    return self._with_resolution_context(
+                        fallback_result,
+                        tried=stack + (selector_id, fallback),
+                        query_count=(
+                            query_count + fallback_result.diagnostics.query_count
+                        ),
+                        node_count=(
+                            node_count + fallback_result.diagnostics.node_count
+                        ),
+                        cache_status=fallback_result.diagnostics.cache_status,
+                    )
             failure_kind = "selector_query_truncated" if truncated else "selector_not_found"
             return SelectorResult(
                 selector_id=selector.selector_id,
@@ -278,7 +338,7 @@ class SelectorResolver:
         selector: SelectorDefinition,
         step: SelectorStep,
         node: Mapping[str, Any],
-        payload: Mapping[str, Any],
+        outcome: _NormalizedQueryOutcome,
         debug: bool,
         *,
         apply_constraints: bool,
@@ -329,7 +389,7 @@ class SelectorResolver:
         path = node_ax_path(node)
         if path is None:
             return None
-        snapshot_id = str(payload.get("snapshotId") or "")
+        snapshot_id = outcome.snapshot_id or ""
         role = node_role(node)
         actions = node_actions(node)
         signature = ElementSignature(
@@ -368,7 +428,11 @@ class SelectorResolver:
         self,
         selector: SelectorDefinition,
     ) -> SelectorCacheEntry | None:
-        if selector.cache.mode == "disabled":
+        if (
+            selector.cache.mode == "disabled"
+            or selector.pick == "all"
+            or len(selector.steps) != 1
+        ):
             return None
         return self.cache.get(
             profile_id=self.profile.profile_id,
@@ -384,21 +448,32 @@ class SelectorResolver:
         entry: SelectorCacheEntry,
         *,
         debug: bool,
+        relation_anchor_elements: tuple[ResolvedElement, ...] = (),
     ) -> SelectorResult:
+        if not selector.steps:
+            return self._failed(
+                selector.selector_id,
+                "selector_cache_stale",
+                "cached selector has no validation step",
+                cache_status="stale",
+            )
+        step = selector.steps[-1]
         payload = self.query_runner(
             root={"kind": "axPath", "axPath": entry.element_ref.ax_path},
-            query={
-                "scope": "self",
-                "maxDepth": 0,
-                "limit": 1,
-                "timeBudgetMs": 500,
-                "attributes": ["AXFrame", "AXRole", *selector.cache.key_attributes],
-                "actions": True,
-            },
+            query=self._cache_validation_query(selector, step),
             include_raw=debug,
         )
         normalized = _normalize_query_payload(payload)
-        nodes = normalized["nodes"]
+        if not normalized.succeeded:
+            return self._query_failure_result(
+                selector,
+                normalized,
+                tried=(selector.selector_id,),
+                query_count=1,
+                node_count=len(normalized.nodes),
+                cache_status="stale",
+            )
+        nodes = normalized.nodes
         if not nodes:
             return self._failed(
                 selector.selector_id,
@@ -427,23 +502,31 @@ class SelectorResolver:
                     node_count=1,
                     cache_status="stale",
                 )
-        element = ResolvedElement(
-            element_ref=entry.element_ref,
-            selector_id=selector.selector_id,
-            label=node_label(node),
-            frame=node_frame(node),
-            role=node_role(node),
-            actions=node_actions(node),
-            confidence=1.0,
-            evidence=SelectorEvidence(),
+        element = self._candidate_from_node(
+            selector,
+            step,
+            node,
+            normalized,
+            debug,
+            apply_constraints=True,
+            relation_anchor_elements=relation_anchor_elements,
         )
+        if element is None:
+            return self._failed(
+                selector.selector_id,
+                "selector_cache_stale",
+                "cached selector no longer satisfies the selector predicate",
+                query_count=1,
+                node_count=1,
+                cache_status="stale",
+            )
         return SelectorResult(
             selector_id=selector.selector_id,
             profile_id=self.profile.profile_id,
             profile_version=self.profile.profile_version,
             status="resolved",
             elements=(element,),
-            snapshot_id=entry.element_ref.snapshot_id,
+            snapshot_id=element.element_ref.snapshot_id,
             diagnostics=selector_diagnostics(
                 tried_selectors=(selector.selector_id,),
                 query_count=1,
@@ -451,6 +534,25 @@ class SelectorResolver:
                 cache_status="hit",
             ),
         )
+
+    def _cache_validation_query(
+        self,
+        selector: SelectorDefinition,
+        step: SelectorStep,
+    ) -> dict[str, JsonValue]:
+        query = self._query_payload(step, constraints=selector.constraints)
+        query["scope"] = "self"
+        query["maxDepth"] = 0
+        query["limit"] = 1
+        query["timeBudgetMs"] = min(step.time_budget_ms, 500)
+        attributes = {
+            str(attribute)
+            for attribute in query.get("attributes", [])
+            if isinstance(attribute, str)
+        }
+        attributes.update(selector.cache.key_attributes)
+        query["attributes"] = sorted(attributes)
+        return query
 
     def _cache_entry_expired(self, entry: SelectorCacheEntry) -> bool:
         if entry.expires_at is None:
@@ -539,6 +641,10 @@ class SelectorResolver:
                             anchor_result.diagnostics.failure_kind
                             or "selector_not_found"
                         ),
+                        cause_failure_kind=(
+                            anchor_result.diagnostics.cause_failure_kind
+                        ),
+                        retryable=anchor_result.diagnostics.retryable,
                         message=(
                             "relation anchor could not be resolved: "
                             f"{anchor_selector_id}"
@@ -550,11 +656,10 @@ class SelectorResolver:
 
     def _query_payload(
         self,
-        step: object,
+        step: SelectorStep,
         *,
-        constraints: tuple[object, ...] = (),
+        constraints: tuple[SelectorConstraint, ...] = (),
     ) -> dict[str, JsonValue]:
-        step_obj = step
         attributes = {
             "AXFrame",
             "AXRole",
@@ -563,11 +668,11 @@ class SelectorResolver:
             "AXDescription",
             "AXPlaceholderValue",
         }
-        for attribute in step_obj.match.attributes:  # type: ignore[attr-defined]
+        for attribute in step.match.attributes:
             attributes.add(attribute)
-        if step_obj.match.enabled is not None:  # type: ignore[attr-defined]
+        if step.match.enabled is not None:
             attributes.add("AXEnabled")
-        if step_obj.match.visible is not None:  # type: ignore[attr-defined]
+        if step.match.visible is not None:
             attributes.add("AXHidden")
         if any(
             getattr(constraint, "kind", None) == "selected"
@@ -575,14 +680,14 @@ class SelectorResolver:
         ):
             attributes.add("AXSelected")
         payload: dict[str, JsonValue] = {
-            "scope": step_obj.scope,  # type: ignore[attr-defined]
-            "maxDepth": step_obj.max_depth,  # type: ignore[attr-defined]
-            "limit": step_obj.limit,  # type: ignore[attr-defined]
-            "timeBudgetMs": step_obj.time_budget_ms,  # type: ignore[attr-defined]
+            "scope": step.scope,
+            "maxDepth": step.max_depth,
+            "limit": step.limit,
+            "timeBudgetMs": step.time_budget_ms,
             "attributes": sorted(attributes),
-            "actions": bool(step_obj.match.actions_include),  # type: ignore[attr-defined]
+            "actions": bool(step.match.actions_include),
             "match": {
-                "roleIn": list(step_obj.role_in or step_obj.match.role_in),  # type: ignore[attr-defined]
+                "roleIn": list(step.role_in or step.match.role_in),
             },
         }
         if any(
@@ -595,6 +700,11 @@ class SelectorResolver:
             for constraint in constraints
         ):
             payload["includeDescendantRoles"] = True
+        if any(
+            getattr(constraint, "kind", None) == "minChildren"
+            for constraint in constraints
+        ):
+            payload["includeChildrenCount"] = True
         return payload
 
     def _signature_attributes(
@@ -612,7 +722,11 @@ class SelectorResolver:
         selector: SelectorDefinition,
         element: ResolvedElement,
     ) -> None:
-        if selector.cache.mode != "readWrite":
+        if (
+            selector.cache.mode != "readWrite"
+            or selector.pick == "all"
+            or len(selector.steps) != 1
+        ):
             return
         now = self._now()
         expires_at = None
@@ -655,6 +769,66 @@ class SelectorResolver:
             return "ambiguous"
         return (candidates[0],)
 
+    def _query_failure_result(
+        self,
+        selector: SelectorDefinition,
+        outcome: _NormalizedQueryOutcome,
+        *,
+        tried: tuple[str, ...],
+        query_count: int,
+        node_count: int,
+        cache_status: str,
+    ) -> SelectorResult:
+        cause = outcome.failure_kind or "accessibility_query_unavailable"
+        message = outcome.message or f"Accessibility query failed: {cause}"
+        return SelectorResult(
+            selector_id=selector.selector_id,
+            profile_id=self.profile.profile_id,
+            profile_version=self.profile.profile_version,
+            status="failed",
+            diagnostics=selector_diagnostics(
+                tried_selectors=tried,
+                query_count=query_count,
+                node_count=node_count,
+                cache_status=cache_status,
+                failure_kind="selector_query_failed",
+                cause_failure_kind=cause,
+                retryable=outcome.retryable,
+                message=message,
+            ),
+        )
+
+    def _with_resolution_context(
+        self,
+        result: SelectorResult,
+        *,
+        tried: tuple[str, ...],
+        query_count: int,
+        node_count: int,
+        cache_status: str,
+    ) -> SelectorResult:
+        diagnostics = result.diagnostics
+        return SelectorResult(
+            selector_id=result.selector_id,
+            profile_id=result.profile_id,
+            profile_version=result.profile_version,
+            status=result.status,
+            elements=result.elements,
+            snapshot_id=result.snapshot_id,
+            diagnostics=selector_diagnostics(
+                tried_selectors=tried,
+                query_count=query_count,
+                node_count=node_count,
+                truncated=diagnostics.truncated,
+                truncation_reason=diagnostics.truncation_reason,
+                cache_status=cache_status,
+                failure_kind=diagnostics.failure_kind,
+                cause_failure_kind=diagnostics.cause_failure_kind,
+                retryable=diagnostics.retryable,
+                message=diagnostics.message,
+            ),
+        )
+
     def _failed(
         self,
         selector_id: str,
@@ -665,6 +839,8 @@ class SelectorResolver:
         query_count: int = 0,
         node_count: int = 0,
         cache_status: str = "disabled",
+        cause_failure_kind: str | None = None,
+        retryable: bool | None = None,
     ) -> SelectorResult:
         return SelectorResult(
             selector_id=selector_id,
@@ -677,19 +853,105 @@ class SelectorResolver:
                 node_count=node_count,
                 cache_status=cache_status,
                 failure_kind=failure_kind,
+                cause_failure_kind=cause_failure_kind,
+                retryable=retryable,
                 message=message,
             ),
         )
 
 
-def _normalize_query_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    if "accessibilityQuery" in payload and isinstance(payload["accessibilityQuery"], Mapping):
-        payload = payload["accessibilityQuery"]
-    return {
-        "snapshotId": payload.get("snapshotId"),
-        "nodes": list(payload.get("nodes") or ()),
-        "diagnostics": dict(payload.get("diagnostics") or {}),
-    }
+def _normalize_query_payload(payload: Mapping[str, Any]) -> _NormalizedQueryOutcome:
+    query_payload = _unwrap_query_payload(payload)
+    diagnostics_value = query_payload.get("diagnostics")
+    diagnostics = (
+        dict(diagnostics_value) if isinstance(diagnostics_value, Mapping) else {}
+    )
+    error_value = query_payload.get("error")
+    error = dict(error_value) if isinstance(error_value, Mapping) else {}
+    failure_kind = _first_non_empty_string(
+        query_payload.get("failureKind"),
+        query_payload.get("failure_kind"),
+        diagnostics.get("failureKind"),
+        diagnostics.get("failure_kind"),
+        error.get("failureKind"),
+        error.get("failure_kind"),
+    )
+    message = _bounded_message(
+        _first_non_empty_string(
+            query_payload.get("message"),
+            diagnostics.get("message"),
+            error.get("message"),
+        )
+    )
+    retryable = _first_bool(
+        query_payload.get("retryable"),
+        diagnostics.get("retryable"),
+        error.get("retryable"),
+    )
+    available_value = query_payload.get("available")
+    if isinstance(available_value, bool):
+        available = available_value
+    else:
+        has_legacy_success_shape = (
+            "nodes" in query_payload or "diagnostics" in query_payload
+        )
+        available = failure_kind is None and has_legacy_success_shape
+    raw_nodes = query_payload.get("nodes")
+    nodes = (
+        tuple(dict(node) for node in raw_nodes if isinstance(node, Mapping))
+        if isinstance(raw_nodes, list | tuple)
+        else ()
+    )
+    snapshot_id = _first_non_empty_string(
+        query_payload.get("snapshotId"),
+        query_payload.get("snapshot_id"),
+    )
+    return _NormalizedQueryOutcome(
+        available=available,
+        snapshot_id=snapshot_id,
+        nodes=nodes,
+        diagnostics=diagnostics,
+        failure_kind=failure_kind,
+        message=message,
+        retryable=retryable,
+    )
+
+
+def _unwrap_query_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    direct = payload.get("accessibilityQuery")
+    if isinstance(direct, Mapping):
+        return direct
+    observation = payload.get("observation")
+    if isinstance(observation, Mapping):
+        wrapped = observation.get("accessibilityQuery")
+        if isinstance(wrapped, Mapping):
+            return wrapped
+        if observation.get("schema") == "macos.accessibility.query.v1":
+            return observation
+    return payload
+
+
+def _first_non_empty_string(*values: object) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _first_bool(*values: object) -> bool | None:
+    for value in values:
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def _bounded_message(value: str | None, *, limit: int = 500) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= limit:
+        return value
+    marker = "...<truncated>"
+    return f"{value[: limit - len(marker)]}{marker}"
 
 
 def _area(element: ResolvedElement) -> float:
@@ -750,7 +1012,3 @@ def _first_snapshot_id(elements: list[ResolvedElement]) -> str | None:
     if not elements:
         return None
     return elements[0].element_ref.snapshot_id
-
-
-def _selector_uses_relation(selector: SelectorDefinition) -> bool:
-    return any(step.relation is not None for step in selector.steps)
