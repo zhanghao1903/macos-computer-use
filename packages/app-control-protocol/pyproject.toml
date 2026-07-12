@@ -25,6 +25,7 @@ classifiers = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
 app_control_protocol = ["py.typed", "schemas/*.schema.json"]

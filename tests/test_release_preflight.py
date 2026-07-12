@@ -1541,6 +1541,25 @@ class ReleasePreflightTests(unittest.TestCase):
             failures,
         )
 
+    def test_wheel_dir_rejects_compiled_bytecode_cache(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            wheel_dir = Path(tmpdir) / "dist"
+            wheel_dir.mkdir()
+            _write_fake_wheel_set(preflight, wheel_dir)
+            wheel_path = next(wheel_dir.glob("app_control_protocol-*.whl"))
+            with zipfile.ZipFile(wheel_path, "a") as wheel:
+                wheel.writestr(
+                    "app_control_protocol/__pycache__/config.cpython-312.pyc",
+                    b"compiled-bytecode",
+                )
+
+            results = preflight.run_preflight(ROOT, wheel_dir=wheel_dir)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("wheel-no-bytecode:app-control-protocol", failures)
+
     def test_wheel_dir_reports_missing_protocol_config_module(self) -> None:
         preflight = _load_preflight()
 
@@ -2305,6 +2324,40 @@ class TrustedPublisherReportTests(unittest.TestCase):
 
 
 class WheelCheckScriptTests(unittest.TestCase):
+    def test_staged_package_source_excludes_generated_build_artifacts(self) -> None:
+        script = _load_wheel_check_script()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            package = root / "packages" / "example"
+            module = package / "src" / "example"
+            module.mkdir(parents=True)
+            (package / "pyproject.toml").write_text("[build-system]\n")
+            (module / "__init__.py").write_text("", encoding="utf-8")
+            cache = module / "__pycache__"
+            cache.mkdir()
+            (cache / "__init__.pyc").write_bytes(b"bytecode")
+            (package / "build" / "lib").mkdir(parents=True)
+            (package / "src" / "example.egg-info").mkdir()
+            (package / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+            staged = script._stage_package_source(
+                root,
+                Path("packages/example"),
+                root / "staged",
+            )
+
+            staged_files = {
+                path.relative_to(staged).as_posix()
+                for path in staged.rglob("*")
+                if path.is_file()
+            }
+
+        self.assertEqual(
+            staged_files,
+            {"pyproject.toml", "src/example/__init__.py"},
+        )
+
     def test_builds_all_wheels_then_runs_preflight_and_install_smoke(self) -> None:
         script = _load_wheel_check_script()
         calls: list[tuple[tuple[str, ...], Path]] = []

@@ -2165,6 +2165,22 @@ def _check_wheel_file(
 
     metadata_name = metadata.get("Name")
     metadata_version = metadata.get("Version")
+    forbidden_bytecode = sorted(
+        name
+        for name in names
+        if name.endswith(".pyc") or "__pycache__/" in name
+    )
+    results.append(
+        CheckResult(
+            name=f"wheel-no-bytecode:{project_name}",
+            status="ok" if not forbidden_bytecode else "fail",
+            summary=(
+                "no bytecode cache files"
+                if not forbidden_bytecode
+                else f"included {forbidden_bytecode[0]}"
+            ),
+        )
+    )
     results.append(
         CheckResult(
             name=f"wheel-metadata-name:{project_name}",

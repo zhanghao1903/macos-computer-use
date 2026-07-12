@@ -40,6 +40,7 @@ computer-use-macos = "computer_use_macos.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
 computer_use_macos = ["py.typed"]

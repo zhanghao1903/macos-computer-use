@@ -53,29 +53,34 @@ def run_wheel_check(root: Path, wheel_dir: Path) -> int:
     if wheel_dir.exists():
         shutil.rmtree(wheel_dir)
     wheel_dir.mkdir(parents=True)
-    for package_path in PACKAGE_PATHS:
-        command = (
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--no-deps",
-            str(package_path),
-            "-w",
-            str(wheel_dir),
-        )
-        print(
-            "[wheel-check] build " + str(package_path),
-            flush=True,
-        )
-        completed = subprocess.run(
-            command,
-            cwd=root,
-            check=False,
-        )
-        if completed.returncode != 0:
-            return completed.returncode
+    with tempfile.TemporaryDirectory(
+        prefix="app-control-wheel-source-"
+    ) as source_tmpdir:
+        source_root = Path(source_tmpdir)
+        for package_path in PACKAGE_PATHS:
+            staged_package = _stage_package_source(root, package_path, source_root)
+            command = (
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--no-build-isolation",
+                "--no-deps",
+                str(staged_package),
+                "-w",
+                str(wheel_dir),
+            )
+            print(
+                "[wheel-check] build " + str(package_path),
+                flush=True,
+            )
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                check=False,
+            )
+            if completed.returncode != 0:
+                return completed.returncode
     print("[wheel-check] release preflight", flush=True)
     completed = subprocess.run(
         (
@@ -93,6 +98,30 @@ def run_wheel_check(root: Path, wheel_dir: Path) -> int:
     if installed != 0:
         return installed
     return _run_incompatible_dependency_smoke(wheel_dir)
+
+
+def _stage_package_source(
+    root: Path,
+    package_path: Path,
+    source_root: Path,
+) -> Path:
+    source = root / package_path
+    source_root.mkdir(parents=True, exist_ok=True)
+    staged = source_root / package_path.name
+    shutil.copytree(
+        source,
+        staged,
+        ignore=shutil.ignore_patterns(
+            "build",
+            "dist",
+            "*.egg-info",
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            "uv.lock",
+        ),
+    )
+    return staged
 
 
 def _run_install_smoke(wheel_dir: Path) -> int:

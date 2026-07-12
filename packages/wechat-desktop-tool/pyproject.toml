@@ -40,6 +40,7 @@ wechat-desktop-tool = "wechat_desktop_tool.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
 wechat_desktop_tool = ["py.typed", "profiles/*.toml"]
