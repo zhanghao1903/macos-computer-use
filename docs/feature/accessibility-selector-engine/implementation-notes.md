@@ -3627,3 +3627,79 @@ Codex as frontmost after activation, and Computer Use then reported that the
 Mac was locked. That artifact remains under `/private/tmp`; it is not release
 evidence. F5 still requires an unlocked, moved/resized WeChat exact-head run in
 which every timed API is at most 3000 ms.
+
+## F5 Live Corrective Slice: Global Search And Proof Canary Precision
+
+Status: implementation and targeted verification passed; an exact-head live
+proof rerun remains required after this slice is committed.
+
+Additional live findings:
+
+- WeChat maps `Command+F` to a separate `搜索聊天记录` window, so using it as a
+  global-search accelerator changed the active window and invalidated mapped
+  roots;
+- the resolved global search box becomes focused after a current-frame click,
+  while `AXSetFocus` reports success without changing `AXFocused` on this client;
+- repeated diagnostic runs appended contact text because the focused search
+  value was not selected before clipboard paste;
+- closing the global-search overlay can change the chat panel between reviewed
+  paths `0/12/4` and `0/11/4`;
+- proof privacy scanning treated generic values `Window` and `0` as sensitive
+  canaries, causing a false failure against the `inspectWindow` key and numeric
+  proof values.
+
+Implemented behavior:
+
+- global search starts with the resolved search-box current-frame click;
+- `AXSetFocus` and selector click remain bounded fallbacks, but `Command+F` is
+  not used by `open_contact`;
+- after exact-element focus verification, `Command+A` selects any previous
+  query and `type_text` clipboard-pastes the requested contact;
+- search-result inspection is limited to visible rows, 40 nodes, and 350 ms;
+  off-screen candidates are ignored, and Return is followed by the same strict
+  chat-title postcondition;
+- chat-title verification retries all reviewed chat-panel paths and accepts a
+  result only when the requested contact matches;
+- sensitive canaries exclude generic AX window labels and all-numeric strings,
+  while contact, message, path, and token canaries remain active.
+
+Targeted automated evidence:
+
+```bash
+uv run pytest packages/wechat-desktop-tool/tests tests/test_sdk_examples.py -q
+```
+
+Result: 137 tests passed. Added regressions cover frame-click-before-AXSetFocus,
+off-screen search candidates, search replacement, layout-path changes, and
+generic-canary filtering.
+
+```bash
+uv run pytest tests -q
+```
+
+Result: 127 tests passed in 75.82 seconds.
+
+Live diagnostic evidence, intentionally not release evidence because the code
+was not yet committed:
+
+- all checklist operations passed;
+- contacts: 11, visible conversations: 14, visible messages: 30;
+- `openWeChat=533 ms`, `inspectWindow=336 ms`,
+  `listConversations=330 ms`, `openContact=823 ms`,
+  `readVisibleMessages=1080 ms`, and `listContacts=1472 ms`;
+- focus gate, target postcondition, expired-ref rejection, frame provenance,
+  and raw-observation absence all passed;
+- rebuilding the whitelist proof with the corrected canary filter changed
+  `sensitiveFieldScanPassed` from false to true and made strict proof evaluation
+  pass without changing the captured live operations.
+
+A second live diagnostic explicitly scrolled the target conversation out of
+the visible table before calling the API. It exercised `openMethod=search`,
+selected and replaced the existing query, opened `文件传输助手`, verified the
+chat title, and returned 30 visible messages. `openContact` completed in
+2457 ms and `readVisibleMessages` in 1282 ms, so the non-visible-contact search
+branch also satisfies the 3000 ms API target.
+
+The diagnostic public and private files remain under `/private/tmp`. F5 is not
+complete until the same checks pass against the exact commit SHA produced by
+this slice and strict release preflight accepts that public proof.

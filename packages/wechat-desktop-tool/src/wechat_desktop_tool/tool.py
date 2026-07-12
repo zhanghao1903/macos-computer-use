@@ -1272,6 +1272,23 @@ class WeChatDesktopTool:
         )
         if not verified_search.success:
             return verified_search
+        selected_search_text = self._app_control_command(
+            command,
+            phase="select_search_text",
+            operation="hotkey",
+            input=self._target_app_input(keys=["Command", "A"]),
+            phase_events=phase_events,
+        )
+        evidence["select_search_text"] = _safe_app_control_observation(
+            selected_search_text
+        )
+        if not selected_search_text.success:
+            return _from_app_control_failure(
+                command,
+                "contact_search_failed",
+                selected_search_text,
+                evidence=evidence,
+            )
         typed = self._app_control_command(
             command,
             phase="type_contact",
@@ -1287,12 +1304,16 @@ class WeChatDesktopTool:
                 typed,
                 evidence=evidence,
             )
-        results = self._query_descendants(
+        results = self._query_accessibility_nodes(
             command,
             root_node=_node_from_selector_element(main_content.elements[0]),
             phase="search_results",
+            scope="descendants",
+            max_depth=4,
             role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=80,
+            limit=40,
+            time_budget_ms=350,
+            prefer_visible_rows=True,
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -1305,6 +1326,12 @@ class WeChatDesktopTool:
             if results.success
             else []
         )
+        candidates = [
+            candidate
+            for candidate in candidates
+            if isinstance(candidate.get("element"), Mapping)
+            and _node_frame_within_query_window(candidate["element"], results)
+        ]
         if len(candidates) > 1:
             return _contact_candidates_ambiguity_failure(
                 command,
@@ -1513,34 +1540,69 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        verification = self._query_accessibility_nodes(
-            command,
-            root_node=main_content,
-            phase="verify_contact",
-            scope="descendants",
-            max_depth=2,
-            role_in=["AXStaticText"],
-            limit=20,
-            time_budget_ms=1_200,
-            attributes=[
-                "AXRole",
-                "AXDescription",
-                "AXTitle",
-                "AXValue",
-                "AXFrame",
-            ],
-            actions=False,
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if not verification.success:
+        verification_roots: list[dict[str, Any]] = [dict(main_content)]
+        chat_panel = self._control_map.regions.get("chatPanel")
+        known_paths = {_node_ax_path(main_content)}
+        if chat_panel is not None:
+            for ax_path in chat_panel.ax_paths:
+                if ax_path in known_paths:
+                    continue
+                known_paths.add(ax_path)
+                verification_roots.append(
+                    {
+                        "axPath": ax_path,
+                        "role": chat_panel.role,
+                    }
+                )
+
+        verification: ToolObservation | None = None
+        successful_verification: ToolObservation | None = None
+        chat_title: str | None = None
+        for index, root_node in enumerate(verification_roots):
+            phase = "verify_contact" if index == 0 else f"verify_contact:{index}"
+            candidate = self._query_accessibility_nodes(
+                command,
+                root_node=root_node,
+                phase=phase,
+                scope="descendants",
+                max_depth=2,
+                role_in=["AXStaticText"],
+                limit=20,
+                time_budget_ms=1_200,
+                attributes=[
+                    "AXRole",
+                    "AXDescription",
+                    "AXTitle",
+                    "AXValue",
+                    "AXFrame",
+                ],
+                actions=False,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            verification = candidate
+            if not candidate.success:
+                continue
+            successful_verification = candidate
+            chat_title = _chat_title_from_query_nodes(_query_nodes(candidate))
+            if chat_title is not None:
+                break
+
+        verification = successful_verification or verification
+        if verification is None or not verification.success:
             return _from_app_control_failure(
                 command,
                 "contact_not_found",
-                verification,
+                verification
+                or _failure(
+                    command,
+                    status=ToolStatus.NOT_FOUND,
+                    failure_kind="query_root_not_found",
+                    message="Could not locate a WeChat chat panel.",
+                    retryable=True,
+                ),
                 evidence=evidence,
             )
-        chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
         confidence = _contact_confidence(contact, chat_title)
         if chat_title is None or confidence < 0.9:
             actual_title = chat_title or "unknown"
@@ -1596,34 +1658,15 @@ class WeChatDesktopTool:
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         search_element = search_box.elements[0]
-        focused = self._app_control_command(
+        coordinate_verified = self._focus_search_box_coordinate_fallback(
             command,
-            phase="focus_search",
-            operation="hotkey",
-            input=self._target_app_input(
-                keys=list(self._config.search_hotkey),
-            ),
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
             phase_events=phase_events,
         )
-        evidence["focus_search"] = _safe_app_control_observation(focused)
-        verified_search: ToolObservation | None = None
-        if focused.success:
-            verified_search = self._verify_search_focus_phase(
-                command,
-                phase="verify_search_focus",
-                search_element=search_element,
-                phase_events=phase_events,
-            )
-            evidence["verify_search_focus"] = _safe_app_control_observation(
-                verified_search
-            )
-            if verified_search.success and _search_focus_failure(
-                command,
-                contact,
-                verified_search,
-                evidence=evidence,
-            ) is None:
-                return verified_search
+        if coordinate_verified is not None:
+            return coordinate_verified
 
         action_verified = self._focus_search_box_accessibility_action(
             command,
@@ -1634,16 +1677,6 @@ class WeChatDesktopTool:
         )
         if action_verified is not None:
             return action_verified
-
-        coordinate_verified = self._focus_search_box_coordinate_fallback(
-            command,
-            contact=contact,
-            search_element=search_element,
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if coordinate_verified is not None:
-            return coordinate_verified
 
         clicked = self._app_control_command(
             command,
@@ -1677,28 +1710,19 @@ class WeChatDesktopTool:
                 )
                 if click_focus_failure is None:
                     return verified_after_click
-
-        if not focused.success:
+                return click_focus_failure
             return _from_app_control_failure(
                 command,
                 "search_focus_failed",
-                focused,
+                verified_after_click,
                 evidence=evidence,
             )
-        if verified_search is None or not verified_search.success:
-            return _from_app_control_failure(
-                command,
-                "search_focus_failed",
-                verified_search or focused,
-                evidence=evidence,
-            )
-        search_focus_failure = _search_focus_failure(
+        return _from_app_control_failure(
             command,
-            contact,
-            verified_search,
+            "search_focus_failed",
+            clicked,
             evidence=evidence,
         )
-        return search_focus_failure or verified_search
 
     def _focus_search_box_accessibility_action(
         self,

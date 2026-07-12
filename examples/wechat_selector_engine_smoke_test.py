@@ -99,6 +99,15 @@ _SENSITIVE_VALUE_KEYS = {
     "token",
     "windowtitle",
 }
+_GENERIC_SENSITIVE_CANARIES = {
+    "missing value",
+    "unknown",
+    "wechat",
+    "window",
+    "微信",
+    "微信 (聊天)",
+    "微信 (通讯录)",
+}
 _ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9._:-])/(?!/)[^\s]*"
 )
@@ -804,8 +813,15 @@ def _sensitive_canaries(live_result: Mapping[str, Any]) -> tuple[str, ...]:
             for child in value:
                 visit(child, key)
             return
-        if key in _SENSITIVE_VALUE_KEYS and isinstance(value, str) and value:
-            values.add(value)
+        if key in _SENSITIVE_VALUE_KEYS and isinstance(value, str):
+            candidate = value.strip()
+            normalized = candidate.casefold()
+            if (
+                len(candidate) >= 2
+                and not candidate.isdigit()
+                and normalized not in _GENERIC_SENSITIVE_CANARIES
+            ):
+                values.add(candidate)
 
     visit(live_result)
     return tuple(sorted(values))

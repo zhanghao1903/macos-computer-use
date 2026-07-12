@@ -1035,6 +1035,23 @@ class SdkExampleTests(unittest.TestCase):
             False,
         )
 
+    def test_sensitive_canaries_ignore_generic_ax_window_values(self) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+
+        canaries = module._sensitive_canaries(
+            {
+                "windowTitle": "Window",
+                "axPath": "0",
+                "contact": "Ada",
+                "token": "release-secret-token-canary",
+            }
+        )
+
+        self.assertNotIn("Window", canaries)
+        self.assertNotIn("0", canaries)
+        self.assertIn("Ada", canaries)
+        self.assertIn("release-secret-token-canary", canaries)
+
     def test_wechat_selector_engine_requires_release_sha_and_bounded_limits(
         self,
     ) -> None:

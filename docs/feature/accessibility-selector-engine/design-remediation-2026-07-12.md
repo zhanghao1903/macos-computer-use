@@ -397,9 +397,12 @@ sequenceDiagram
     Q-->>W: verified or failed
     W-->>App: opened or fail closed
   else no visible candidate
-    W->>Q: focus search and verify focused element
+    W->>A: click current search-box frame
+    W->>Q: verify exact search element AXFocused=true
     alt focus verified
-      W->>UI: clear, type name, select result
+      W->>UI: select all, clipboard-paste name
+      W->>Q: inspect bounded visible result candidates
+      W->>UI: open unique candidate or press Return
       W->>Q: verify resulting chat title/state
       W-->>App: opened or fail closed
     else focus unknown or wrong
@@ -407,6 +410,14 @@ sequenceDiagram
     end
   end
 ```
+
+The macOS WeChat adapter must not use `Command+F` to enter global contact
+search. In the verified desktop client that shortcut opens the separate
+chat-history search window. Global search therefore starts from the resolved
+search-box AX path and its current frame, and text is selected before clipboard
+paste so a previous query cannot be appended. Postcondition verification may
+try every reviewed `chatPanel` AX path because closing the search overlay can
+change the window's top-level child index.
 
 ### Selector resolution and cache validation
 
