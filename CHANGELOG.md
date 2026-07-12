@@ -57,6 +57,9 @@
 
 ### Fixed
 
+- Replace raw selector-engine release reports with source-bound, whitelist-only
+  proof v2 and reject sensitive, structurally invalid, stale-head, or v1 proof
+  before release bundling.
 - Coordinate all three package versions and dependency floors at `0.2.0`, and
   reject a new WeChat wheel paired with local `0.1.1` protocol/backend wheels.
 - Fail fast when shared WeChat configuration selects the unsupported helper

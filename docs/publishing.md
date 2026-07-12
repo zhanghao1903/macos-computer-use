@@ -153,6 +153,9 @@ When strict preflight also receives detailed reports such as
 `helper-doctor.json`, `textedit-smoke.json`, `testpypi-install.json`, or
 `trusted-publisher.json`, those detailed reports take precedence and cannot be
 overridden by the summary file.
+For strict source-bound publishing, `wechat_selector_engine_smoke=true` in the
+summary is not sufficient. A sanitized selector proof v2 whose `source.headSha`
+matches `--expected-source-sha` is mandatory.
 
 After checking each PyPI project in the PyPI UI, archive PyPI Trusted
 Publisher proof in JSON form:
@@ -233,6 +236,11 @@ Strict preflight accepts this report only when it is a real run with
 `"dryRun": false`, `"success": true`, and successful protocol observations for
 `readiness`, `open_app`, `focus_app`, `observe`, and `type_text`.
 
+Generate `wechat-selector-engine-smoke.json` from the exact release commit as
+documented in [wechat-smoke.md](wechat-smoke.md). Only the sanitized proof v2 is
+a release asset. An optional `--private-debug-output` file contains raw local
+diagnostics and has no bundle, retention, or publication path.
+
 Then run the strict preflight:
 
 ```bash
@@ -247,6 +255,7 @@ python scripts/release_preflight.py \
   --testpypi-install-report ./testpypi-install.json \
   --trusted-publisher-report ./trusted-publisher.json \
   --proof ./release-proof.json \
+  --expected-source-sha "$(git rev-parse HEAD)" \
   --require-external
 ```
 
@@ -262,7 +271,8 @@ python scripts/release_proof_bundle.py \
   --wechat-submit-report ./wechat-submit-smoke.json \
   --wechat-selector-engine-report ./wechat-selector-engine-smoke.json \
   --testpypi-install-report ./testpypi-install.json \
-  --trusted-publisher-report ./trusted-publisher.json
+  --trusted-publisher-report ./trusted-publisher.json \
+  --expected-source-sha "$(git rev-parse HEAD)"
 ```
 
 The bundled proof directory can be checked through the unified developer gate:
@@ -276,6 +286,9 @@ JSON output includes `missingProofs`, which lists the exact proof keys that
 still need real external evidence. Use `--allow-incomplete` only when you want
 to write the asset directory for diagnostics; the strict release preflight and
 GitHub release workflow will still reject incomplete proof.
+The bundle validates selector proof v2 before copying any asset. Unknown keys,
+raw/sensitive fields, absolute local paths, invalid counts, non-null
+`failedStep`, timings above 3000 ms, and a source SHA mismatch stop bundling.
 
 The GitHub release workflow enforces the same strict preflight before the PyPI
 publish step. Attach these JSON files to the GitHub Release before publishing

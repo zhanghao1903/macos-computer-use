@@ -2,7 +2,8 @@
 
 Run from the repository root after starting the local app-control service:
 
-    /opt/anaconda3/bin/python examples/wechat_selector_engine_smoke_test.py
+    /opt/anaconda3/bin/python examples/wechat_selector_engine_smoke_test.py \
+        --head-sha "$(git rev-parse HEAD)"
 
 The script opens WeChat, inspects the normalized window model, lists visible
 conversations and contacts, opens one target contact, reads visible messages,
@@ -15,12 +16,14 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 import importlib
 import importlib.resources
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,6 +31,7 @@ import tomllib
 from typing import Any
 from uuid import uuid4
 
+import app_control_protocol
 from app_control_protocol import (
     ProtocolValidationError,
     ToolCommand,
@@ -37,8 +41,10 @@ from app_control_protocol import (
     load_app_control_config,
     validate_protocol_payload,
 )
+import computer_use_macos
 from computer_use_macos import UnixSocketServiceClient, readiness_command
 from computer_use_macos.selectors import parse_selector_profile
+import wechat_desktop_tool
 from wechat_desktop_tool import WeChatDesktopTool
 from wechat_desktop_tool.profiles import (
     DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE,
@@ -56,6 +62,46 @@ DEFAULT_OUTPUT = "./wechat-selector-engine-smoke-test.json"
 DEFAULT_SOCKET_PATH = "/tmp/app-control.sock"
 DEFAULT_TOKEN_FILE = "./app-control.token"
 DEFAULT_WECHAT_BUNDLE_ID = "com.tencent.xinWeChat"
+PROOF_SCHEMA = "macos_computer_use.release.wechat_selector_engine_proof.v2"
+PROOF_REPOSITORY = "zhanghao1903/macos-computer-use"
+MAX_PROOF_COLLECTION_LIMIT = 30
+_HEAD_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_PROOF_CHECKS = (
+    "systemOpenWeChat",
+    "readiness",
+    "openWeChat",
+    "inspectWindow",
+    "listConversations",
+    "openContact",
+    "readVisibleMessages",
+    "listContacts",
+    "validProfileOverride",
+    "invalidProfileFallback",
+)
+_TIMING_KEYS = (
+    "openWeChat",
+    "inspectWindow",
+    "listConversations",
+    "openContact",
+    "readVisibleMessages",
+    "listContacts",
+)
+_SENSITIVE_VALUE_KEYS = {
+    "axpath",
+    "configpath",
+    "contact",
+    "displayname",
+    "executable",
+    "messagetext",
+    "rawobservation",
+    "socketpath",
+    "text",
+    "token",
+    "windowtitle",
+}
+_ABSOLUTE_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9._:-])/(?!/)[^\s]*"
+)
 
 
 class LocalServiceAppControlAdapter:
@@ -63,6 +109,7 @@ class LocalServiceAppControlAdapter:
 
     def __init__(self, service_client: Any) -> None:
         self._service_client = service_client
+        self.commands: list[ToolCommand] = []
 
     def run_command(
         self,
@@ -72,6 +119,7 @@ class LocalServiceAppControlAdapter:
     ) -> ToolObservation:
         del observer
         tool_command = _coerce_command(command)
+        self.commands.append(tool_command)
         responses = self._service_client.run_command(
             tool_command.to_dict(),
             action="run",
@@ -98,6 +146,7 @@ class LocalServiceAppControlAdapter:
 
 def run_selector_engine_smoke_test(
     *,
+    head_sha: str,
     config_path: str | Path | None,
     output_path: str | Path,
     socket_path: str | Path = DEFAULT_SOCKET_PATH,
@@ -113,13 +162,17 @@ def run_selector_engine_smoke_test(
     invalid_profile_path: str | Path | None = None,
     system_open_runner: Any | None = None,
     service_client: Any | None = None,
+    private_debug_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    if contact_limit <= 0:
-        raise ValueError("contact_limit must be positive")
-    if conversation_limit <= 0:
-        raise ValueError("conversation_limit must be positive")
-    if message_limit <= 0:
-        raise ValueError("message_limit must be positive")
+    _validate_head_sha(head_sha)
+    _validate_proof_limit("contact_limit", contact_limit)
+    _validate_proof_limit("conversation_limit", conversation_limit)
+    _validate_proof_limit("message_limit", message_limit)
+    if private_debug_output_path is not None and (
+        Path(output_path).expanduser().resolve()
+        == Path(private_debug_output_path).expanduser().resolve()
+    ):
+        raise ValueError("private debug output must differ from public proof output")
 
     system_opened = (
         _open_wechat_process(wechat_bundle_id, runner=system_open_runner)
@@ -200,7 +253,7 @@ def run_selector_engine_smoke_test(
         "invalidProfileFallback": profile_checks["invalidFallback"]["success"] is True,
     }
 
-    payload: dict[str, Any] = {
+    live_result: dict[str, Any] = {
         "schema": "macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1",
         "python": {
             "executable": sys.executable,
@@ -229,6 +282,10 @@ def run_selector_engine_smoke_test(
         "readVisibleMessages": visible_messages.to_dict(),
         "listContacts": contacts.to_dict(),
         "profileOverrides": profile_checks,
+        "appControlCommands": [
+            app_control_command.to_dict()
+            for app_control_command in app_control.commands
+        ],
         "summary": {
             "success": all(checks.values()),
             "checks": checks,
@@ -238,8 +295,12 @@ def run_selector_engine_smoke_test(
             "failedStep": _failed_step(checks),
         },
     }
-    _write_json(output_path, payload)
-    return payload
+    proof = _build_selector_proof_v2(live_result, head_sha=head_sha)
+    _write_json(output_path, proof)
+    if private_debug_output_path is not None:
+        private_output = Path(private_debug_output_path).expanduser().resolve()
+        _write_json(private_output, live_result)
+    return proof
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -248,6 +309,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         socket_path, token, timeout = _service_settings(args)
         payload = run_selector_engine_smoke_test(
+            head_sha=args.head_sha,
             config_path=args.config,
             output_path=args.output,
             socket_path=socket_path,
@@ -261,14 +323,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             wechat_bundle_id=args.wechat_bundle_id,
             valid_profile_path=args.valid_profile_path,
             invalid_profile_path=args.invalid_profile_path,
+            private_debug_output_path=args.private_debug_output,
         )
     except Exception as exc:
         print(f"wechat selector engine smoke test failed: {exc}", file=sys.stderr)
         return 2
 
-    print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "schema": payload["schema"],
+                "checks": payload["checks"],
+                "failedStep": payload["failedStep"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     print(f"wrote: {Path(args.output).expanduser()}")
-    return 0 if payload["summary"]["success"] else 1
+    return 0 if _proof_passed(payload) else 1
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -278,6 +351,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         default=os.environ.get("APP_CONTROL_CONFIG", DEFAULT_CONFIG),
+    )
+    configured_head_sha = os.environ.get("GITHUB_SHA")
+    parser.add_argument(
+        "--head-sha",
+        default=configured_head_sha,
+        required=configured_head_sha is None,
+        help="Exact 40-character lowercase source commit SHA for proof v2.",
     )
     parser.add_argument(
         "--socket-path",
@@ -303,6 +383,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--valid-profile-path")
     parser.add_argument("--invalid-profile-path")
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--private-debug-output",
+        help=(
+            "Optional private local path for raw smoke diagnostics. Never attach "
+            "this file to a release."
+        ),
+    )
     return parser
 
 
@@ -452,6 +539,309 @@ def _message_count(observation: ToolObservation) -> int:
         observation.observation.get("messages") if observation.observation else None
     )
     return len(messages) if isinstance(messages, list) else 0
+
+
+def _validate_head_sha(head_sha: str) -> None:
+    if not isinstance(head_sha, str) or not _HEAD_SHA_PATTERN.fullmatch(head_sha):
+        raise ValueError("head_sha must be exactly 40 lowercase hexadecimal characters")
+
+
+def _validate_proof_limit(name: str, value: int) -> None:
+    if type(value) is not int or not 1 <= value <= MAX_PROOF_COLLECTION_LIMIT:
+        raise ValueError(f"{name} must be between 1 and 30")
+
+
+def _build_selector_proof_v2(
+    live_result: Mapping[str, Any],
+    *,
+    head_sha: str,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    _validate_head_sha(head_sha)
+    summary = _mapping_value(live_result.get("summary"))
+    raw_checks = _mapping_value(summary.get("checks"))
+    options = _mapping_value(live_result.get("options"))
+    contacts = _operation_items(live_result, "listContacts", "items")
+    conversations = _operation_items(
+        live_result,
+        "listConversations",
+        "items",
+    )
+    visible_messages = _operation_items(
+        live_result,
+        "readVisibleMessages",
+        "messages",
+    )
+    proof: dict[str, Any] = {
+        "schema": PROOF_SCHEMA,
+        "source": {
+            "repository": PROOF_REPOSITORY,
+            "headSha": head_sha,
+            "generatedAt": generated_at or _utc_now(),
+            "packageVersions": {
+                "app-control-protocol": app_control_protocol.__version__,
+                "computer-use-macos": computer_use_macos.__version__,
+                "wechat-desktop-tool": wechat_desktop_tool.__version__,
+            },
+        },
+        "checks": {
+            name: raw_checks.get(name) is True
+            for name in _PROOF_CHECKS
+        },
+        "collections": {
+            "contacts": {
+                "requestedLimit": _integer_value(options.get("contactLimit")),
+                "count": len(contacts),
+                "items": [
+                    {"semanticFieldsPresent": _contact_fields_present(item)}
+                    for item in contacts
+                ],
+            },
+            "conversations": {
+                "requestedLimit": _integer_value(
+                    options.get("conversationLimit")
+                ),
+                "count": len(conversations),
+                "items": [
+                    {
+                        "semanticFieldsPresent": _conversation_fields_present(item),
+                        "actionable": isinstance(item.get("actionRef"), Mapping),
+                    }
+                    for item in conversations
+                ],
+            },
+            "visibleMessages": {
+                "requestedLimit": _integer_value(options.get("messageLimit")),
+                "count": len(visible_messages),
+                "items": [
+                    {"nonEmptyTextObserved": _message_text_present(item)}
+                    for item in visible_messages
+                ],
+            },
+        },
+        "safety": {
+            "focusGatePassed": _focus_gate_passed(live_result),
+            "targetPostconditionPassed": _target_postcondition_passed(live_result),
+            "expiredActionRefRejected": _expired_action_ref_rejected(live_result),
+            "frameDerivedCoordinatesOnly": _frame_derived_coordinates_only(
+                live_result
+            ),
+            "rawObservationIncluded": False,
+            "sensitiveFieldScanPassed": False,
+        },
+        "timingsMs": {
+            name: _operation_duration_ms(live_result, name)
+            for name in _TIMING_KEYS
+        },
+        "failedStep": summary.get("failedStep"),
+    }
+    proof["safety"]["sensitiveFieldScanPassed"] = (
+        not _proof_contains_sensitive_content(
+            proof,
+            canaries=_sensitive_canaries(live_result),
+        )
+    )
+    return proof
+
+
+def _operation_items(
+    live_result: Mapping[str, Any],
+    operation_key: str,
+    item_key: str,
+) -> list[Mapping[str, Any]]:
+    operation = _mapping_value(live_result.get(operation_key))
+    observation = _mapping_value(operation.get("observation"))
+    raw_items = observation.get(item_key)
+    if not isinstance(raw_items, list):
+        return []
+    return [item for item in raw_items if isinstance(item, Mapping)]
+
+
+def _contact_fields_present(item: Mapping[str, Any]) -> bool:
+    return _non_empty_string(item.get("displayName")) is not None and isinstance(
+        item.get("element"),
+        Mapping,
+    )
+
+
+def _conversation_fields_present(item: Mapping[str, Any]) -> bool:
+    return _non_empty_string(item.get("displayName")) is not None and isinstance(
+        item.get("element"),
+        Mapping,
+    )
+
+
+def _message_text_present(item: Mapping[str, Any]) -> bool:
+    return _non_empty_string(item.get("text")) is not None
+
+
+def _focus_gate_passed(live_result: Mapping[str, Any]) -> bool:
+    commands = _command_payloads(live_result)
+    text_commands = [
+        command for command in commands if command.get("operation") == "type_text"
+    ]
+    if not text_commands:
+        return True
+    opened_contact = _mapping_value(live_result.get("openContact"))
+    if opened_contact.get("success") is not True:
+        return False
+    return all(
+        _mapping_value(command.get("metadata")).get("phase") == "type_contact"
+        for command in text_commands
+    )
+
+
+def _target_postcondition_passed(live_result: Mapping[str, Any]) -> bool:
+    opened_contact = _mapping_value(live_result.get("openContact"))
+    if opened_contact.get("success") is not True:
+        return False
+    observation = _mapping_value(opened_contact.get("observation"))
+    current_chat = _mapping_value(observation.get("currentChat"))
+    target = _non_empty_string(observation.get("target"))
+    title = _non_empty_string(current_chat.get("title"))
+    if target is None or title is None:
+        return False
+    normalized_target = target.casefold()
+    normalized_title = title.casefold()
+    return (
+        normalized_target == normalized_title
+        or normalized_target in normalized_title
+        or normalized_title in normalized_target
+    )
+
+
+def _expired_action_ref_rejected(live_result: Mapping[str, Any]) -> bool:
+    expired = _mapping_value(live_result.get("expiredActionRef"))
+    return (
+        expired.get("success") is True
+        and expired.get("failureKind") == "wechat_action_ref_expired"
+    )
+
+
+def _frame_derived_coordinates_only(live_result: Mapping[str, Any]) -> bool:
+    for command in _command_payloads(live_result):
+        if command.get("operation") != "click":
+            continue
+        input_payload = _mapping_value(command.get("input"))
+        if not isinstance(input_payload.get("coordinates"), Mapping):
+            continue
+        phase = _mapping_value(command.get("metadata")).get("phase")
+        if not isinstance(phase, str) or not phase.startswith("control_map_"):
+            return False
+    return True
+
+
+def _command_payloads(live_result: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    raw_commands = live_result.get("appControlCommands")
+    if not isinstance(raw_commands, list):
+        return []
+    return [item for item in raw_commands if isinstance(item, Mapping)]
+
+
+def _operation_duration_ms(
+    live_result: Mapping[str, Any],
+    operation_key: str,
+) -> int:
+    operation = _mapping_value(live_result.get(operation_key))
+    timing = _mapping_value(operation.get("timing"))
+    return _integer_value(timing.get("durationMs"))
+
+
+def _sensitive_canaries(live_result: Mapping[str, Any]) -> tuple[str, ...]:
+    values: set[str] = set()
+
+    def visit(value: Any, key: str | None = None) -> None:
+        if isinstance(value, Mapping):
+            for child_key, child_value in value.items():
+                normalized_key = str(child_key).casefold()
+                visit(child_value, normalized_key)
+            return
+        if isinstance(value, list):
+            for child in value:
+                visit(child, key)
+            return
+        if key in _SENSITIVE_VALUE_KEYS and isinstance(value, str) and value:
+            values.add(value)
+
+    visit(live_result)
+    return tuple(sorted(values))
+
+
+def _proof_contains_sensitive_content(
+    proof: Mapping[str, Any],
+    *,
+    canaries: Sequence[str],
+) -> bool:
+    normalized_canaries = tuple(
+        value.casefold() for value in canaries if value.strip()
+    )
+
+    def visit(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            return any(visit(child) for child in value.values())
+        if isinstance(value, list):
+            return any(visit(child) for child in value)
+        if not isinstance(value, str):
+            return False
+        normalized = value.casefold()
+        return bool(_ABSOLUTE_PATH_PATTERN.search(value)) or any(
+            canary in normalized for canary in normalized_canaries
+        )
+
+    return visit(proof)
+
+
+def _proof_passed(proof: Mapping[str, Any]) -> bool:
+    checks = _mapping_value(proof.get("checks"))
+    collections = _mapping_value(proof.get("collections"))
+    safety = _mapping_value(proof.get("safety"))
+    timings = _mapping_value(proof.get("timingsMs"))
+    collections_passed = all(
+        1 <= _integer_value(_mapping_value(collections.get(name)).get("count"))
+        <= _integer_value(
+            _mapping_value(collections.get(name)).get("requestedLimit")
+        )
+        for name in ("contacts", "conversations", "visibleMessages")
+    )
+    safety_passed = all(
+        safety.get(name) is True
+        for name in (
+            "focusGatePassed",
+            "targetPostconditionPassed",
+            "expiredActionRefRejected",
+            "frameDerivedCoordinatesOnly",
+            "sensitiveFieldScanPassed",
+        )
+    ) and safety.get("rawObservationIncluded") is False
+    timings_passed = all(
+        0 <= _integer_value(timings.get(name)) <= 3_000
+        for name in _TIMING_KEYS
+    )
+    return (
+        proof.get("schema") == PROOF_SCHEMA
+        and set(checks) == set(_PROOF_CHECKS)
+        and all(checks.get(name) is True for name in _PROOF_CHECKS)
+        and collections_passed
+        and safety_passed
+        and timings_passed
+        and proof.get("failedStep") is None
+    )
+
+
+def _mapping_value(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _integer_value(value: Any) -> int:
+    return value if type(value) is int else -1
+
+
+def _non_empty_string(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _failed_step(checks: Mapping[str, bool]) -> str | None:

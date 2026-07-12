@@ -13,6 +13,9 @@ import unittest
 from app_control_protocol import ServiceResponse, ToolObservation
 
 
+SELECTOR_PROOF_HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
 class FakeUnixSocketServiceClient:
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
@@ -589,6 +592,7 @@ class SdkExampleTests(unittest.TestCase):
                 config_path=None,
                 output_path=output_path,
                 socket_path="/tmp/app-control.sock",
+                token="release-secret-token-canary",
                 service_client=service_client,
             )
 
@@ -836,6 +840,7 @@ class SdkExampleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "selector-engine-smoke-output.json"
             payload = module.run_selector_engine_smoke_test(
+                head_sha=SELECTOR_PROOF_HEAD_SHA,
                 config_path=None,
                 output_path=output_path,
                 socket_path="/tmp/app-control.sock",
@@ -849,28 +854,64 @@ class SdkExampleTests(unittest.TestCase):
 
             persisted = json.loads(output_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(payload["summary"]["success"], True)
-        self.assertEqual(payload["summary"]["conversationCount"], 1)
-        self.assertEqual(payload["summary"]["contactCount"], 2)
-        self.assertEqual(payload["summary"]["messageCount"], 2)
-        self.assertEqual(payload["summary"]["failedStep"], None)
-        self.assertEqual(payload["expiredActionRef"]["success"], True)
         self.assertEqual(
-            payload["expiredActionRef"]["failureKind"],
-            "wechat_action_ref_expired",
+            payload["schema"],
+            "macos_computer_use.release.wechat_selector_engine_proof.v2",
         )
+        self.assertEqual(payload["source"]["headSha"], SELECTOR_PROOF_HEAD_SHA)
+        self.assertEqual(payload["source"]["repository"], "zhanghao1903/macos-computer-use")
         self.assertEqual(
-            payload["openContact"]["observation"]["openMethod"],
-            "control_map_visible_action_ref",
+            payload["source"]["packageVersions"],
+            {
+                "app-control-protocol": "0.2.0",
+                "computer-use-macos": "0.2.0",
+                "wechat-desktop-tool": "0.2.0",
+            },
         )
-        self.assertEqual(payload["profileOverrides"]["validOverride"]["success"], True)
-        self.assertEqual(payload["profileOverrides"]["invalidFallback"]["success"], True)
+        self.assertTrue(all(payload["checks"].values()))
+        self.assertEqual(payload["collections"]["conversations"]["count"], 1)
+        self.assertEqual(payload["collections"]["contacts"]["count"], 2)
+        self.assertEqual(payload["collections"]["visibleMessages"]["count"], 2)
+        self.assertEqual(payload["failedStep"], None)
+        self.assertEqual(payload["safety"]["expiredActionRefRejected"], True)
+        self.assertEqual(
+            payload["safety"]["rawObservationIncluded"],
+            False,
+        )
+        self.assertEqual(payload, persisted)
+        forbidden_keys = {
+            "observation",
+            "rawObservation",
+            "contact",
+            "displayName",
+            "text",
+            "messageText",
+            "windowTitle",
+            "socketPath",
+            "configPath",
+            "executable",
+            "token",
+            "axPath",
+        }
+        self.assertTrue(forbidden_keys.isdisjoint(_recursive_mapping_keys(payload)))
+        serialized = json.dumps(payload, ensure_ascii=False)
+        for canary in (
+            "文件传输助手",
+            "Ada",
+            "Bob",
+            "hello",
+            "reply",
+            "/tmp/app-control.sock",
+            "release-secret-token-canary",
+            "微信 (聊天)",
+            "0/12/2/0",
+        ):
+            self.assertNotIn(canary, serialized)
         self.assertEqual(
             [command[:2] for command in system_open.commands],
             [["open", "-b"], ["osascript", "-e"]],
         )
         operations = [command["operation"] for command in service_client.commands]
-        self.assertIn("listConversations", persisted["summary"]["checks"])
         self.assertIn("accessibility_action", operations)
         self.assertNotIn("click", operations)
         self.assertNotIn("type_text", operations)
@@ -880,6 +921,108 @@ class SdkExampleTests(unittest.TestCase):
             4,
             "expired actionRef check must not add a backend action",
         )
+
+    def test_wechat_selector_engine_private_debug_output_is_explicit(self) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "proof.json"
+            debug_path = Path(tmpdir) / "private-debug.json"
+            proof = module.run_selector_engine_smoke_test(
+                head_sha=SELECTOR_PROOF_HEAD_SHA,
+                config_path=None,
+                output_path=output_path,
+                private_debug_output_path=debug_path,
+                socket_path="/tmp/app-control.sock",
+                service_client=FakeSelectorEngineSmokeServiceClient(),
+                system_open_runner=FakeSystemOpenRunner(),
+                contact="文件传输助手",
+                conversation_limit=1,
+                contact_limit=2,
+                message_limit=2,
+            )
+            debug = json.loads(debug_path.read_text(encoding="utf-8"))
+
+        self.assertNotIn("observation", _recursive_mapping_keys(proof))
+        self.assertEqual(
+            debug["schema"],
+            "macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1",
+        )
+        self.assertEqual(debug["options"]["contact"], "文件传输助手")
+        self.assertIn("appControlCommands", debug)
+
+    def test_wechat_selector_engine_requires_release_sha_and_bounded_limits(
+        self,
+    ) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+        service_client = FakeSelectorEngineSmokeServiceClient()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "proof.json"
+            with self.assertRaisesRegex(ValueError, "40 lowercase hexadecimal"):
+                module.run_selector_engine_smoke_test(
+                    head_sha="ABC",
+                    config_path=None,
+                    output_path=output_path,
+                    service_client=service_client,
+                )
+            with self.assertRaisesRegex(ValueError, "between 1 and 30"):
+                module.run_selector_engine_smoke_test(
+                    head_sha=SELECTOR_PROOF_HEAD_SHA,
+                    config_path=None,
+                    output_path=output_path,
+                    contact_limit=31,
+                    service_client=service_client,
+                )
+
+        self.assertEqual(service_client.commands, [])
+
+    def test_selector_proof_builder_records_failed_safety_invariants(self) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            debug_path = Path(tmpdir) / "private-debug.json"
+            module.run_selector_engine_smoke_test(
+                head_sha=SELECTOR_PROOF_HEAD_SHA,
+                config_path=None,
+                output_path=Path(tmpdir) / "proof.json",
+                private_debug_output_path=debug_path,
+                service_client=FakeSelectorEngineSmokeServiceClient(),
+                system_open_runner=FakeSystemOpenRunner(),
+                contact="文件传输助手",
+                conversation_limit=1,
+                contact_limit=2,
+                message_limit=2,
+            )
+            live_result = json.loads(debug_path.read_text(encoding="utf-8"))
+
+        live_result["appControlCommands"].extend(
+            [
+                {
+                    "operation": "click",
+                    "input": {"coordinates": {"x": 10, "y": 10}},
+                    "metadata": {"phase": "legacy_fixed_coordinate"},
+                },
+                {
+                    "operation": "type_text",
+                    "input": {"text": "unsafe"},
+                    "metadata": {"phase": "draft_message"},
+                },
+            ]
+        )
+        live_result["openContact"]["observation"]["currentChat"]["title"] = (
+            "different chat"
+        )
+
+        proof = module._build_selector_proof_v2(
+            live_result,
+            head_sha=SELECTOR_PROOF_HEAD_SHA,
+            generated_at="2026-07-12T00:00:00Z",
+        )
+
+        self.assertEqual(proof["safety"]["frameDerivedCoordinatesOnly"], False)
+        self.assertEqual(proof["safety"]["focusGatePassed"], False)
+        self.assertEqual(proof["safety"]["targetPostconditionPassed"], False)
 
     def test_wechat_live_prereq_probe_reports_ready_state(self) -> None:
         module = _load_wechat_live_prereq_probe_module()
@@ -1060,6 +1203,18 @@ def _wechat_query(nodes: list[dict[str, Any]]) -> dict[str, Any]:
             "truncated": False,
         },
     }
+
+
+def _recursive_mapping_keys(value: Any) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            keys.add(str(key))
+            keys.update(_recursive_mapping_keys(child))
+    elif isinstance(value, list):
+        for child in value:
+            keys.update(_recursive_mapping_keys(child))
+    return keys
 
 
 def _query_node(

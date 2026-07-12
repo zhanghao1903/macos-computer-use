@@ -3365,3 +3365,84 @@ Documentation now records the coordinated upgrade and rollback set, helper
 runtime boundary, clean source-path proof, and wheel compatibility gate. Real
 helper selector smoke is intentionally excluded because helper parity is not a
 supported `0.2.0` runtime.
+
+## F4 Remediation Slice 5: Privacy-Safe Strict Release Proof
+
+Status: implemented and ready for a slice-scoped commit.
+
+Review findings closed:
+
+- `PRR-001`: the selector-engine smoke writes a whitelist-only public proof v2
+  by default; contact names, message content, titles, command data, service
+  paths, tokens, AX paths, and operation observations remain in memory or an
+  explicitly requested private debug file only;
+- `PRR-012`: strict preflight and release bundling require non-zero,
+  count-consistent, source-bound proof from the exact release head and reject
+  v1, malformed, failed, stale, slow, unknown, or sensitive evidence.
+
+Implemented behavior:
+
+- `examples/wechat_selector_engine_smoke_test.py` separates live collection
+  from `_build_selector_proof_v2`; `--head-sha` is mandatory unless
+  `GITHUB_SHA` is set, limits are constrained to `1..30`, and the default output
+  contains only the reviewed v2 schema;
+- `--private-debug-output` is explicit, must differ from the public output, is
+  ignored by Git, has no bundle path, and is documented as non-publishable;
+- collection evidence contains structural booleans only and requires at least
+  one contact, conversation, and visible message; safety evidence records the
+  focus gate, target postcondition, expired ref rejection, frame-derived
+  coordinate rule, raw-data absence, and sensitive scan;
+- strict validation uses exact object keys and types, exact `0.2.0` package
+  versions, RFC 3339 UTC time, a 40-character lowercase source SHA, count/item
+  consistency, `0..3000` millisecond timings, recursive forbidden-key checks,
+  absolute-path rejection, and optional sensitive canaries;
+- `release-proof.json` can no longer substitute its selector boolean when
+  source-bound strict mode is active; proof v1 returns false;
+- `release_proof_bundle.py` validates selector proof before creating its output
+  directory or invoking `_copy_asset` and remains fail closed even with
+  `--allow-incomplete`;
+- the release workflow passes `${{ github.sha }}`, while local `dev_check`
+  resolves `GITHUB_SHA` from the current repository head;
+- publishing, checklist, smoke, and reviewed design documents now describe the
+  exact v2 structure and private-debug boundary.
+
+Public and compatibility impact:
+
+- no package import, command, protocol schema, or semantic WeChat API changed;
+- the standalone release example intentionally changes its default JSON output
+  from the private v1 diagnostic envelope to public proof v2;
+- callers that need raw diagnostics must opt into a separate private path;
+- release tooling that supplies selector proof must pass the exact source SHA.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest tests.test_sdk_examples
+```
+
+Result: 12 tests passed in 0.190 seconds.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest tests.test_release_preflight
+```
+
+Result: 90 tests passed in 42.300 seconds. Negative coverage includes zero or
+inconsistent counts, missing items, count above request, request above 30,
+false structural/safety evidence, non-null `failedStep`, timing above 3000 ms,
+mixed versions, malformed/wrong SHA, unknown and forbidden keys, absolute
+paths, sensitive canaries, v1 proof, and validation-before-copy.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest tests.test_dev_check
+```
+
+Result: 7 tests passed in 0.018 seconds.
+
+`scripts/release_preflight.py`, `py_compile`, and `git diff --check` passed.
+The default preflight retained warnings for external desktop, TestPyPI, and
+publisher evidence as expected. No real WeChat UI operation ran in this slice;
+the moved/resized-window proof v2 smoke remains an explicitly authorized F5
+verification step.

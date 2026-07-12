@@ -318,32 +318,49 @@ Example sanitized shape:
     }
   },
   "checks": {
-    "searchFocusVerified": true,
-    "targetTitleVerified": true,
-    "expiredActionRefRejected": true
+    "systemOpenWeChat": true,
+    "readiness": true,
+    "openWeChat": true,
+    "inspectWindow": true,
+    "listConversations": true,
+    "openContact": true,
+    "readVisibleMessages": true,
+    "listContacts": true,
+    "validProfileOverride": true,
+    "invalidProfileFallback": true
   },
   "collections": {
     "contacts": {
+      "requestedLimit": 30,
       "count": 1,
       "items": [{"semanticFieldsPresent": true}]
     },
     "conversations": {
+      "requestedLimit": 30,
       "count": 1,
       "items": [{"semanticFieldsPresent": true, "actionable": true}]
     },
     "visibleMessages": {
+      "requestedLimit": 30,
       "count": 1,
       "items": [{"nonEmptyTextObserved": true}]
     }
   },
   "safety": {
-    "targetTitleVerified": true,
+    "focusGatePassed": true,
+    "targetPostconditionPassed": true,
+    "expiredActionRefRejected": true,
+    "frameDerivedCoordinatesOnly": true,
     "rawObservationIncluded": false,
     "sensitiveFieldScanPassed": true
   },
   "timingsMs": {
+    "openWeChat": 500,
+    "inspectWindow": 700,
+    "listConversations": 900,
     "openContact": 1200,
-    "readVisibleMessages": 1800
+    "readVisibleMessages": 1800,
+    "listContacts": 1100
   },
   "failedStep": null
 }

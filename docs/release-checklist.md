@@ -32,7 +32,7 @@ Use this checklist before publishing the app-control tool package suite.
       ```
 - [ ] `wechat-desktop-tool` tests:
       ```bash
-      PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
+      PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
         python -m unittest discover -s packages/wechat-desktop-tool/tests
       ```
 - [ ] `python -m pip wheel --no-build-isolation --no-deps packages/app-control-protocol -w dist`
@@ -97,6 +97,10 @@ Use this checklist before publishing the app-control tool package suite.
 - [ ] WeChat focus/draft smoke from `docs/wechat-smoke.md`.
 - [ ] WeChat submit smoke report from `docs/wechat-smoke.md` after explicit
       opt-in.
+- [ ] WeChat selector-engine proof v2 from `docs/wechat-smoke.md`, generated
+      from the exact release head. Confirm all three collection counts are at
+      least 1, all timings are at most 3000 ms, `failedStep` is null, and no
+      private debug report is retained or attached.
 - [ ] Helper release verification:
       ```bash
       cd ./computer-use-helper
@@ -142,6 +146,7 @@ Use this checklist before publishing the app-control tool package suite.
         --testpypi-install-report ./testpypi-install.json \
         --trusted-publisher-report ./trusted-publisher.json \
         --proof ./release-proof.json \
+        --expected-source-sha "$(git rev-parse HEAD)" \
         --require-external
       ```
 
@@ -168,6 +173,9 @@ When both a detailed report and `release-proof.json` are supplied, the detailed
 report takes precedence. A manual `release-proof.json` cannot override a failed
 helper doctor, TextEdit smoke, WeChat smoke, TestPyPI install, or Trusted
 Publisher report.
+When `--expected-source-sha` is present, the selector proof boolean cannot come
+from `release-proof.json`; a validated v2 selector report from that exact source
+commit is mandatory.
 
 - [ ] Attach the strict-preflight proof JSON files to the draft GitHub Release
       before publishing it. The release workflow downloads these exact asset
@@ -187,7 +195,8 @@ Publisher report.
         --wechat-submit-report ./wechat-submit-smoke.json \
         --wechat-selector-engine-report ./wechat-selector-engine-smoke.json \
         --testpypi-install-report ./testpypi-install.json \
-        --trusted-publisher-report ./trusted-publisher.json
+        --trusted-publisher-report ./trusted-publisher.json \
+        --expected-source-sha "$(git rev-parse HEAD)"
       ```
 - [ ] Re-run the unified strict release gate against `./release-proof/`:
       ```bash

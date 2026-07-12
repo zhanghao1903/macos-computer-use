@@ -16,6 +16,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SELECTOR_PROOF_HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 class ReleasePreflightTests(unittest.TestCase):
@@ -517,6 +518,38 @@ class ReleasePreflightTests(unittest.TestCase):
             failures,
         )
 
+    def test_workflow_check_requires_selector_proof_source_sha(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "ci.yml").write_text(
+                (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "release.yml").write_text(
+                release.replace(
+                    '            --expected-source-sha "${{ github.sha }}" \\\n',
+                    "",
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "workflow:release-requires-external-proof-preflight",
+            failures,
+        )
+
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()
 
@@ -526,7 +559,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("external-proof:helper_app_doctor", failures)
         self.assertIn("external-proof:testpypi_install", failures)
 
-    def test_require_external_accepts_complete_proof_file(self) -> None:
+    def test_require_external_boolean_proof_still_requires_selector_v2(self) -> None:
         preflight = _load_preflight()
 
         with TemporaryDirectory() as tmpdir:
@@ -538,11 +571,15 @@ class ReleasePreflightTests(unittest.TestCase):
             results = preflight.run_preflight(
                 ROOT,
                 proof_path=proof_path,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
-        failures = [result for result in results if result.status == "fail"]
-        self.assertEqual(failures, [])
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertEqual(
+            failures,
+            {"external-proof:wechat_selector_engine_smoke"},
+        )
 
     def test_release_proof_file_rejects_unknown_keys(self) -> None:
         preflight = _load_preflight()
@@ -901,6 +938,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 wechat_smoke_report_paths=(smoke_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
@@ -920,20 +958,152 @@ class ReleasePreflightTests(unittest.TestCase):
                 encoding="utf-8",
             )
             report = _wechat_selector_engine_smoke_report()
-            assert isinstance(report["summary"], dict)
-            assert isinstance(report["summary"]["checks"], dict)
-            report["summary"]["checks"]["openContact"] = False
-            report["summary"]["success"] = False
+            assert isinstance(report["checks"], dict)
+            report["checks"]["openContact"] = False
             smoke_path.write_text(json.dumps(report), encoding="utf-8")
 
             results = preflight.run_preflight(
                 ROOT,
                 proof_path=proof_path,
                 wechat_smoke_report_paths=(smoke_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
         failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn("external-proof:wechat_selector_engine_smoke", failures)
+
+    def test_selector_proof_v2_rejects_invalid_structure_and_evidence(self) -> None:
+        preflight = _load_preflight()
+
+        invalid_reports: dict[str, dict[str, Any]] = {}
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["count"] = 0
+        report["collections"]["contacts"]["items"] = []
+        invalid_reports["zero-count"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        del report["collections"]["contacts"]["items"]
+        invalid_reports["missing-items"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["count"] = 2
+        invalid_reports["count-items-mismatch"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["requestedLimit"] = 1
+        report["collections"]["contacts"]["count"] = 2
+        report["collections"]["contacts"]["items"] = [
+            {"semanticFieldsPresent": True},
+            {"semanticFieldsPresent": True},
+        ]
+        invalid_reports["count-above-request"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["requestedLimit"] = 31
+        invalid_reports["request-above-limit"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["conversations"]["items"][0]["actionable"] = False
+        invalid_reports["structural-false"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["safety"]["sensitiveFieldScanPassed"] = False
+        invalid_reports["safety-false"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["failedStep"] = "openContact"
+        invalid_reports["failed-step"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["timingsMs"]["openContact"] = 3_001
+        invalid_reports["timing-above-contract"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["packageVersions"]["computer-use-macos"] = "0.1.1"
+        invalid_reports["mixed-package-version"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["unknown"] = True
+        invalid_reports["unknown-key"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["items"][0]["text"] = "hello"
+        invalid_reports["forbidden-key"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["generatedAt"] = "/Users/example/private.json"
+        invalid_reports["absolute-path"] = report
+
+        for name, invalid in invalid_reports.items():
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    preflight._validate_wechat_selector_engine_proof(
+                        invalid,
+                        expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                    )
+
+    def test_selector_proof_v2_requires_exact_source_sha_and_no_canaries(
+        self,
+    ) -> None:
+        preflight = _load_preflight()
+
+        malformed = _wechat_selector_engine_smoke_report(head_sha="ABC")
+        with self.assertRaisesRegex(ValueError, "headSha"):
+            preflight._validate_wechat_selector_engine_proof(
+                malformed,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+            )
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            preflight._validate_wechat_selector_engine_proof(
+                _wechat_selector_engine_smoke_report(),
+                expected_source_sha="f" * 40,
+            )
+
+        canary = "release-private-contact-canary"
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["repository"] = canary
+        with self.assertRaisesRegex(ValueError, "sensitive canary"):
+            preflight._validate_wechat_selector_engine_proof(
+                report,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                sensitive_canaries=(canary,),
+            )
+
+    def test_selector_proof_v1_cannot_satisfy_strict_external_proof(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            proof_path = Path(tmpdir) / "proof.json"
+            selector_path = Path(tmpdir) / "selector-v1.json"
+            proof_path.write_text(
+                json.dumps({key: True for key in preflight.EXTERNAL_PROOFS}),
+                encoding="utf-8",
+            )
+            selector_path.write_text(
+                json.dumps(
+                    {
+                        "schema": (
+                            "macos_computer_use.sdk."
+                            "wechat_selector_engine_smoke_test.v1"
+                        ),
+                        "summary": {"success": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight.run_preflight(
+                ROOT,
+                proof_path=proof_path,
+                wechat_smoke_report_paths=(selector_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                require_external=True,
+            )
+
+        failures = {result.name for result in results if result.status == "fail"}
         self.assertIn("external-proof:wechat_selector_engine_smoke", failures)
 
     def test_wechat_focus_draft_report_supplies_focus_draft_external_proof(
@@ -2421,6 +2591,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 wechat_selector_engine_report=selector,
                 testpypi_install_report=testpypi,
                 trusted_publisher_report=trusted,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
             )
             results = preflight.run_preflight(
                 ROOT,
@@ -2434,6 +2605,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 ),
                 testpypi_install_report_path=output / "testpypi-install.json",
                 trusted_publisher_report_path=output / "trusted-publisher.json",
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
@@ -2441,6 +2613,46 @@ class ReleaseProofBundleTests(unittest.TestCase):
         self.assertEqual(report["missingProofs"], [])
         failures = [result for result in results if result.status == "fail"]
         self.assertEqual(failures, [])
+
+    def test_bundle_rejects_invalid_selector_proof_before_copying_assets(
+        self,
+    ) -> None:
+        preflight = _load_preflight()
+        bundle = _load_release_proof_bundle_script()
+
+        with TemporaryDirectory() as tmpdir:
+            paths = _write_release_proof_bundle_sources(
+                preflight,
+                Path(tmpdir),
+                trusted_all=True,
+            )
+            invalid = json.loads(paths["selector"].read_text(encoding="utf-8"))
+            invalid["source"]["repository"] = "release-private-contact-canary"
+            paths["selector"].write_text(json.dumps(invalid), encoding="utf-8")
+            copied: list[tuple[Path, Path]] = []
+            original_copy = bundle._copy_asset
+            bundle._copy_asset = lambda source, target: copied.append((source, target))
+            try:
+                with self.assertRaisesRegex(ValueError, "sensitive canary"):
+                    bundle.build_bundle(
+                        output_dir=paths["output"],
+                        helper_doctor_report=paths["helper"],
+                        textedit_smoke_report=paths["textedit"],
+                        wechat_focus_draft_report=paths["focus"],
+                        wechat_submit_report=paths["submit"],
+                        wechat_selector_engine_report=paths["selector"],
+                        testpypi_install_report=paths["testpypi"],
+                        trusted_publisher_report=paths["trusted"],
+                        expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                        sensitive_canaries=("release-private-contact-canary",),
+                    )
+            finally:
+                bundle._copy_asset = original_copy
+
+            output_exists = paths["output"].exists()
+
+        self.assertEqual(copied, [])
+        self.assertFalse(output_exists)
 
     def test_bundle_reports_missing_external_proofs(self) -> None:
         preflight = _load_preflight()
@@ -2545,6 +2757,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 wechat_selector_engine_report=selector,
                 testpypi_install_report=testpypi,
                 trusted_publisher_report=trusted,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
             )
 
         self.assertEqual(report["passed"], False)
@@ -3009,6 +3222,8 @@ def _release_proof_bundle_args(paths: dict[str, Path]) -> list[str]:
         str(paths["testpypi"]),
         "--trusted-publisher-report",
         str(paths["trusted"]),
+        "--expected-source-sha",
+        SELECTOR_PROOF_HEAD_SHA,
     ]
 
 
@@ -3112,14 +3327,16 @@ def _wechat_observation(
     }
 
 
-def _wechat_selector_engine_smoke_report() -> dict[str, Any]:
+def _wechat_selector_engine_smoke_report(
+    *,
+    head_sha: str = SELECTOR_PROOF_HEAD_SHA,
+) -> dict[str, Any]:
     checks = {
         "systemOpenWeChat": True,
         "readiness": True,
         "openWeChat": True,
         "inspectWindow": True,
         "listConversations": True,
-        "expiredActionRef": True,
         "openContact": True,
         "readVisibleMessages": True,
         "listContacts": True,
@@ -3127,63 +3344,54 @@ def _wechat_selector_engine_smoke_report() -> dict[str, Any]:
         "invalidProfileFallback": True,
     }
     return {
-        "schema": "macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1",
-        "systemOpenWeChat": {
-            "operation": "system_open_wechat",
-            "success": True,
-            "bundleId": "com.tencent.xinWeChat",
+        "schema": "macos_computer_use.release.wechat_selector_engine_proof.v2",
+        "source": {
+            "repository": "zhanghao1903/macos-computer-use",
+            "headSha": head_sha,
+            "generatedAt": "2026-07-12T00:00:00Z",
+            "packageVersions": {
+                "app-control-protocol": "0.2.0",
+                "computer-use-macos": "0.2.0",
+                "wechat-desktop-tool": "0.2.0",
+            },
         },
-        "readiness": _macos_observation(
-            command_id="cmd_readiness",
-            operation="readiness",
-            observation={"status": "ready"},
-        ),
-        "openWeChat": _wechat_observation(
-            command_id="cmd_open_wechat",
-            operation="open_wechat",
-            observation={"opened": True},
-        ),
-        "inspectWindow": _wechat_observation(
-            command_id="cmd_inspect",
-            operation="inspect_window",
-            observation={"schema": "wechat.window.v1"},
-        ),
-        "listConversations": _wechat_observation(
-            command_id="cmd_conversations",
-            operation="list_conversations",
-            observation={"items": [{"displayName": "File Transfer"}]},
-        ),
-        "expiredActionRef": {
-            "success": True,
-            "failureKind": "wechat_action_ref_expired",
+        "checks": checks,
+        "collections": {
+            "contacts": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [{"semanticFieldsPresent": True}],
+            },
+            "conversations": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [
+                    {"semanticFieldsPresent": True, "actionable": True}
+                ],
+            },
+            "visibleMessages": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [{"nonEmptyTextObserved": True}],
+            },
         },
-        "openContact": _wechat_observation(
-            command_id="cmd_open_contact",
-            operation="open_contact",
-            observation={"contact": "File Transfer"},
-        ),
-        "readVisibleMessages": _wechat_observation(
-            command_id="cmd_messages",
-            operation="read_visible_messages",
-            observation={"messages": [{"text": "hello"}]},
-        ),
-        "listContacts": _wechat_observation(
-            command_id="cmd_contacts",
-            operation="list_contacts",
-            observation={"items": [{"displayName": "File Transfer"}]},
-        ),
-        "profileOverrides": {
-            "validOverride": {"success": True},
-            "invalidFallback": {"success": True},
+        "safety": {
+            "focusGatePassed": True,
+            "targetPostconditionPassed": True,
+            "expiredActionRefRejected": True,
+            "frameDerivedCoordinatesOnly": True,
+            "rawObservationIncluded": False,
+            "sensitiveFieldScanPassed": True,
         },
-        "summary": {
-            "success": True,
-            "checks": checks,
-            "conversationCount": 1,
-            "contactCount": 1,
-            "messageCount": 1,
-            "failedStep": None,
+        "timingsMs": {
+            "openWeChat": 100,
+            "inspectWindow": 100,
+            "listConversations": 100,
+            "openContact": 100,
+            "readVisibleMessages": 100,
+            "listContacts": 100,
         },
+        "failedStep": None,
     }
 
 

@@ -75,6 +75,7 @@ jobs:
             --testpypi-install-report release-proof/testpypi-install.json \
             --trusted-publisher-report release-proof/trusted-publisher.json \
             --proof release-proof/release-proof.json \
+            --expected-source-sha "${{ github.sha }}" \
             --require-external
       - name: Upload distributions
         uses: actions/upload-artifact@v4
