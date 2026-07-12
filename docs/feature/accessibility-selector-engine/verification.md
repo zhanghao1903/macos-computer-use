@@ -1423,3 +1423,92 @@ resized WeChat window and the exact commit selected for that run, then:
 F5 remains open until this authorized proof is captured and recorded. F6
 new-head review and merge-readiness refresh must not start before that gate is
 resolved.
+
+## F5 Exact-Head WeChat Live Proof
+
+Date: 2026-07-12.
+
+Exact tested source:
+
+- commit: `6a74c1d677c767bc68b993f038739fe092c9c204`;
+- branch: `codex/accessibility-selector-engine`;
+- package versions: coordinated `0.2.0` set;
+- Python: project `.venv` Python 3.12;
+- public proof:
+  `/private/tmp/selector-live-selector-engine-proof-v2-6a74c1d.json`;
+- private diagnostic:
+  `/private/tmp/selector-live-selector-engine-private-6a74c1d.json`, retained
+  locally and excluded from the repository and release bundle.
+
+Before the proof series, Computer Use invoked the WeChat window's zoom action.
+The exact-head query observed the resulting moved/resized window at
+`x=307`, `y=31`, `width=1307`, `height=965`; no fixed profile coordinate was
+used. The smoke opened `文件传输助手`, read visible content, and did not draft or
+send a message.
+
+### Public proof result
+
+| Gate | Result |
+| --- | --- |
+| Exact source SHA | Passed |
+| Required checklist operations | 10/10 passed |
+| Contacts | 11 |
+| Visible conversations | 14 |
+| Visible messages | 30 |
+| Focus gate | Passed |
+| Target title postcondition | Passed |
+| Expired actionRef rejection | Passed |
+| Frame-derived coordinates only | Passed |
+| Raw observation absent | Passed |
+| Sensitive-field scan | Passed |
+| `failedStep` | `null` |
+
+Measured public API timings:
+
+| API | Duration |
+| --- | ---: |
+| `openWeChat` | 251 ms |
+| `inspectWindow` | 330 ms |
+| `listConversations` | 336 ms |
+| `openContact` | 829 ms |
+| `readVisibleMessages` | 1095 ms |
+| `listContacts` | 1446 ms |
+
+Every measured API is below the 3000 ms feature target. The low-level contact
+query reported `diagnostics.transport.mode=worker`.
+
+### Explicit non-visible target branch
+
+Before the exact-head proof, the target conversation was deliberately scrolled
+out of the visible table and the same implementation was exercised through
+`openMethod=search`. The branch selected existing search text, clipboard-pasted
+the target, opened and title-verified `文件传输助手`, and returned 30 messages.
+It measured `openContact=2457 ms` and `readVisibleMessages=1282 ms`, proving the
+bounded global-search fallback also satisfies the performance target.
+
+### Strict release validation
+
+```bash
+.venv/bin/python scripts/release_preflight.py \
+  --wechat-smoke-report \
+    /private/tmp/selector-live-selector-engine-proof-v2-6a74c1d.json \
+  --expected-source-sha 6a74c1d677c767bc68b993f038739fe092c9c204
+```
+
+Result: exit 0. `external-proof:wechat_selector_engine_smoke` was verified;
+only the separately scoped helper, TextEdit, submit, TestPyPI, and Trusted
+Publisher proofs remained warnings.
+
+GitHub Actions run `29196280097`, job `86659712229`, passed against the same
+commit in 2m25s.
+
+`release_proof_bundle.py --allow-incomplete` then built a local bundle with
+the real selector proof and intentionally empty placeholders for unrelated
+proof categories. It reported `wechat_selector_engine_smoke=true`, copied the
+selector proof byte-for-byte, and rejected no selector content with
+`--sensitive-canary 文件传输助手`. An exact forbidden-key/path scan found no
+contact, raw observation, AX path, socket/config path, message text, `/Users/`,
+or `/private/tmp/` value in the copied selector asset or aggregate proof.
+
+F5 is complete for Accessibility Selector Engine review remediation. F6 may
+now start from this exact head.

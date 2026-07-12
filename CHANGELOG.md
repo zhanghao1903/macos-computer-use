@@ -57,6 +57,10 @@
 
 ### Fixed
 
+- Keep WeChat contact, conversation, and visible-message APIs below the
+  three-second target by querying visible rows, skipping selected navigation,
+  replacing stale global-search text, and verifying the active chat across
+  compatible chat-panel paths without using the chat-history shortcut.
 - Replace raw selector-engine release reports with source-bound, whitelist-only
   proof v2 and reject sensitive, structurally invalid, stale-head, or v1 proof
   before release bundling.

@@ -3703,3 +3703,26 @@ branch also satisfies the 3000 ms API target.
 The diagnostic public and private files remain under `/private/tmp`. F5 is not
 complete until the same checks pass against the exact commit SHA produced by
 this slice and strict release preflight accepts that public proof.
+
+## F5 Exact-Head Live Closure
+
+Status: complete at commit
+`6a74c1d677c767bc68b993f038739fe092c9c204`.
+
+The exact-head public proof passed all checklist, collection, safety, privacy,
+source-binding, and timing gates. It recorded 11 contacts, 14 visible
+conversations, 30 visible messages, and no failed step. Timings were 251 ms for
+`openWeChat`, 330 ms for `inspectWindow`, 336 ms for `listConversations`,
+829 ms for `openContact`, 1095 ms for `readVisibleMessages`, and 1446 ms for
+`listContacts`.
+
+Strict release preflight accepted the public proof for the exact SHA. A local
+partial release bundle copied the selector proof byte-for-byte, evaluated
+`wechat_selector_engine_smoke=true`, passed the explicit target-name canary,
+and contained no forbidden raw/private fields or local path values. Private
+diagnostics remain only under `/private/tmp`.
+
+GitHub Actions run `29196280097`, job `86659712229`, passed the same source head
+in 2m25s.
+
+F6 new-head review and merge-readiness refresh are now unblocked.
