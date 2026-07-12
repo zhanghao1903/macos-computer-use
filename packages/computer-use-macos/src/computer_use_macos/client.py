@@ -3604,6 +3604,17 @@ if root_element is None:
     fail("accessibility_query_root_not_found", "Could not resolve query root.")
 
 window_title = safe_scalar(ax_get(window, "AXTitle")) if window is not None else None
+window_frame = (
+    frame_from_attrs(
+        {
+            "AXFrame": ax_get(window, "AXFrame"),
+            "AXPosition": ax_get(window, "AXPosition"),
+            "AXSize": ax_get(window, "AXSize"),
+        }
+    )
+    if window is not None
+    else None
+)
 mark_step("windowTitle")
 QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
@@ -3631,6 +3642,7 @@ payload = {
             if window is not None
             else ""
         ),
+        "frame": window_frame,
     },
     "root": {
         "axPath": root_path,

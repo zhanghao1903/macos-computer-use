@@ -90,3 +90,17 @@ app_control = ComputerUseClient(
   that may have side effects.
 - Helper mode is recommended for production because macOS permissions attach to
   the executing process identity.
+
+## WeChat Navigation Safety Changes
+
+- Search focus is now fail closed. `focus_contact` and `open_contact` return
+  `failureKind="search_not_focused"` for every unknown Accessibility focus
+  state and do not clear, type, or press Return.
+- `open_contact` now reports duplicate semantic matches as a failed
+  `contact_ambiguous` result with `status="needs_disambiguation"`; callers must
+  no longer interpret that state as a successful open.
+- Navigation no longer executes packaged absolute screen coordinates. It
+  re-queries the mapped AX path, validates the current element frame against
+  the current window, and verifies the selected state after the action.
+- Contact and conversation rows that do not advertise `AXPress` no longer
+  include an `actionRef` with an unexecutable `AXPress` precondition.

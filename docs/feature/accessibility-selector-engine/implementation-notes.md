@@ -3057,3 +3057,64 @@ Public impact:
 - no API, schema, failure-kind, config, or safety-policy change;
 - the remediation restores the intended compatibility behavior for packaged
   control-map alternatives.
+
+## F4 Remediation Slice 1: WeChat Navigation Safety
+
+Status: implemented and ready for a slice-scoped commit.
+
+Review findings closed:
+
+- `PRR-002`: unknown Accessibility focus is fail closed before clear, type, or
+  Return;
+- `PRR-003`: packaged fixed-coordinate navigation is removed from execution;
+  every coordinate is derived from a current AX frame contained by the current
+  window, and navigation success requires a selected-state postcondition;
+- `PRR-004`: two same-name mapped or search candidates return
+  `contact_ambiguous` before any candidate action.
+
+Implemented behavior:
+
+- mapped navigation first queries the stable AX path with `limit=1` and validates
+  role, localized label, frame finiteness, positive dimensions, and window
+  containment;
+- the query response now includes the focused window frame in both one-shot and
+  persistent-worker transports;
+- a real advertised `AXPress` remains preferred; coordinate fallback uses only
+  the center of the just-queried AX frame and remains subject to the existing
+  coordinate-click policy;
+- the packaged WeChat control map no longer contains fixed navigation screen
+  coordinates, and a legacy override value is ignored by execution;
+- post-action navigation state is queried again and must be selected;
+- mapped conversation lookup reads up to two exact candidates so ambiguity is
+  observable before action;
+- semantic ambiguity responses contain bounded candidate summaries and do not
+  expose raw AX nodes;
+- rows without advertised `AXPress` no longer publish an `AXPress` actionRef.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests -p test_tool.py
+```
+
+Result: 98 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests -p test_profiles.py
+```
+
+Result: 8 tests passed.
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests
+```
+
+Result: 112 tests passed, 1 skipped.
+
+Real moved/resized-window smoke remains deferred to the authorized F5
+verification phase; no live contact action was executed in this slice.

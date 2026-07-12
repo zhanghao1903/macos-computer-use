@@ -219,9 +219,14 @@ result = wechat.run_command(list_contacts_command(limit=30))
 Behavior:
 
 1. Open/focus WeChat.
-2. Query top-level navigation.
-3. Click the `contacts` navigation item when it is not selected.
-4. Query visible row descendants under the main content region.
+2. Resolve the mapped `contacts` navigation path and query that element again
+   from the current window.
+3. Validate its role, localized label, enabled state, finite positive frame,
+   and containment within the current window. Prefer its advertised `AXPress`;
+   otherwise use the center of that current frame when coordinate clicking is
+   enabled.
+4. Verify that the navigation element is selected after the action.
+5. Query visible row descendants under the main content region.
 
 Response shape:
 
@@ -253,6 +258,10 @@ Response shape:
 
 The current implementation returns visible rows only. Pagination tokens are
 reserved for scroll-based follow-up reads.
+
+An item includes `actionRef` only when its current AX node advertises an
+executable `AXPress`. Rows without `AXPress` remain readable but do not publish
+an actionRef that the backend cannot execute.
 
 ### `list_conversations`
 
@@ -321,9 +330,11 @@ Behavior:
    click the only matching result.
 5. Query static text in the chat panel to report the opened chat title.
 
-If multiple candidates match, the operation returns a successful semantic
-observation with `status="needs_disambiguation"` and a `candidates` list
-instead of selecting one implicitly.
+If multiple candidates match, the operation returns `not_found` with
+`failureKind="contact_ambiguous"`, `status="needs_disambiguation"`, and a
+bounded semantic `candidates` list instead of selecting one implicitly. No
+candidate action is attempted before the caller supplies a more specific
+contact name.
 
 Response shape:
 
@@ -417,6 +428,10 @@ semantic observations:
 7. `type_text` with the contact name.
 8. `press_key` with the configured submit key.
 9. `observe` with visible text enabled to verify the selected chat window.
+
+Only a positively identified WeChat search field is accepted at step 4. A
+missing, unavailable, incomplete, or otherwise unknown Accessibility focus
+observation returns `search_not_focused` before clear, type, or Return is sent.
 
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event

@@ -392,6 +392,7 @@ def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
 class DryRunAppControl:
     def __init__(self) -> None:
         self.commands: list[ToolCommand] = []
+        self._last_typed_text: str | None = None
 
     def run_command(
         self,
@@ -402,12 +403,46 @@ class DryRunAppControl:
         del observer
         tool_command = _coerce_command(command)
         self.commands.append(tool_command)
+        if tool_command.operation == "type_text":
+            text = tool_command.input.get("text")
+            if isinstance(text, str) and text:
+                self._last_typed_text = text
+        observation: dict[str, Any] = {
+            "input": tool_command.input,
+            "dryRun": True,
+        }
+        phase = tool_command.metadata.get("phase") if tool_command.metadata else None
+        if tool_command.operation == "observe":
+            observation.update(
+                {
+                    "frontmostApp": "WeChat",
+                    "frontmostBundleId": "com.tencent.xinWeChat",
+                    "windowTitle": "微信 (聊天)",
+                }
+            )
+            if isinstance(phase, str) and phase.startswith("verify_search_focus"):
+                observation["accessibility"] = {
+                    "available": True,
+                    "focusedElement": {
+                        "role": "AXTextField",
+                        "roleDescription": "search field",
+                        "description": "搜索",
+                        "frame": {
+                            "x": 80,
+                            "y": 120,
+                            "width": 240,
+                            "height": 28,
+                        },
+                    },
+                }
+            elif phase == "verify_contact" and self._last_typed_text is not None:
+                observation["windowTitle"] = f"{self._last_typed_text} - WeChat"
         return ToolObservation.ok(
             command_id=tool_command.command_id,
             tool=tool_command.tool,
             operation=tool_command.operation,
             summary=f"dry-run app-control command: {tool_command.operation}",
-            observation={"input": tool_command.input, "dryRun": True},
+            observation=observation,
         )
 
 
