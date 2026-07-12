@@ -54,6 +54,26 @@ run_command(command, *, observer=None) -> ToolObservation
 In code, that surface is represented by
 `app_control_protocol.AppControlClient`.
 
+## Supported Runtime Modes In 0.2.0
+
+The selector-backed WeChat APIs support these runtime modes:
+
+- direct mode through `ComputerUseClient` with
+  `[computer_use] backend = "direct"`;
+- a local service whose server executes the direct backend, adapted through
+  `UnixSocketServiceClient` or another compatible `AppControlClient`.
+
+They do not support `[computer_use] backend = "helper"` in version `0.2.0`.
+`WeChatDesktopTool.from_config(...)` copies the backend from the shared config
+and raises `ValueError` during construction before it sends any app-control
+command. Change the service to a direct backend or defer WeChat selector use;
+do not catch the error and continue as though helper parity exists.
+
+Constructing `WeChatDesktopTool(app_control)` without shared config cannot
+identify the transport behind an arbitrary protocol client. In that advanced
+injection form, the application is responsible for supplying a direct or
+direct-backed local-service client.
+
 ## Protocol Example
 
 ```python
@@ -529,8 +549,10 @@ wechat-desktop-tool examples send-message \
 ```
 
 If `--config` points to an app-control TOML with `[helper] endpoint` and
-optional `token`, the CLI uses those values when `--socket-path`, `--token`, or
-`--token-file` are not supplied:
+optional `token`, the CLI uses those connection values when `--socket-path`,
+`--token`, or `--token-file` are not supplied. For WeChat selector APIs in
+version `0.2.0`, that service must still run the direct backend and the same
+config must keep `[computer_use] backend = "direct"`:
 
 ```bash
 wechat-desktop-tool examples send-message \
@@ -552,6 +574,10 @@ already completed its own authorization and confirmation policy.
 
 ## Current Limitations
 
+- Helper-backed WeChat selector execution is not supported in `0.2.0` and
+  fails during `WeChatDesktopTool.from_config(...)` construction. Generic
+  `computer-use-macos` helper operations remain a separate supported backend
+  capability.
 - `list_contacts`, `list_conversations`, and `read_visible_messages` return
   visible or currently loaded rows exposed by macOS Accessibility. They do not
   export the full WeChat contact database or complete chat history.

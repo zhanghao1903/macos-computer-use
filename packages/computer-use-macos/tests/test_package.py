@@ -444,7 +444,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIsNot(ComputerUseClient, MacOSComputerUseClient)
         self.assertIs(ClientFromModule, MacOSComputerUseClient)
         self.assertIs(ShortClientFromModule, ComputerUseClient)
-        self.assertEqual(computer_use_macos.__version__, "0.1.1")
+        self.assertEqual(computer_use_macos.__version__, "0.2.0")
 
         client = ComputerUseClient(enabled=False)
         self.assertIsInstance(client, MacOSComputerUseClient)
@@ -2640,7 +2640,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         package_data = project["tool"]["setuptools"]["package-data"]
         self.assertIn("py.typed", package_data["computer_use_macos"])
         self.assertIn(
-            "app-control-protocol>=0.1.0",
+            "app-control-protocol>=0.2.0",
             project["project"]["dependencies"],
         )
         self.assertNotIn(

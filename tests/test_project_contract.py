@@ -129,8 +129,29 @@ class ProjectContractTests(unittest.TestCase):
         app_control = ProtocolRecordingClient(
             [
                 {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (聊天)",
+                    }
+                },
                 {},
-                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "微信 (聊天)",
+                        "accessibility": {
+                            "available": True,
+                            "focusedElement": {
+                                "role": "AXTextField",
+                                "roleDescription": "search field",
+                                "description": "搜索",
+                            },
+                        },
+                    }
+                },
                 {},
                 {},
                 {},
@@ -138,6 +159,7 @@ class ProjectContractTests(unittest.TestCase):
                 {
                     "observation": {
                         "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
                         "windowTitle": "File Transfer - WeChat",
                     }
                 },

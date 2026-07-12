@@ -57,6 +57,14 @@
 
 ### Fixed
 
+- Coordinate all three package versions and dependency floors at `0.2.0`, and
+  reject a new WeChat wheel paired with local `0.1.1` protocol/backend wheels.
+- Fail fast when shared WeChat configuration selects the unsupported helper
+  backend; direct and direct-backed local-service construction remain
+  supported.
+- Run release WeChat tests with every required workspace source path and check
+  the exact path in preflight so clean release environments do not depend on
+  editable installs.
 - Track the `examples/app-control.toml` template so CI release preflight checks
   pass in clean checkouts.
 - Make release preflight and CI WeChat package-test checks inject all workspace

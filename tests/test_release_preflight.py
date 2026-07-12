@@ -75,6 +75,10 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("local-service-smoke:computer-use-macos", names)
         self.assertIn("workflow:ci-verifies-sdist-contents", names)
         self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", names)
+        self.assertIn(
+            "workflow:release-wechat-tests-include-workspace-deps",
+            names,
+        )
         self.assertIn("workflow:release-verifies-sdist-contents", names)
         self.assertIn("workflow:release-verifies-tag-version", names)
         self.assertIn("path:docs/quickstart.md", names)
@@ -477,6 +481,41 @@ class ReleasePreflightTests(unittest.TestCase):
 
         failures = [result.name for result in results if result.status == "fail"]
         self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", failures)
+
+    def test_workflow_check_requires_release_wechat_dependency_path(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "ci.yml").write_text(
+                (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "release.yml").write_text(
+                release.replace(
+                    preflight.WECHAT_PACKAGE_TEST_PYTHONPATH,
+                    (
+                        "PYTHONPATH=packages/app-control-protocol/src:"
+                        "packages/wechat-desktop-tool/src"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn(
+            "workflow:release-wechat-tests-include-workspace-deps",
+            failures,
+        )
 
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()
@@ -1663,10 +1702,10 @@ class ReleaseTagCheckScriptTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            result = script.main(["--root", str(ROOT), "--tag", "v0.1.1"])
+            result = script.main(["--root", str(ROOT), "--tag", "v0.2.0"])
 
         self.assertEqual(result, 0)
-        self.assertIn("release tag ok: v0.1.1", output.getvalue())
+        self.assertIn("release tag ok: v0.2.0", output.getvalue())
 
     def test_main_rejects_mismatched_tag(self) -> None:
         script = _load_release_tag_check_script()
@@ -1701,7 +1740,7 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertTrue(all(package["installed"] for package in packages))
         self.assertTrue(all(package["imported"] for package in packages))
         self.assertTrue(all(package["apiSmoke"] for package in packages))
-        self.assertTrue(all(package["version"] == "0.1.1" for package in packages))
+        self.assertTrue(all(package["version"] == "0.2.0" for package in packages))
         self.assertEqual(
             report["installPolicy"],
             _testpypi_install_policy(managed_virtualenv=False),
@@ -2101,6 +2140,8 @@ class WheelCheckScriptTests(unittest.TestCase):
         calls: list[tuple[tuple[str, ...], Path]] = []
         original_run = script.subprocess.run
         original_env_builder = script.venv.EnvBuilder
+        original_incompatible_smoke = script._run_incompatible_dependency_smoke
+        incompatible_smokes: list[Path] = []
 
         class FakeEnvBuilder:
             def __init__(self, **kwargs: object) -> None:
@@ -2120,15 +2161,26 @@ class WheelCheckScriptTests(unittest.TestCase):
             cwd: Path,
             check: bool,
             env: dict[str, str] | None = None,
+            capture_output: bool = False,
+            text: bool = False,
         ) -> subprocess.CompletedProcess[object]:
+            del capture_output, text
             self.assertFalse(check)
             if env is not None:
                 self.assertNotIn("PYTHONPATH", env)
             calls.append((tuple(command), cwd))
-            return subprocess.CompletedProcess(command, 0)
+            stdout = (
+                "0.2.0\n"
+                if "-c" in command and "__version__" in command[-1]
+                else ""
+            )
+            return subprocess.CompletedProcess(command, 0, stdout, "")
 
         script.subprocess.run = fake_run
         script.venv.EnvBuilder = FakeEnvBuilder
+        script._run_incompatible_dependency_smoke = (
+            lambda wheel_dir: incompatible_smokes.append(wheel_dir) or 0
+        )
         try:
             with TemporaryDirectory() as tmpdir:
                 wheel_dir = Path(tmpdir) / "wheels"
@@ -2136,8 +2188,10 @@ class WheelCheckScriptTests(unittest.TestCase):
         finally:
             script.subprocess.run = original_run
             script.venv.EnvBuilder = original_env_builder
+            script._run_incompatible_dependency_smoke = original_incompatible_smoke
 
         self.assertEqual(result, 0)
+        self.assertEqual(incompatible_smokes, [wheel_dir])
         package_count = len(script.PACKAGE_PATHS)
         self.assertEqual(len(calls), package_count + 1 + 1 + len(script.DEFAULT_PACKAGES) * 2)
         for call, cwd in calls[:package_count]:
@@ -2162,6 +2216,104 @@ class WheelCheckScriptTests(unittest.TestCase):
         self.assertEqual(len(smoke_calls), len(script.DEFAULT_PACKAGES) * 2)
         self.assertTrue(
             all(cwd == wheel_dir for _call, cwd in smoke_calls)
+        )
+
+    def test_baseline_wheels_encode_incompatible_local_versions(self) -> None:
+        script = _load_wheel_check_script()
+
+        with TemporaryDirectory() as tmpdir:
+            wheel = script._write_baseline_wheel(
+                Path(tmpdir),
+                "computer-use-macos",
+                dependencies=("app-control-protocol>=0.1.0",),
+            )
+            with zipfile.ZipFile(wheel) as archive:
+                metadata_name = next(
+                    name for name in archive.namelist() if name.endswith("/METADATA")
+                )
+                metadata = archive.read(metadata_name).decode("utf-8")
+
+        self.assertIn("Version: 0.1.1", metadata)
+        self.assertIn("Requires-Dist: app-control-protocol>=0.1.0", metadata)
+
+    def test_mixed_dependency_smoke_requires_pip_rejection(self) -> None:
+        script = _load_wheel_check_script()
+        original_run = script.subprocess.run
+        original_env_builder = script.venv.EnvBuilder
+        calls: list[tuple[str, ...]] = []
+
+        class FakeEnvBuilder:
+            def __init__(self, **kwargs: object) -> None:
+                del kwargs
+
+            def create(self, venv_dir: Path) -> None:
+                bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+                bin_dir.mkdir(parents=True)
+                executable = bin_dir / (
+                    "python.exe" if sys.platform == "win32" else "python"
+                )
+                executable.write_text("", encoding="utf-8")
+
+        def fake_run(
+            command: tuple[str, ...],
+            **kwargs: object,
+        ) -> subprocess.CompletedProcess[str]:
+            del kwargs
+            calls.append(tuple(command))
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                "",
+                (
+                    "ERROR: Could not find a version that satisfies the "
+                    "requirement app-control-protocol>=0.2.0"
+                ),
+            )
+
+        script.subprocess.run = fake_run
+        script.venv.EnvBuilder = FakeEnvBuilder
+        try:
+            with TemporaryDirectory() as tmpdir:
+                wheel_dir = Path(tmpdir)
+                current_wheel = (
+                    wheel_dir / "wechat_desktop_tool-0.2.0-py3-none-any.whl"
+                )
+                current_wheel.write_bytes(b"")
+
+                result = script._run_incompatible_dependency_smoke(wheel_dir)
+        finally:
+            script.subprocess.run = original_run
+            script.venv.EnvBuilder = original_env_builder
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("wechat-desktop-tool==0.2.0", calls[0])
+        self.assertIn("--no-index", calls[0])
+
+    def test_mixed_dependency_smoke_rejects_unrelated_install_failure(self) -> None:
+        script = _load_wheel_check_script()
+
+        unrelated = subprocess.CompletedProcess(
+            ("python", "-m", "pip"),
+            1,
+            "",
+            "permission denied while creating the virtual environment",
+        )
+        resolution = subprocess.CompletedProcess(
+            ("python", "-m", "pip"),
+            1,
+            "",
+            (
+                "ERROR: No matching distribution found for "
+                "computer-use-macos>=0.2.0"
+            ),
+        )
+
+        self.assertFalse(
+            script._is_expected_dependency_resolution_rejection(unrelated)
+        )
+        self.assertTrue(
+            script._is_expected_dependency_resolution_rejection(resolution)
         )
 
 
@@ -2486,7 +2638,7 @@ class FakeReportRunner:
                 and self._script_matches_package(script, self.fail_api_smoke_package)
             ):
                 return subprocess.CompletedProcess(command, 1, "", "api smoke failed")
-            return subprocess.CompletedProcess(command, 0, "0.1.1\n", "")
+            return subprocess.CompletedProcess(command, 0, "0.2.0\n", "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def _script_matches_package(self, script: str, package_name: str) -> bool:
@@ -2538,6 +2690,7 @@ def _load_trusted_publisher_script() -> Any:
 
 
 def _load_wheel_check_script() -> Any:
+    _load_testpypi_script()
     path = ROOT / "scripts" / "wheel_check.py"
     spec = importlib.util.spec_from_file_location("wheel_check", path)
     assert spec is not None
@@ -2573,7 +2726,7 @@ def _write_fake_wheel_set(
         _write_fake_wheel(
             wheel_dir,
             project_name=project_name,
-            version="0.1.1",
+            version="0.2.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -2639,7 +2792,7 @@ def _write_fake_sdist_set(
         _write_fake_sdist(
             sdist_dir,
             project_name=project_name,
-            version="0.1.1",
+            version="0.2.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -2729,7 +2882,7 @@ def _testpypi_install_report_payload(
                 "installed": not failed,
                 "imported": not failed,
                 "apiSmoke": not failed,
-                "version": None if failed else "0.1.1",
+                "version": None if failed else "0.2.0",
             }
         )
     return {

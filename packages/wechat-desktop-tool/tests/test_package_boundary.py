@@ -50,8 +50,8 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(
             project.get("dependencies"),
             [
-                "app-control-protocol>=0.1.0",
-                "computer-use-macos>=0.1.1",
+                "app-control-protocol>=0.2.0",
+                "computer-use-macos>=0.2.0",
             ],
         )
 

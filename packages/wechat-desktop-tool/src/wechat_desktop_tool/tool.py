@@ -117,6 +117,12 @@ class WeChatDesktopTool:
     ) -> None:
         self._app_control = app_control
         self._config = config or WeChatDesktopConfig()
+        if self._config.computer_use_backend.casefold() == "helper":
+            raise ValueError(
+                "wechat-desktop-tool selector APIs do not support "
+                "computer_use.backend=helper in version 0.2.0; use direct or "
+                "a direct-backed local service"
+            )
         self._control_map = load_control_map(self._config.selector_profile_path)
 
     @classmethod

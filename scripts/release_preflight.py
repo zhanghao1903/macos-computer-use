@@ -120,6 +120,7 @@ PACKAGE_PROJECTS = {
     "computer-use-macos": Path("packages/computer-use-macos/pyproject.toml"),
     "wechat-desktop-tool": Path("packages/wechat-desktop-tool/pyproject.toml"),
 }
+EXPECTED_PACKAGE_VERSION = "0.2.0"
 
 PACKAGE_SOURCES = {
     "app-control-protocol": Path(
@@ -158,10 +159,10 @@ PACKAGE_MODULE_FILES = (
 
 EXPECTED_RUNTIME_DEPS = {
     "app-control-protocol": (),
-    "computer-use-macos": ("app-control-protocol>=0.1.0",),
+    "computer-use-macos": ("app-control-protocol>=0.2.0",),
     "wechat-desktop-tool": (
-        "app-control-protocol>=0.1.0",
-        "computer-use-macos>=0.1.1",
+        "app-control-protocol>=0.2.0",
+        "computer-use-macos>=0.2.0",
     ),
 }
 
@@ -214,6 +215,7 @@ EXPECTED_WHEEL_CONTENT = {
     ),
     "computer-use-macos": (
         "computer_use_macos/__init__.py",
+        "computer_use_macos/accessibility_limits.py",
         "computer_use_macos/py.typed",
         "computer_use_macos/cli.py",
         "computer_use_macos/__main__.py",
@@ -226,6 +228,16 @@ EXPECTED_WHEEL_CONTENT = {
         "computer_use_macos/readiness.py",
         "computer_use_macos/service.py",
         "computer_use_macos/transport.py",
+        "computer_use_macos/selectors/__init__.py",
+        "computer_use_macos/selectors/cache.py",
+        "computer_use_macos/selectors/collections.py",
+        "computer_use_macos/selectors/diagnostics.py",
+        "computer_use_macos/selectors/matching.py",
+        "computer_use_macos/selectors/models.py",
+        "computer_use_macos/selectors/profile.py",
+        "computer_use_macos/selectors/resolver.py",
+        "computer_use_macos/selectors/transforms.py",
+        "computer_use_macos/selectors/validation.py",
         "computer_use_macos/examples/__init__.py",
         "computer_use_macos/examples/textedit_smoke.py",
         "computer_use_macos/helper/__init__.py",
@@ -248,6 +260,7 @@ EXPECTED_WHEEL_CONTENT = {
         "wechat_desktop_tool/tool.py",
         "wechat_desktop_tool/adapter.py",
         "wechat_desktop_tool/recipes.py",
+        "wechat_desktop_tool/profiles/wechat-macos.toml",
         "wechat_desktop_tool/examples/__init__.py",
         "wechat_desktop_tool/examples/wechat_smoke.py",
     ),
@@ -295,13 +308,21 @@ MODULE_ENTRYPOINT_CHECKS = (
     (
         "wechat-desktop-tool:root",
         ("wechat_desktop_tool", "--help"),
-        ("packages/app-control-protocol/src", "packages/wechat-desktop-tool/src"),
+        (
+            "packages/app-control-protocol/src",
+            "packages/computer-use-macos/src",
+            "packages/wechat-desktop-tool/src",
+        ),
         ("examples",),
     ),
     (
         "wechat-desktop-tool:send-message",
         ("wechat_desktop_tool", "examples", "send-message", "--help"),
-        ("packages/app-control-protocol/src", "packages/wechat-desktop-tool/src"),
+        (
+            "packages/app-control-protocol/src",
+            "packages/computer-use-macos/src",
+            "packages/wechat-desktop-tool/src",
+        ),
         ("--contact", "--message", "--dry-run", "--submit"),
     ),
 )
@@ -936,7 +957,7 @@ def _check_projects(root: Path) -> list[CheckResult]:
                 )
             )
     version_values = set(versions.values())
-    versions_match = len(version_values) == 1 and "" not in version_values
+    versions_match = version_values == {EXPECTED_PACKAGE_VERSION}
     results.append(
         CheckResult(
             name="version-consistency",
@@ -1864,6 +1885,10 @@ def _check_workflows(root: Path) -> list[CheckResult]:
         "ci-wechat-tests-include-workspace-deps": (
             WECHAT_PACKAGE_TEST_PYTHONPATH in ci
             and "packages/wechat-desktop-tool/tests" in ci
+        ),
+        "release-wechat-tests-include-workspace-deps": (
+            WECHAT_PACKAGE_TEST_PYTHONPATH in release
+            and "packages/wechat-desktop-tool/tests" in release
         ),
         "ci-builds-all-packages": all(
             item in ci

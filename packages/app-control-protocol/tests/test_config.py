@@ -240,6 +240,17 @@ class AppControlConfigTests(unittest.TestCase):
         self.assertEqual(config.wechat.max_message_chars, 42)
         self.assertEqual(config.wechat.default_timeout_ms, 1234)
 
+    def test_computer_use_backend_round_trips_for_runtime_consumers(self) -> None:
+        for backend in ("direct", "helper"):
+            with self.subTest(backend=backend):
+                config = AppControlConfig.from_dict(
+                    {"computer_use": {"backend": backend}}
+                )
+
+                round_tripped = AppControlConfig.from_dict(config.to_dict())
+
+                self.assertEqual(round_tripped.computer_use.backend, backend)
+
     def test_invalid_log_level_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             AppControlConfig.from_dict({"logging": {"level": "verbose"}})

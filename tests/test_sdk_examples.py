@@ -127,32 +127,7 @@ class FakeFileTransferSendServiceClient:
 class FakeContactsListServiceClient:
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
-        self._queries = [
-            _wechat_query(
-                [
-                    _query_node(
-                        "0/12/2/0/0",
-                        "AXRow",
-                        height=68,
-                    ),
-                    _query_node(
-                        "0/12/2/0/0/0/1",
-                        "AXStaticText",
-                        value="Ada",
-                    ),
-                    _query_node(
-                        "0/12/2/0/1",
-                        "AXRow",
-                        height=68,
-                    ),
-                    _query_node(
-                        "0/12/2/0/1/0/1",
-                        "AXStaticText",
-                        value="Bob",
-                    ),
-                ]
-            ),
-        ]
+        self.section = "chats"
 
     def run_command(
         self,
@@ -172,7 +147,13 @@ class FakeContactsListServiceClient:
                 "windowTitle": "微信 (聊天)",
             }
         elif operation == "accessibility_query":
-            observation_payload = {"accessibilityQuery": self._queries.pop(0)}
+            observation_payload = {"accessibilityQuery": self._query(command)}
+        elif operation == "accessibility_action":
+            target = command.get("input", {}).get("target", {})
+            ax_path = target.get("axPath") if isinstance(target, dict) else None
+            if ax_path == "0/2":
+                self.section = "contacts"
+            observation_payload = {"executed": True}
         observation = ToolObservation.ok(
             command_id=command["commandId"],
             tool=command["tool"],
@@ -186,6 +167,44 @@ class FakeContactsListServiceClient:
                 request_id=request_id or "fake_request",
             ).to_dict()
         ]
+
+    def _query(self, command: dict[str, Any]) -> dict[str, Any]:
+        input_payload = command.get("input", {})
+        query = input_payload.get("query", {})
+        root = input_payload.get("root", {})
+        role_in = (
+            query.get("match", {}).get("roleIn")
+            if isinstance(query, dict)
+            else None
+        )
+        root_path = root.get("axPath") if isinstance(root, dict) else None
+        if root_path == "0/2" and role_in == ["AXRadioButton"]:
+            return _wechat_query(
+                [
+                    _query_node(
+                        "0/2",
+                        "AXRadioButton",
+                        description="通讯录",
+                        value=1 if self.section == "contacts" else 0,
+                    )
+                ]
+            )
+        if root_path == "0/12/2/0" and role_in == ["AXStaticText"]:
+            return _wechat_query(
+                [
+                    _query_node(
+                        "0/12/2/0/0/0/1",
+                        "AXStaticText",
+                        value="Ada",
+                    ),
+                    _query_node(
+                        "0/12/2/0/1/0/1",
+                        "AXStaticText",
+                        value="Bob",
+                    ),
+                ]
+            )
+        return _wechat_query([])
 
 
 class FakeContactsRecentMessagesServiceClient:
@@ -347,8 +366,16 @@ class FakeSelectorEngineSmokeServiceClient:
 
         if root_path in {"0/1", "0/2"} and role_in == ["AXRadioButton"]:
             label = "聊天" if root_path == "0/1" else "通讯录"
+            navigation = "chats" if root_path == "0/1" else "contacts"
             return _wechat_query(
-                [_query_node(root_path, "AXRadioButton", description=label)]
+                [
+                    _query_node(
+                        root_path,
+                        "AXRadioButton",
+                        description=label,
+                        value=1 if self.section == navigation else 0,
+                    )
+                ]
             )
         if role_in == ["AXRadioButton"]:
             return _wechat_query(self._navigation_nodes())
@@ -678,7 +705,9 @@ class SdkExampleTests(unittest.TestCase):
                 "observe",
                 "open_app",
                 "observe",
-                "click",
+                "accessibility_query",
+                "accessibility_action",
+                "accessibility_query",
                 "accessibility_query",
             ],
         )
@@ -843,13 +872,13 @@ class SdkExampleTests(unittest.TestCase):
         operations = [command["operation"] for command in service_client.commands]
         self.assertIn("listConversations", persisted["summary"]["checks"])
         self.assertIn("accessibility_action", operations)
-        self.assertIn("click", operations)
+        self.assertNotIn("click", operations)
         self.assertNotIn("type_text", operations)
         self.assertNotIn("press_key", operations)
         self.assertEqual(
             operations.count("accessibility_action"),
-            1,
-            "expired actionRef check must not add a second backend action",
+            4,
+            "expired actionRef check must not add a backend action",
         )
 
     def test_wechat_live_prereq_probe_reports_ready_state(self) -> None:
@@ -1018,6 +1047,12 @@ def _wechat_query(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         "window": {
             "title": "微信 (聊天)",
             "role": "AXWindow",
+            "frame": {
+                "x": 0,
+                "y": 0,
+                "width": 1440,
+                "height": 900,
+            },
         },
         "nodes": nodes,
         "diagnostics": {
@@ -1038,6 +1073,7 @@ def _query_node(
     payload: dict[str, Any] = {
         "axPath": ax_path,
         "role": role,
+        "enabled": True,
         "frame": {"x": 100, "y": 100, "width": 120, "height": height},
         "childrenCount": 0,
     }

@@ -29,10 +29,11 @@ PYTHONPATH=packages/app-control-protocol/src \
   python -m unittest discover -s packages/app-control-protocol/tests
 PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
   python -m unittest discover -s packages/computer-use-macos/tests
-PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
   python -m unittest discover -s packages/wechat-desktop-tool/tests
 
 python scripts/release_preflight.py
+python scripts/wheel_check.py
 python scripts/release_tag_check.py --tag vX.Y.Z
 
 python -m build packages/app-control-protocol --sdist --wheel --outdir dist
@@ -40,6 +41,19 @@ python -m build packages/computer-use-macos --sdist --wheel --outdir dist
 python -m build packages/wechat-desktop-tool --sdist --wheel --outdir dist
 python scripts/release_preflight.py --wheel-dir dist --sdist-dir dist
 ```
+
+For the `0.2.0` selector release, all three project versions must be exactly
+`0.2.0`. The macOS backend must require `app-control-protocol>=0.2.0`, and the
+WeChat package must require both workspace dependencies at `>=0.2.0`.
+`wheel_check.py` installs the complete wheel set in a clean virtual
+environment, verifies the installed versions and public API smoke, and proves
+that pip rejects `wechat-desktop-tool 0.2.0` when only local `0.1.1`
+dependencies are available.
+
+Run the four source-path test commands above from a clean environment without
+editable workspace packages installed. This is required proof that
+`release.yml` declares every source dependency instead of inheriting packages
+from a developer environment.
 
 ## TestPyPI Flow
 
@@ -53,12 +67,14 @@ python -m build packages/wechat-desktop-tool --sdist --wheel --outdir dist
 python -m twine upload --repository testpypi dist/*
 ```
 
-Then validate in a clean virtual environment:
+Then validate the coordinated release set in a clean virtual environment:
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ app-control-protocol
-python -m pip install --index-url https://test.pypi.org/simple/ computer-use-macos
-python -m pip install --index-url https://test.pypi.org/simple/ wechat-desktop-tool
+python -m pip install --index-url https://test.pypi.org/simple/ \
+  "app-control-protocol==X.Y.Z" \
+  "computer-use-macos==X.Y.Z" \
+  "wechat-desktop-tool==X.Y.Z"
+python -c "import app_control_protocol; print(app_control_protocol.__version__)"
 python -c "import computer_use_macos; print(computer_use_macos.__version__)"
 python -c "import wechat_desktop_tool; print(wechat_desktop_tool.__version__)"
 ```

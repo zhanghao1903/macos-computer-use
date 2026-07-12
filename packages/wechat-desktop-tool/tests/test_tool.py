@@ -3941,6 +3941,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         app_control = FakeAppControl()
         config = AppControlConfig.from_dict(
             {
+                "computer_use": {"backend": "direct"},
                 "wechat": {
                     "app_name": "Weixin",
                     "bundle_id": "com.example.Weixin",
@@ -3962,6 +3963,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(tool.config.app_name, "Weixin")
         self.assertEqual(tool.config.bundle_id, "com.example.Weixin")
+        self.assertEqual(tool.config.computer_use_backend, "direct")
         self.assertEqual(
             tool.config.selector_profile_path,
             "./profiles/wechat-local.toml",
@@ -3991,6 +3993,36 @@ class WeChatDesktopToolTests(unittest.TestCase):
             "com.example.Weixin",
         )
         self.assertEqual(result.observation["bundleId"], "com.example.Weixin")
+
+    def test_from_config_rejects_helper_backend_before_app_control(self) -> None:
+        app_control = FakeAppControl()
+        config = AppControlConfig.from_dict(
+            {"computer_use": {"backend": "helper"}}
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "computer_use.backend=helper",
+        ):
+            WeChatDesktopTool.from_config(app_control, config)
+
+        self.assertEqual(app_control.commands, [])
+
+    def test_direct_and_direct_backed_local_service_remain_constructible(
+        self,
+    ) -> None:
+        config = AppControlConfig.from_dict(
+            {"computer_use": {"backend": "direct"}}
+        )
+        clients = (
+            FakeAppControl(),
+            LocalServiceAppControl("/tmp/app-control-construction-test.sock"),
+        )
+        for client in clients:
+            with self.subTest(client=type(client).__name__):
+                tool = WeChatDesktopTool.from_config(client, config)
+
+                self.assertEqual(tool.config.computer_use_backend, "direct")
 
     def test_package_boundary_has_no_product_or_backend_imports(self) -> None:
         package_dir = Path(__file__).parents[1] / "src" / "wechat_desktop_tool"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wechat-desktop-tool"
-version = "0.1.1"
+version = "0.2.0"
 description = "Protocol-first WeChat Desktop semantic tools for app-control clients."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,8 +13,8 @@ authors = [
   { name = "Zhang Hao" }
 ]
 dependencies = [
-  "app-control-protocol>=0.1.0",
-  "computer-use-macos>=0.1.1",
+  "app-control-protocol>=0.2.0",
+  "computer-use-macos>=0.2.0",
 ]
 keywords = ["wechat", "desktop", "automation", "app-control", "agent-tools"]
 classifiers = [

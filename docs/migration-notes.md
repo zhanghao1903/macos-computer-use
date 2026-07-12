@@ -55,8 +55,8 @@ wechat.focus_contact("File Transfer")
 wechat.draft_message("hello")
 ```
 
-Helper deployments can be configured through the shared config file or with a
-standalone helper config object:
+Generic `computer-use-macos` helper deployments can be configured through the
+shared config file or with a standalone helper config object:
 
 ```python
 from computer_use_macos import ComputerUseClient, HelperConfig
@@ -68,6 +68,46 @@ app_control = ComputerUseClient(
         allowed_apps=("TextEdit",),
     )
 )
+```
+
+This helper example does not imply helper parity for the selector-backed
+WeChat APIs. See the coordinated `0.2.0` migration below.
+
+## Coordinated 0.2.0 Upgrade
+
+Accessibility Selector Engine support is released as one coordinated package
+set. Upgrade all three distributions together:
+
+```bash
+python -m pip install --upgrade \
+  "app-control-protocol>=0.2.0,<0.3" \
+  "computer-use-macos>=0.2.0,<0.3" \
+  "wechat-desktop-tool>=0.2.0,<0.3"
+```
+
+The dependency floors are intentional:
+
+- `computer-use-macos 0.2.0` requires `app-control-protocol>=0.2.0`;
+- `wechat-desktop-tool 0.2.0` requires both
+  `app-control-protocol>=0.2.0` and `computer-use-macos>=0.2.0`;
+- a new WeChat package with a `0.1.x` protocol or macOS backend must fail
+  dependency resolution instead of reaching runtime with an incomplete
+  selector contract.
+
+`WeChatDesktopTool.from_config(...)` now reads
+`computer_use.backend`. `backend="helper"` raises `ValueError` during tool
+construction because helper selector parity is outside the `0.2.0` scope.
+Supported WeChat modes are direct execution and a local service backed by the
+direct runtime. Generic non-WeChat `computer-use-macos` helper operations are
+unchanged.
+
+To roll back, pin the complete previous set rather than mixing versions:
+
+```bash
+python -m pip install --force-reinstall \
+  "app-control-protocol==0.1.1" \
+  "computer-use-macos==0.1.1" \
+  "wechat-desktop-tool==0.1.1"
 ```
 
 ## Compatibility Decision
@@ -88,8 +128,9 @@ app_control = ComputerUseClient(
   perform authorization and confirmation before invoking them.
 - `unknown` observations should be reviewed manually before retrying commands
   that may have side effects.
-- Helper mode is recommended for production because macOS permissions attach to
-  the executing process identity.
+- Helper mode remains appropriate for generic production computer-use
+  operations because macOS permissions attach to the executing process
+  identity. It is not a supported WeChat selector runtime in `0.2.0`.
 
 ## WeChat Navigation Safety Changes
 

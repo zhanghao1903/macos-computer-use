@@ -3287,3 +3287,81 @@ Full package discovery results:
 `py_compile` and `git diff --check` passed. Ruff remains unavailable in the
 current environment. No live WeChat operation was required for deterministic
 depth and pagination semantics.
+
+## F4 Remediation Slice 4: Runtime Support And Release Compatibility
+
+Status: implemented and ready for a slice-scoped commit.
+
+Review findings closed:
+
+- `PRR-005`: shared WeChat configuration preserves
+  `computer_use.backend`, and helper mode fails during tool construction before
+  any app-control command;
+- `PRR-010`: all three distributions use version `0.2.0` with coordinated
+  `>=0.2.0` runtime dependency floors, clean wheel smoke verifies the installed
+  set, and a local `0.1.1` dependency-only wheelhouse is rejected;
+- `PRR-011`: release WeChat tests include the protocol, macOS backend, and
+  WeChat source roots, and preflight detects removal of the backend path.
+
+Implemented behavior:
+
+- direct and direct-backed local-service WeChat construction remain supported;
+- shared helper configuration raises a bounded `ValueError` before profile
+  loading or transport calls; generic `computer-use-macos` helper support is
+  unchanged;
+- package metadata, import versions, helper bundle version metadata, package
+  boundary checks, fake release artifacts, and release preflight agree on
+  `0.2.0`;
+- wheel verification checks selector/profile package contents, exact imported
+  versions, public API smoke, and dependency-resolution rejection for mixed
+  `0.2.0`/`0.1.1` sets;
+- root SDK fixtures now model current AX target queries, current-window frames,
+  `AXPress`, and selected-state postconditions instead of the removed fixed
+  coordinate path.
+
+Validation evidence:
+
+```bash
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m unittest \
+  tests.test_package_boundary tests.test_release_preflight
+```
+
+Result: 92 tests passed in 47.313 seconds.
+
+A new Python 3.12.7 virtual environment under `/tmp` first reported all three
+workspace imports as absent. The four `release.yml` unit-test commands then ran
+with only their declared `PYTHONPATH` values:
+
+- root tests: 114 passed in 46.922 seconds;
+- `app-control-protocol`: 55 passed;
+- `computer-use-macos`: 125 passed, 1 skipped;
+- `wechat-desktop-tool`: 116 passed.
+
+The first clean root run exposed three stale SDK fixtures; after the fixtures
+were updated to the fail-closed AX navigation contract, the exact clean command
+passed. No installed editable package was available to mask missing release
+paths.
+
+```bash
+/opt/anaconda3/bin/python scripts/wheel_check.py
+```
+
+Result: passed in 9.789 seconds. The script built all three `0.2.0` wheels,
+validated metadata and selector/profile contents, installed and smoke-tested
+the coordinated set in a clean virtual environment, and observed pip reject
+the local `0.1.1` dependency-only wheelhouse. The planned `.venv/bin/python`
+invocation could not start because the uv-managed project environment contains
+no `pip`, `setuptools`, or `wheel`; the system Python was used only as the build
+driver.
+
+`uv lock` was also attempted as planned, but current uv rejects the repository
+root because its `pyproject.toml` contains only tool configuration and no
+`[project]` or workspace table. The tracked three-line root lock therefore
+remains unchanged. The untracked package-local lock is intentionally excluded;
+adding a synthetic root project is outside this reviewed compatibility slice.
+
+Documentation now records the coordinated upgrade and rollback set, helper
+runtime boundary, clean source-path proof, and wheel compatibility gate. Real
+helper selector smoke is intentionally excluded because helper parity is not a
+supported `0.2.0` runtime.

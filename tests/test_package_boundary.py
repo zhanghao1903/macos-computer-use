@@ -70,15 +70,25 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertNotIn("dependencies", protocol["project"])
         self.assertEqual(
             computer_use["project"]["dependencies"],
-            ["app-control-protocol>=0.1.0"],
+            ["app-control-protocol>=0.2.0"],
         )
         self.assertEqual(
             wechat["project"]["dependencies"],
             [
-                "app-control-protocol>=0.1.0",
-                "computer-use-macos>=0.1.1",
+                "app-control-protocol>=0.2.0",
+                "computer-use-macos>=0.2.0",
             ],
         )
+
+    def test_package_versions_are_coordinated_for_selector_runtime(self) -> None:
+        versions = {
+            project_name: tomllib.loads(path.read_text(encoding="utf-8"))[
+                "project"
+            ]["version"]
+            for project_name, path in PACKAGE_PROJECTS.items()
+        }
+
+        self.assertEqual(set(versions.values()), {"0.2.0"})
 
     def test_py_typed_is_declared_for_all_packages(self) -> None:
         for project_name, pyproject_path in PACKAGE_PROJECTS.items():
