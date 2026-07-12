@@ -2002,6 +2002,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(rows[0]["preview"], "hello")
         self.assertEqual(rows[0]["timestamp"], "09:00")
         self.assertEqual(rows[0]["pinned"], True)
+        self.assertEqual(rows[0]["element"]["label"], "文件传输助手")
         self.assertEqual(rows[0]["actionRef"]["action"], "AXPress")
         self.assertEqual(rows[0]["actionRef"]["target"]["role"], "AXRow")
         self.assertEqual(rows[0]["actionRef"]["target"]["actions"], ["AXPress"])
@@ -2484,6 +2485,26 @@ class WeChatDesktopToolTests(unittest.TestCase):
             {"role": "AXButton", "index": 1},
         )
         self.assertNotIn("coordinates", app_control.commands[0].input)
+
+    def test_click_node_phase_rejects_unlabeled_row_before_coordinate(self) -> None:
+        app_control = FakeAppControl()
+        tool = WeChatDesktopTool(app_control)
+        command = wechat_command("open_contact", {"contact": "Ada"})
+
+        result = tool._click_node_phase(
+            command,
+            {
+                "axPath": "0/11/1/0/0",
+                "role": "AXRow",
+                "frame": {"x": 330, "y": 120, "width": 270, "height": 64},
+            },
+            phase="open_unlabeled_row",
+            evidence={},
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_target_unverified")
+        self.assertEqual(app_control.commands, [])
 
     def test_open_contact_uses_packaged_selector_profile(self) -> None:
         app_control = FakeAppControl(

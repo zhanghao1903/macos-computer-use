@@ -3792,3 +3792,22 @@ Deterministic proof:
 The remaining F5 evidence is one real `send_message` call to
 `文件传输助手` through the restarted local service. It must be run exactly once;
 an unknown post-submit result must not be retried.
+
+### Fresh-head fail-closed hardening
+
+The first F6 static pass found one ordering weakness before the review report
+was finalized: `_click_node_phase` could attempt a current-frame coordinate for
+an unlabeled `AXRow` before reaching its row-identity failure. Normal contact
+candidates already have semantic labels, but the helper violated the global
+fail-closed invariant for malformed or future callers.
+
+The follow-up moves the missing-row-label rejection ahead of every action and
+coordinate path. It also makes visible-contact opening execute the candidate's
+existing actionRef, which already contains the exact raw AX row label and
+preconditions, instead of rebuilding a weaker ref from the public semantic
+element. Public `element.label` remains the clean `displayName`; raw combined
+row labels remain confined to the short-lived actionRef identity contract.
+
+The new regression proves an unlabeled row with a valid frame emits zero
+app-control commands and returns `wechat_action_target_unverified`. The complete
+WeChat package suite passes with 123 tests after this hardening.

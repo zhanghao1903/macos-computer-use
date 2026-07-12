@@ -1456,14 +1456,24 @@ class WeChatDesktopTool:
             return None
         if not _node_frame_within_query_window(element, visible_rows):
             return None
-        opened = self._click_node_phase(
-            command,
-            element,
-            phase="open_visible_contact",
-            evidence=evidence,
-            snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
-            phase_events=phase_events,
-        )
+        action_ref = candidates[0].get("actionRef")
+        if isinstance(action_ref, Mapping):
+            opened = self._execute_action_ref(
+                command,
+                action_ref,
+                phase="open_visible_contact",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+        else:
+            opened = self._click_node_phase(
+                command,
+                element,
+                phase="open_visible_contact",
+                evidence=evidence,
+                snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
+                phase_events=phase_events,
+            )
         if not opened.success:
             return None
         return self._opened_contact_observation(
@@ -1522,14 +1532,24 @@ class WeChatDesktopTool:
             return None
         if not _node_frame_within_query_window(element, query_result):
             return None
-        opened = self._click_node_phase(
-            command,
-            element,
-            phase="control_map_open_visible_contact",
-            evidence=evidence,
-            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
-            phase_events=phase_events,
-        )
+        action_ref = candidates[0].get("actionRef")
+        if isinstance(action_ref, Mapping):
+            opened = self._execute_action_ref(
+                command,
+                action_ref,
+                phase="control_map_open_visible_contact",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+        else:
+            opened = self._click_node_phase(
+                command,
+                element,
+                phase="control_map_open_visible_contact",
+                evidence=evidence,
+                snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+                phase_events=phase_events,
+            )
         if not opened.success:
             return None
         return self._opened_contact_observation(
@@ -2943,9 +2963,17 @@ class WeChatDesktopTool:
     ) -> ToolObservation:
         role = str(node.get("role") or "")
         node_label = _node_label(node)
-        if role == "AXRow" and (
-            "AXPress" not in _node_actions(node) or node_label is None
-        ):
+        if role == "AXRow" and node_label is None:
+            return _failure(
+                command,
+                status=ToolStatus.FAILED,
+                failure_kind="wechat_action_target_unverified",
+                message="Could not verify the identity of the WeChat row target.",
+                recovery_hint="Refresh the WeChat list and retry the semantic action.",
+                retryable=True,
+                evidence=evidence,
+            )
+        if role == "AXRow" and "AXPress" not in _node_actions(node):
             coordinates = _node_center_coordinates(node)
             if coordinates is not None:
                 coordinate_phase = f"{phase}:coordinate"
@@ -3002,16 +3030,6 @@ class WeChatDesktopTool:
                 return result
 
         input_payload = self._target_app_input()
-        if role == "AXRow" and node_label is None:
-            return _failure(
-                command,
-                status=ToolStatus.FAILED,
-                failure_kind="wechat_action_target_unverified",
-                message="Could not verify the identity of the WeChat row target.",
-                recovery_hint="Refresh the WeChat list and retry the semantic action.",
-                retryable=True,
-                evidence=evidence,
-            )
         if node_label is not None:
             input_payload["selector"] = {
                 "role": role,
@@ -4368,10 +4386,7 @@ def _row_items_from_nodes(
             "id": item_id,
             "displayName": parsed["displayName"],
             "actionId": f"{item_id}.open",
-            "element": _element_from_query_node(
-                row,
-                label=_node_label(row) or parsed["displayName"],
-            ),
+            "element": _element_from_query_node(row, label=parsed["displayName"]),
             "confidence": 0.88,
         }
         action_ref = _action_ref_from_node(
