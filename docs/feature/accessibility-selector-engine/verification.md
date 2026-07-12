@@ -1580,3 +1580,22 @@ Run it at most once. If submission returns `unknown`, do not retry until the
 message state is checked manually. F5 follow-up proof and fresh-head F6 approval
 remain open until this command succeeds or an equivalent public
 `send_message` proof is captured against the reviewed implementation.
+
+### Post-review hardening verification
+
+Commit `ca6d4a8412978e4be44f546ee839c187fb71a7d0` moves unlabeled-row identity
+rejection ahead of every action/coordinate path and executes an already-issued
+candidate actionRef without replacing its exact AX identity with a semantic
+display label.
+
+After that commit:
+
+- root repository: 127 tests passed in 42.09 seconds;
+- `app-control-protocol`: 55 tests passed;
+- `computer-use-macos`: 128 tests passed, 1 skipped;
+- `wechat-desktop-tool`: 123 tests passed;
+- `compileall` and worktree `git diff --check` passed.
+
+The new counterexample supplies an unlabeled `AXRow` with a valid frame and
+asserts `wechat_action_target_unverified` plus zero app-control commands. The
+live send-proof limitation above is unchanged.
