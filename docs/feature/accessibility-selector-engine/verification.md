@@ -425,9 +425,10 @@ New coverage:
 - the fake-service test proves the checklist uses selector-backed
   `accessibility_action` paths, does not type text, and does not submit a
   message;
-- the report schema
-  `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1` gives release
-  review one artifact for the remaining live WeChat proof.
+- the then-current private diagnostic report used schema
+  `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1`. That schema is
+  retained here as historical test evidence only; it cannot satisfy current
+  strict release proof after proof v2 remediation.
 
 ## Additional Verification: Enabled Match Filter
 
@@ -726,15 +727,10 @@ reading, valid override loading, invalid override fallback, and expired
 actionRef fail-closed behavior.
 
 If the consolidated checklist fails, rerun
-`examples/wechat_contacts_recent_messages_test.py --max-contacts 1` on the live
-desktop. That rerun should prove whether the already-listed contact row can be
-opened through `execute_action(actionRef)` and read through
-`read_visible_messages` without relying on the WeChat search box.
-
-After the visible-row `open_contact` update, rerun
-`examples/wechat_file_transfer_send_test.py` on the live desktop. If
-`文件传输助手` is visible in the conversation list, the smoke should open it
-through `openMethod=visible_action_ref` before drafting and submitting.
+`examples/wechat_contacts_recent_messages_test.py --contact "文件传输助手"
+--message-limit 30` on the live desktop. That read-only fallback isolates
+contact opening and visible-message extraction without relying on a send path.
+Do not run `wechat_file_transfer_send_test.py` for this verification gate.
 
 ## Remaining Real WeChat Smoke Checklist
 
@@ -742,23 +738,24 @@ These checks require a real macOS desktop, Accessibility permission, running
 WeChat, and the local app-control service. Remaining checks are required before
 merge or release readiness:
 
-1. `list_conversations(limit=30)` returns visible conversations and action refs.
-2. `open_contact("文件传输助手")` switches the active chat, preferably through
-   visible row `openMethod=visible_action_ref` when File Transfer is visible.
-3. `examples/wechat_contacts_recent_messages_test.py --max-contacts 1` opens a
-   listed contact through actionRef and reads visible message rows.
-4. `read_visible_messages(limit=30)` returns visible message rows after a
-   manually or actionRef-opened chat.
-5. `[wechat] selector_profile_path` loads a valid local override without
-   rebuilding the package.
-6. Invalid `selector_profile_path` falls back to the packaged profile.
-7. Stale or invalid action refs fail preconditions instead of raw-coordinate
-   clicking.
+1. Move or resize the visible WeChat main window before the run.
+2. `list_conversations(limit=30)` returns at least one visible conversation and
+   executable action reference.
+3. `open_contact("文件传输助手")` switches the active chat without drafting or
+   sending content and verifies the target title postcondition.
+4. `read_visible_messages(limit=30)` returns between 1 and 30 visible rows.
+5. `list_contacts(limit=30)` returns at least one semantic contact.
+6. `[wechat] selector_profile_path` loads a valid local override, while an
+   invalid override falls back to the packaged profile.
+7. Expired action refs fail before backend execution.
+8. Every measured semantic API completes within 3000 ms.
+9. The public report is source-bound proof v2 with no sensitive content.
 
 Recommended smoke setup:
 
 ```bash
-computer-use-macos serve \
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
+  .venv/bin/python -m computer_use_macos serve \
   --config ./app-control.toml \
   --socket-path /tmp/app-control.sock \
   --token-file ./app-control.token
@@ -767,11 +764,16 @@ computer-use-macos serve \
 Then run the consolidated SDK smoke checklist against that service:
 
 ```bash
+HEAD_SHA="$(git rev-parse HEAD)"
 .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --head-sha "$HEAD_SHA" \
   --socket-path /tmp/app-control.sock \
   --token-file ./app-control.token \
-  --output /private/tmp/selector-live-selector-engine-smoke.json \
-  --contact "文件传输助手"
+  --output /private/tmp/selector-live-selector-engine-proof-v2.json \
+  --contact "文件传输助手" \
+  --conversation-limit 30 \
+  --contact-limit 30 \
+  --message-limit 30
 ```
 
 For release review, save JSON reports under a reviewed location or link the
@@ -810,9 +812,13 @@ New coverage:
   `frontmost`, `wechat.apps[*].focusedWindow`, `wechat.apps[*].windows`, and
   summary checks.
 
-## Additional Verification: AXRow ActionRef And Live Smoke Pass
+## Historical Verification: AXRow ActionRef And Live Smoke Pass
 
 Date: 2026-07-08.
+
+This section records the live v1 smoke accepted by the pre-remediation release
+gate. It remains useful runtime evidence for that historical head, but it is
+not source-bound proof for the current branch and cannot close current F5.
 
 This verification covers the corrective slice for live WeChat rows that do not
 expose `AXPress` in `AXActionNames` and for `AXRow` targets where visible row
@@ -908,18 +914,17 @@ New coverage:
 - selector resolution requests `AXHidden`, `AXEnabled`, and `AXSelected` only
   when profile rules need visible, enabled, or selected evidence.
 
-## Release Readiness Gate
+## Historical Release Readiness Gate
 
-The consolidated real WeChat selector-engine smoke evidence has been recorded
-above and is recognized by strict release preflight. Public selector protocol
-commands remain deferred; this feature currently ships only the internal
-selector engine, WeChat packaged profile migration, profile override
-configuration, and semantic WeChat API behavior.
+The 2026-07-08 consolidated smoke was recognized by the historical v1 gate. The
+current release gate requires a fresh, exact-head proof v2 and remains open as
+recorded in the F5 review-remediation section below. Public selector protocol
+commands remain deferred.
 
-## Release Proof Preflight Recognition
+## Historical Release Proof v1 Recognition (Superseded)
 
-The consolidated selector-engine smoke checklist is now consumable by the
-strict release proof path:
+The following describes the pre-remediation proof contract and is retained only
+to explain historical test counts. Proof v1 is no longer strict or bundleable:
 
 - report file name expected by release tooling:
   `wechat-selector-engine-smoke.json`;
@@ -928,14 +933,15 @@ strict release proof path:
   `macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1`;
 - recognized through repeated `--wechat-smoke-report` arguments on
   `scripts/release_preflight.py`;
-- bundled through `scripts/release_proof_bundle.py
-  --wechat-selector-engine-report`;
+- bundled through
+  `scripts/release_proof_bundle.py --wechat-selector-engine-report`;
 - enforced by the GitHub Release workflow before PyPI publishing.
 
-The loader accepts a report only when the summary succeeds, all required
-checklist booleans are true, WeChat operations are protocol-shaped
-observations, valid/invalid profile override checks pass, and the expired
-actionRef check fails closed with `wechat_action_ref_expired`.
+The historical loader accepted a report when its summary, checklist,
+protocol-shaped observations, profile checks, and expired actionRef result
+passed. Current proof v2 instead uses a whitelist-only structural projection,
+exact source SHA, non-zero collection evidence, timing limits, and recursive
+sensitive-data rejection.
 
 Automated checks run for this proof-recognition slice:
 
@@ -1024,7 +1030,7 @@ Manual proof still required:
 - confirm each normal API path returns within 3 seconds on the target machine;
 - update the control map if a future WeChat client changes the stable AX paths.
 
-## Additional Verification: WeChat Mapped Navigation Click Performance
+## Historical Verification: WeChat Mapped Navigation Click Performance
 
 Date: 2026-07-09.
 
@@ -1032,6 +1038,12 @@ This verification covers the follow-up fix for slow mapped navigation clicks.
 The live contact-list smoke showed `control_map_switch_contacts_0` spending
 about 11.9 seconds in `accessibility_action` even though the target window was
 already `微信 (通讯录)`.
+
+The fixed-coordinate preference described by this historical slice was rejected
+by review finding `PRR-003` and removed in remediation commit `9e11a75`. Current
+runtime behavior ignores packaged `screen_coordinates`, queries the mapped AX
+element, validates its semantic identity and current frame, then uses `AXPress`
+or the validated frame center and verifies a semantic postcondition.
 
 | Area | Command | Result |
 | --- | --- | --- |
@@ -1047,8 +1059,8 @@ New coverage:
 - mapped Contacts navigation uses `accessibility_query(scope=self)` with an
   800 ms timeout to read the button frame, then `click(coordinates=...)` with a
   1200 ms timeout;
-- mapped navigation now prefers packaged direct `screen_coordinates`, so normal
-  coordinate-click switching sends no Accessibility frame query;
+- the historical implementation preferred packaged direct
+  `screen_coordinates`; this behavior is no longer executable;
 - if coordinate click is disabled, mapped navigation falls back to `AXPress`
   with a 2000 ms command timeout instead of inheriting the parent API timeout;
 - if mapped navigation still fails, the WeChat API returns
@@ -1397,7 +1409,7 @@ from 2026-07-08 remains useful historical coverage but is not source-bound
 proof for `ebee2dd` and cannot close the current gate.
 
 After explicit user authorization, the remaining smoke must use a moved or
-resized WeChat window and the exact head above, then:
+resized WeChat window and the exact commit selected for that run, then:
 
 1. open one unique configured contact without drafting or sending content;
 2. list at least one contact and one conversation;

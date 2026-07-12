@@ -1,14 +1,17 @@
 # Accessibility Selector Engine Live Smoke Recovery
 
-- Date: 2026-07-07
+- Date: 2026-07-12
 - Branch: `codex/accessibility-selector-engine`
-- Status: live smoke blocked by desktop WeChat window state
+- Status: historical recovery evidence retained; current exact-head proof v2
+  awaits explicit desktop authorization and a trusted local service
 
 ## Current Blocker
 
-The implementation and automated checks are in place, but the remaining live
-WeChat smoke cannot complete until macOS exposes a real focused WeChat
-`AXWindow`.
+The observations in this section describe the 2026-07-07/08 recovery attempts.
+Current deterministic remediation checks pass, but a fresh live proof still
+requires macOS to expose a real focused WeChat `AXWindow`. As of 2026-07-12,
+`/tmp/app-control.sock` is absent, so the trusted service must also be restarted
+from the exact feature checkout before rerunning the smoke.
 
 Observed current desktop state:
 
@@ -281,10 +284,13 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 Run the consolidated selector-engine smoke checklist first:
 
 ```bash
+HEAD_SHA="$(git rev-parse HEAD)"
 .venv/bin/python examples/wechat_selector_engine_smoke_test.py \
+  --head-sha "$HEAD_SHA" \
   --socket-path /private/tmp/app-control-selector-live.sock \
   --token-file ./app-control.token \
-  --output /private/tmp/selector-live-selector-engine-smoke.json \
+  --output /private/tmp/selector-live-selector-engine-proof-v2.json \
+  --private-debug-output /private/tmp/selector-live-selector-engine-private.json \
   --contact "文件传输助手" \
   --conversation-limit 30 \
   --contact-limit 30 \
@@ -294,7 +300,17 @@ Run the consolidated selector-engine smoke checklist first:
 That report covers the remaining merge-gate scenarios in one artifact:
 conversation listing, opening `文件传输助手`, visible message reading, valid
 profile override loading, invalid override fallback, and expired actionRef
-fail-closed behavior. It does not draft or submit a message.
+fail-closed behavior. The public output is whitelist-only proof v2. The private
+diagnostic file must remain outside the repository and release bundle. The run
+does not draft or submit a message.
+
+Validate the public proof against the exact source commit:
+
+```bash
+.venv/bin/python scripts/release_preflight.py \
+  --wechat-smoke-report /private/tmp/selector-live-selector-engine-proof-v2.json \
+  --expected-source-sha "$(git rev-parse HEAD)"
+```
 
 If the consolidated checklist fails, run the narrower probes below to isolate
 the failing phase:
@@ -315,22 +331,16 @@ the failing phase:
 ```
 
 ```bash
-.venv/bin/python examples/wechat_file_transfer_send_test.py \
-  --socket-path /private/tmp/app-control-selector-live.sock \
-  --token-file ./app-control.token \
-  --output /private/tmp/selector-live-file-transfer-send.json \
-  --contact "文件传输助手" \
-  --message "selector engine smoke"
-```
-
-```bash
 .venv/bin/python examples/wechat_contacts_recent_messages_test.py \
   --socket-path /private/tmp/app-control-selector-live.sock \
   --token-file ./app-control.token \
   --output /private/tmp/selector-live-recent-messages.json \
-  --max-contacts 3 \
+  --contact "文件传输助手" \
   --message-limit 30
 ```
+
+Do not use `wechat_file_transfer_send_test.py` as a fallback for this gate. The
+required proof is read/focus-only and must not draft or send content.
 
 ## Merge Gate
 
@@ -342,4 +352,8 @@ proof for:
 - visible message reading;
 - valid selector profile override loading;
 - invalid selector profile fallback;
-- stale actionRef precondition failure.
+- expired actionRef rejection before backend execution;
+- moved/resized-window frame-derived navigation;
+- at least one contact, one conversation, and 1 to 30 visible messages;
+- every measured semantic API at or below 3000 ms;
+- exact-head proof v2 accepted by strict preflight with no sensitive fields.

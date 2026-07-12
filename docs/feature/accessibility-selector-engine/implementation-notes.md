@@ -2404,10 +2404,10 @@ PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:pac
 
 Result: 102 tests passed.
 
-## Release Proof Slice: Selector Engine Smoke Report
+## Historical Release Proof Slice: Selector Engine Smoke Report
 
-Status: implemented; automated release-preflight verification passed; live
-WeChat smoke evidence still requires a real focused WeChat `AXWindow`.
+Status: superseded by F4 Remediation Slice 5. This section records the original
+v1 implementation; v1 is no longer accepted as strict or bundleable proof.
 
 Commit scope:
 
@@ -2746,9 +2746,15 @@ Remaining work:
 - non-visible `open_contact` search still uses the existing selector/search
   fallback path and should get a separate mapped search-result slice.
 
-## WeChat Mapped Navigation Click Performance
+## Historical WeChat Mapped Navigation Click Performance
 
-Status: implemented as a follow-up performance fix for mapped navigation.
+Status: superseded by F4 Remediation Slice 1. The fixed-coordinate behavior
+below is retained only as historical performance context and is not executable
+in the current runtime.
+
+Current behavior ignores packaged `screen_coordinates`, resolves the mapped AX
+element, validates role/label/frame containment, uses `AXPress` or the current
+validated frame center, and requires a semantic postcondition.
 
 Problem observed in live smoke:
 
