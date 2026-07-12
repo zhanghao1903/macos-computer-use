@@ -3546,3 +3546,84 @@ empty, disabled, wrong-app, and far-outside frame cases.
 The failed public proof and private diagnostic remain under `/private/tmp` and
 are not tracked. They do not satisfy F5 because the run failed before any
 collection or target-postcondition evidence was produced.
+
+## F5 Live Corrective Slice: Bounded Focus And Visible-Row Resolution
+
+Status: implementation and automated verification passed; exact-head live
+rerun is pending because the Mac became locked during verification.
+
+Live findings addressed:
+
+- `list_conversations(limit=30)` returned in 2928 ms, but the collection walked
+  non-visible table rows and returned off-screen frames, including the target
+  row at a negative y coordinate;
+- `open_contact` spent 7321 ms because it retried an off-screen coordinate,
+  scanned the same conversation area again, then ran selector click,
+  `AXSetFocus`, hotkey, coordinate click, and four whole-window focus checks;
+- WeChat's whole-window observation exposed only a generic focused window, even
+  though the known search element at `0/12/0` could be queried directly;
+- live conversation rows did not expose `AXPress`, so the strict expired-ref
+  proof could not legitimately source an actionRef from the conversation list;
+- coordinate proof inferred frame provenance from phase names instead of an
+  explicit command field.
+
+Implemented behavior:
+
+- conversation collections set `preferVisibleRows=true`, and the targeted
+  conversation lookup uses the same AX table capability with a 450 ms budget;
+- selector fallback scanning is bounded to visible rows, 40 nodes, and 350 ms;
+- mapped navigation returns immediately when the current verified radio button
+  is already selected, avoiding a redundant one-second AX action;
+- search focus now tries the configured hotkey first and verifies the already
+  resolved search element with a 500 ms `scope=self` query containing
+  `AXFocused`; whole-window observation remains only for elements without an AX
+  path;
+- typing remains fail closed unless the exact search element is text-like, has
+  a search marker, and reports `focused=true`;
+- off-screen mapped and selector rows are not clicked;
+- every coordinate command derived from a current AX frame records
+  `coordinateSource=accessibility_frame`, and strict proof checks that field;
+- expired-ref proof takes a real executable navigation actionRef from
+  `inspect_window` before considering list output;
+- conversation proof treats an executable actionRef or the existing semantic
+  `*.open` action plus a valid current element/frame as actionable, while still
+  refusing to fabricate AXPress for rows that do not expose it.
+
+Public and compatibility impact:
+
+- no public method, protocol schema, command input, semantic response field, or
+  failure kind changed;
+- list results are aligned with their documented visible-row semantics;
+- the added command metadata is internal diagnostic evidence;
+- fallback behavior remains bounded and fail closed when targeted focus cannot
+  be proven.
+
+Automated verification evidence:
+
+```bash
+uv run pytest tests -q
+```
+
+Result: 126 tests passed in 68.07 seconds.
+
+```bash
+uv run pytest packages/app-control-protocol/tests -q
+uv run pytest packages/computer-use-macos/tests -q
+uv run pytest packages/wechat-desktop-tool/tests -q
+```
+
+Results: 55, 125, and 119 tests passed respectively. New cases cover an
+already-selected navigation node under a generic window title, visible-row
+query configuration, targeted focused/blurred/unknown search states, explicit
+coordinate provenance, inspected-navigation expired refs, and semantic open
+proof without a fabricated AXPress ref.
+
+`py_compile` and `git diff --check` passed. Ruff is configured but not installed
+in the current uv environment, so `uv run ruff format --check ...` could not
+start and is recorded as an environment limitation rather than a passing gate.
+
+The first live retry did not reach the semantic operations: macOS reported
+Codex as frontmost after activation, and Computer Use then reported that the
+Mac was locked. That artifact remains under `/private/tmp`; it is not release
+evidence. F5 still requires an unlocked, moved/resized WeChat exact-head run in
+which every timed API is at most 3000 ms.

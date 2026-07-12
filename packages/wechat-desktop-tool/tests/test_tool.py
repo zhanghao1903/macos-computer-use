@@ -28,6 +28,7 @@ from app_control_protocol import (
     validate_protocol_payload,
 )
 import wechat_desktop_tool.cli as cli_module
+import wechat_desktop_tool.tool as tool_module
 from wechat_desktop_tool import (
     WECHAT_WINDOW_SCHEMA,
     WECHAT_TOOL,
@@ -90,6 +91,16 @@ class FakeAppControl:
                 tool_command,
                 current_contact=self._last_typed_text,
             )
+        phase = tool_command.metadata.get("phase") if tool_command.metadata else None
+        if (
+            tool_command.operation == "accessibility_query"
+            and isinstance(phase, str)
+            and phase.startswith("verify_search_focus")
+            and (not self._responses or self._responses[0] == {})
+        ):
+            if self._responses and self._responses[0] == {}:
+                self._responses.pop(0)
+            return _default_search_focus_query_response(tool_command)
         if self._responses:
             response = self._responses.pop(0)
             if isinstance(response, ToolObservation):
@@ -171,6 +182,29 @@ def _default_observe_response(
         operation=command.operation,
         summary=f"Frontmost app: {target_app}. Window: 微信 (聊天).",
         observation=observation,
+    )
+
+
+def _default_search_focus_query_response(command: ToolCommand) -> ToolObservation:
+    return ToolObservation.ok(
+        command_id=command.command_id,
+        tool=command.tool,
+        operation=command.operation,
+        summary="Focused WeChat search element.",
+        observation=_accessibility_query_response(
+            [
+                _normalized_node(
+                    "0/11/0",
+                    "AXTextArea",
+                    description="搜索",
+                    focused=True,
+                    x=345,
+                    y=50,
+                    width=205,
+                    height=26,
+                )
+            ]
+        )["observation"],
     )
 
 
@@ -761,6 +795,7 @@ def _normalized_node(
     width: float = 100,
     height: float = 24,
     enabled: bool | None = None,
+    focused: bool | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "axPath": ax_path,
@@ -780,6 +815,8 @@ def _normalized_node(
         payload["actions"] = actions
     if enabled is not None:
         payload["enabled"] = enabled
+    if focused is not None:
+        payload["focused"] = focused
     return payload
 
 
@@ -1948,10 +1985,60 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[2].input["query"]["timeBudgetMs"], 2_200)
         self.assertEqual(
+            app_control.commands[2].input["query"]["preferVisibleRows"],
+            True,
+        )
+        self.assertEqual(
             app_control.commands[2].input["query"]["match"]["roleIn"],
             ["AXRow", "AXCell", "AXStaticText"],
         )
         self.assertEqual(result.observation["source"]["mode"], "control_map")
+
+    def test_list_conversations_skips_press_when_current_nav_node_is_selected(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                {
+                    "observation": {
+                        "frontmostApp": "WeChat",
+                        "frontmostBundleId": "com.tencent.xinWeChat",
+                        "windowTitle": "Window",
+                    }
+                },
+                _mapped_navigation_frame_response(
+                    ax_path="0/1",
+                    label="聊天",
+                    selected=True,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/12/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).list_conversations(limit=1)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_query",
+            ],
+        )
+        self.assertNotIn(
+            "accessibility_action",
+            [command.operation for command in app_control.commands],
+        )
 
     def test_list_conversations_tries_second_mapped_root_after_empty_first(
         self,
@@ -2278,8 +2365,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
-                "observe",
+                "hotkey",
+                "accessibility_query",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
@@ -2289,10 +2376,17 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/12/1/0")
         self.assertEqual(app_control.commands[3].input["root"]["axPath"], "0/11/1/0")
         self.assertEqual(app_control.commands[4].input["query"]["timeBudgetMs"], 2_500)
-        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 8_000)
+        self.assertEqual(app_control.commands[5].input["query"]["timeBudgetMs"], 350)
         self.assertEqual(app_control.commands[6].input["query"]["timeBudgetMs"], 2_500)
         self.assertEqual(app_control.commands[7].input["query"]["timeBudgetMs"], 2_000)
         self.assertEqual(app_control.commands[10].input["text"], "Ada")
+        self.assertEqual(app_control.commands[9].input["root"]["axPath"], "0/11/0")
+        self.assertEqual(app_control.commands[9].input["query"]["scope"], "self")
+        self.assertEqual(app_control.commands[9].input["query"]["timeBudgetMs"], 500)
+        self.assertIn(
+            "AXFocused",
+            app_control.commands[9].input["query"]["attributes"],
+        )
 
     def test_open_contact_uses_coordinates_when_search_row_action_fails(self) -> None:
         app_control = FakeAppControl(
@@ -2341,8 +2435,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
-                "observe",
+                "hotkey",
+                "accessibility_query",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
@@ -2552,7 +2646,45 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[6].input["coordinates"],
             {"x": 430, "y": 129},
         )
+        self.assertEqual(
+            app_control.commands[3].metadata["coordinateSource"],
+            "accessibility_frame",
+        )
+        self.assertEqual(
+            app_control.commands[6].metadata["coordinateSource"],
+            "accessibility_frame",
+        )
         self.assertEqual(app_control.commands[2].input["root"]["axPath"], "0/1")
+
+    def test_targeted_search_focus_assessment_requires_focused_search_node(
+        self,
+    ) -> None:
+        def assessment(focused: bool | None) -> dict[str, Any]:
+            node = _normalized_node(
+                "0/12/0",
+                "AXTextArea",
+                description="搜索",
+                focused=focused,
+            )
+            response = _accessibility_query_response([node])
+            observation = ToolObservation.ok(
+                command_id="cmd_search_focus",
+                tool="macos.computer_use",
+                operation="accessibility_query",
+                summary="queried search focus",
+                observation=response["observation"],
+            )
+            return tool_module._search_focus_assessment(observation)
+
+        self.assertEqual(assessment(True)["state"], "verified")
+        self.assertEqual(
+            assessment(False)["reason"],
+            "targeted_search_element_not_focused",
+        )
+        self.assertEqual(
+            assessment(None)["reason"],
+            "targeted_search_element_focus_unknown",
+        )
 
     def test_read_contact_messages_stops_when_opened_chat_title_mismatches(
         self,
@@ -2692,11 +2824,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
-                "observe",
-                "accessibility_action",
                 "hotkey",
-                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "click",
+                "accessibility_query",
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
@@ -2704,7 +2836,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(app_control.commands[10].input["action"], "AXSetFocus")
-        self.assertEqual(app_control.commands[11].input["keys"], ["Command", "F"])
+        self.assertEqual(app_control.commands[8].input["keys"], ["Command", "F"])
         self.assertEqual(app_control.commands[13].input["text"], "Ada")
 
     def test_open_contact_unknown_search_focus_never_types_or_presses_return(
@@ -2837,8 +2969,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "accessibility_query",
                 "accessibility_query",
                 "accessibility_query",
-                "click",
-                "observe",
+                "hotkey",
+                "accessibility_query",
                 "type_text",
                 "accessibility_query",
             ],

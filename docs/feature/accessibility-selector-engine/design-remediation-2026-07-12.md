@@ -366,6 +366,13 @@ Example sanitized shape:
 }
 ```
 
+For conversation proof, `actionable=true` has two valid sources: an executable
+`actionRef`, or the existing semantic `*.open` action id together with a
+current element and finite positive frame. The second form means an application
+can call the documented semantic open operation with the listed item; it does
+not authorize the proof builder to invent an `AXPress` actionRef when the live
+row does not expose `AXPress`.
+
 ## Data Flow
 
 ### Safe `open_contact`

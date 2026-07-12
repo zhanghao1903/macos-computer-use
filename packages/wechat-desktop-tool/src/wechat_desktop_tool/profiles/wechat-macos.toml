@@ -320,6 +320,7 @@ max_depth = 2
 minimum_limit = 100
 limit_multiplier = 4
 time_budget_ms = 2200
+prefer_visible_rows = true
 
 [control_map.collections.visibleMessages]
 root_ax_paths = ["0/12/4/0/0", "0/11/4/0/0"]

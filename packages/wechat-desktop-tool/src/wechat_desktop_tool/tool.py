@@ -55,6 +55,8 @@ _MAPPED_NAVIGATION_ACTION_TIMEOUT_MS = 2_000
 _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS = 800
 _MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
 _MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS = 1.0
+_MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS = 450
+_SEARCH_FOCUS_QUERY_TIMEOUT_MS = 500
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -904,6 +906,25 @@ class WeChatDesktopTool:
                 continue
             if not _node_frame_within_query_window(target_node, target_query):
                 continue
+            if _node_selected(target_node):
+                selected_phase = f"{phase}:already_selected_{index}"
+                selected = ToolObservation.ok(
+                    command_id=f"{command.command_id}:{selected_phase}",
+                    tool=WECHAT_TOOL,
+                    operation=command.operation,
+                    summary=(
+                        f"WeChat navigation control {control.control_id} "
+                        "is already selected."
+                    ),
+                    observation={
+                        "schema": "wechat.control_map.navigation.v1",
+                        "status": "already_selected",
+                        "control": control.control_id,
+                        "axPath": ax_path,
+                    },
+                )
+                evidence[selected_phase] = _safe_app_control_observation(selected)
+                return selected
 
             if control.action in _node_actions(target_node):
                 action_ref = _action_ref_from_node(
@@ -947,6 +968,9 @@ class WeChatDesktopTool:
                 operation="click",
                 input=self._target_app_input(coordinates=coordinates),
                 timeout_ms=_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS,
+                command_metadata={
+                    "coordinateSource": "accessibility_frame",
+                },
                 phase_events=phase_events,
             )
             evidence[coordinate_phase] = _safe_app_control_observation(
@@ -1100,6 +1124,11 @@ class WeChatDesktopTool:
         collection = self._control_map.collections.get("conversations")
         if collection is None:
             return None
+        successful_query: tuple[
+            ToolObservation,
+            WeChatMappedCollection,
+            list[dict[str, Any]],
+        ] | None = None
         for index, root_ax_path in enumerate(collection.root_ax_paths):
             result = self._query_accessibility_nodes(
                 command,
@@ -1109,7 +1138,10 @@ class WeChatDesktopTool:
                 max_depth=2,
                 role_in=["AXCell"],
                 limit=2,
-                time_budget_ms=min(collection.time_budget_ms, 900),
+                time_budget_ms=min(
+                    collection.time_budget_ms,
+                    _MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS,
+                ),
                 attributes=[
                     "AXRole",
                     "AXDescription",
@@ -1119,6 +1151,7 @@ class WeChatDesktopTool:
                 ],
                 actions=False,
                 match={"descriptionContains": f"{contact},"},
+                prefer_visible_rows=True,
                 evidence=evidence,
                 phase_events=phase_events,
             )
@@ -1127,7 +1160,8 @@ class WeChatDesktopTool:
             rows = _conversation_rows_from_cells(_query_nodes(result))
             if rows:
                 return result, collection, rows
-        return None
+            successful_query = (result, collection, [])
+        return successful_query
 
     def _mapped_region_node(
         self,
@@ -1344,12 +1378,16 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
-        visible_rows = self._query_descendants(
+        visible_rows = self._query_accessibility_nodes(
             command,
             root_node=main_content,
             phase="visible_contact_rows",
+            scope="descendants",
+            max_depth=4,
             role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=120,
+            limit=40,
+            time_budget_ms=350,
+            prefer_visible_rows=True,
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -1371,6 +1409,8 @@ class WeChatDesktopTool:
             return None
         element = candidates[0].get("element")
         if not isinstance(element, Mapping):
+            return None
+        if not _node_frame_within_query_window(element, visible_rows):
             return None
         opened = self._click_node_phase(
             command,
@@ -1435,6 +1475,8 @@ class WeChatDesktopTool:
             return None
         element = candidates[0].get("element")
         if not isinstance(element, Mapping):
+            return None
+        if not _node_frame_within_query_window(element, query_result):
             return None
         opened = self._click_node_phase(
             command,
@@ -1554,6 +1596,55 @@ class WeChatDesktopTool:
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         search_element = search_box.elements[0]
+        focused = self._app_control_command(
+            command,
+            phase="focus_search",
+            operation="hotkey",
+            input=self._target_app_input(
+                keys=list(self._config.search_hotkey),
+            ),
+            phase_events=phase_events,
+        )
+        evidence["focus_search"] = _safe_app_control_observation(focused)
+        verified_search: ToolObservation | None = None
+        if focused.success:
+            verified_search = self._verify_search_focus_phase(
+                command,
+                phase="verify_search_focus",
+                search_element=search_element,
+                phase_events=phase_events,
+            )
+            evidence["verify_search_focus"] = _safe_app_control_observation(
+                verified_search
+            )
+            if verified_search.success and _search_focus_failure(
+                command,
+                contact,
+                verified_search,
+                evidence=evidence,
+            ) is None:
+                return verified_search
+
+        action_verified = self._focus_search_box_accessibility_action(
+            command,
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if action_verified is not None:
+            return action_verified
+
+        coordinate_verified = self._focus_search_box_coordinate_fallback(
+            command,
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if coordinate_verified is not None:
+            return coordinate_verified
+
         clicked = self._app_control_command(
             command,
             phase="click_search_box",
@@ -1571,47 +1662,22 @@ class WeChatDesktopTool:
             verified_after_click = self._verify_search_focus_phase(
                 command,
                 phase="verify_search_focus_after_click",
+                search_element=search_element,
                 phase_events=phase_events,
             )
             evidence["verify_search_focus_after_click"] = (
                 _safe_app_control_observation(verified_after_click)
             )
-            if not verified_after_click.success:
-                return _from_app_control_failure(
+            if verified_after_click.success:
+                click_focus_failure = _search_focus_failure(
                     command,
-                    "search_focus_failed",
+                    contact,
                     verified_after_click,
                     evidence=evidence,
                 )
-            click_focus_failure = _search_focus_failure(
-                command,
-                contact,
-                verified_after_click,
-                evidence=evidence,
-            )
-            if click_focus_failure is None:
-                return verified_after_click
+                if click_focus_failure is None:
+                    return verified_after_click
 
-        action_verified = self._focus_search_box_accessibility_action(
-            command,
-            contact=contact,
-            search_element=search_element,
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if action_verified is not None:
-            return action_verified
-
-        focused = self._app_control_command(
-            command,
-            phase="focus_search",
-            operation="hotkey",
-            input=self._target_app_input(
-                keys=list(self._config.search_hotkey),
-            ),
-            phase_events=phase_events,
-        )
-        evidence["focus_search"] = _safe_app_control_observation(focused)
         if not focused.success:
             return _from_app_control_failure(
                 command,
@@ -1619,19 +1685,11 @@ class WeChatDesktopTool:
                 focused,
                 evidence=evidence,
             )
-        verified_search = self._verify_search_focus_phase(
-            command,
-            phase="verify_search_focus",
-            phase_events=phase_events,
-        )
-        evidence["verify_search_focus"] = _safe_app_control_observation(
-            verified_search
-        )
-        if not verified_search.success:
+        if verified_search is None or not verified_search.success:
             return _from_app_control_failure(
                 command,
                 "search_focus_failed",
-                verified_search,
+                verified_search or focused,
                 evidence=evidence,
             )
         search_focus_failure = _search_focus_failure(
@@ -1640,18 +1698,7 @@ class WeChatDesktopTool:
             verified_search,
             evidence=evidence,
         )
-        if search_focus_failure is not None:
-            coordinate_verified = self._focus_search_box_coordinate_fallback(
-                command,
-                contact=contact,
-                search_element=search_element,
-                evidence=evidence,
-                phase_events=phase_events,
-            )
-            if coordinate_verified is not None:
-                return coordinate_verified
-            return search_focus_failure
-        return verified_search
+        return search_focus_failure or verified_search
 
     def _focus_search_box_accessibility_action(
         self,
@@ -1695,6 +1742,7 @@ class WeChatDesktopTool:
         verified = self._verify_search_focus_phase(
             command,
             phase="verify_search_focus_after_accessibility_action",
+            search_element=search_element,
             phase_events=phase_events,
         )
         evidence["verify_search_focus_after_accessibility_action"] = (
@@ -1729,6 +1777,9 @@ class WeChatDesktopTool:
             phase="click_search_box_coordinate",
             operation="click",
             input=self._target_app_input(coordinates=coordinates),
+            command_metadata={
+                "coordinateSource": "accessibility_frame",
+            },
             phase_events=phase_events,
         )
         evidence["click_search_box_coordinate"] = _safe_app_control_observation(clicked)
@@ -1737,6 +1788,7 @@ class WeChatDesktopTool:
         verified = self._verify_search_focus_phase(
             command,
             phase="verify_search_focus_after_coordinate",
+            search_element=search_element,
             phase_events=phase_events,
         )
         evidence["verify_search_focus_after_coordinate"] = (
@@ -1764,8 +1816,41 @@ class WeChatDesktopTool:
         command: ToolCommand,
         *,
         phase: str,
+        search_element: Any,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        element_ref = getattr(search_element, "element_ref", None)
+        ax_path = getattr(element_ref, "ax_path", None)
+        if isinstance(ax_path, str) and ax_path:
+            return self._app_control_command(
+                command,
+                phase=phase,
+                operation="accessibility_query",
+                input=self._accessibility_query_input(
+                    root={"kind": "axPath", "axPath": ax_path},
+                    query={
+                        "scope": "self",
+                        "maxDepth": 0,
+                        "limit": 1,
+                        "timeBudgetMs": _SEARCH_FOCUS_QUERY_TIMEOUT_MS,
+                        "attributes": [
+                            "AXRole",
+                            "AXDescription",
+                            "AXTitle",
+                            "AXValue",
+                            "AXPlaceholderValue",
+                            "AXFocused",
+                            "AXEnabled",
+                            "AXFrame",
+                        ],
+                        "actions": False,
+                        "includeChildrenCount": False,
+                        "match": {"roleIn": [str(search_element.role)]},
+                    },
+                ),
+                timeout_ms=_SEARCH_FOCUS_QUERY_TIMEOUT_MS,
+                phase_events=phase_events,
+            )
         return self._app_control_command(
             command,
             phase=phase,
@@ -2459,8 +2544,16 @@ class WeChatDesktopTool:
         operation: str,
         input: dict[str, JsonValue],
         timeout_ms: int | None = None,
+        command_metadata: Mapping[str, JsonValue] | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        metadata: dict[str, JsonValue] = {
+            "sourceTool": WECHAT_TOOL,
+            "parentCommandId": parent.command_id,
+            "phase": phase,
+        }
+        if command_metadata is not None:
+            metadata.update(command_metadata)
         observation = self._app_control.run_command(
             ToolCommand(
                 command_id=f"{parent.command_id}:{phase}",
@@ -2472,11 +2565,7 @@ class WeChatDesktopTool:
                     if timeout_ms is not None
                     else parent.timeout_ms or self._config.default_timeout_ms
                 ),
-                metadata={
-                    "sourceTool": WECHAT_TOOL,
-                    "parentCommandId": parent.command_id,
-                    "phase": phase,
-                },
+                metadata=metadata,
             )
         )
         if phase_events is not None:
@@ -2770,6 +2859,9 @@ class WeChatDesktopTool:
                     phase=coordinate_phase,
                     operation="click",
                     input=self._target_app_input(coordinates=coordinates),
+                    command_metadata={
+                        "coordinateSource": "accessibility_frame",
+                    },
                     phase_events=phase_events,
                 )
                 evidence[coordinate_phase] = _safe_app_control_observation(
@@ -2799,6 +2891,9 @@ class WeChatDesktopTool:
                         phase=coordinate_phase,
                         operation="click",
                         input=self._target_app_input(coordinates=coordinates),
+                        command_metadata={
+                            "coordinateSource": "accessibility_frame",
+                        },
                         phase_events=phase_events,
                     )
                     evidence[coordinate_phase] = _safe_app_control_observation(
@@ -5280,6 +5375,59 @@ def _search_focus_failure(
 
 
 def _search_focus_assessment(observation: ToolObservation) -> dict[str, JsonValue]:
+    query_payload = _query_payload(observation)
+    if query_payload:
+        if query_payload.get("available") is False:
+            payload: dict[str, JsonValue] = {
+                "state": "unknown",
+                "reason": "search_focus_query_unavailable",
+            }
+            failure_kind = query_payload.get("failureKind")
+            if isinstance(failure_kind, str):
+                payload["failureKind"] = failure_kind
+            return payload
+        nodes = _query_nodes(observation)
+        if len(nodes) != 1:
+            return {
+                "state": "unknown",
+                "reason": "search_focus_query_target_missing",
+            }
+        search_element = nodes[0]
+        public_element = _public_accessibility_element(search_element)
+        if not _is_text_like_accessibility_element(search_element):
+            return {
+                "state": "not_search",
+                "reason": "search_focus_query_target_is_not_text_input",
+                "focusedElement": public_element,
+            }
+        if not _accessibility_element_contains(
+            search_element,
+            _SEARCH_FOCUS_MARKERS,
+        ):
+            return {
+                "state": "not_search",
+                "reason": "search_focus_query_target_has_no_search_marker",
+                "focusedElement": public_element,
+            }
+        focused = search_element.get("focused")
+        if focused is True:
+            return {
+                "state": "verified",
+                "reason": "targeted_search_element_focused",
+                "focusedElement": public_element,
+            }
+        if focused is False:
+            return {
+                "state": "not_search",
+                "reason": "targeted_search_element_not_focused",
+                "focusedElement": public_element,
+            }
+        return {
+            "state": "unknown",
+            "reason": "targeted_search_element_focus_unknown",
+            "focusedElement": public_element,
+        }
+
     accessibility = _mapping_from_observation(observation, "accessibility")
     if accessibility is None:
         return {"state": "unknown", "reason": "no_accessibility_snapshot"}

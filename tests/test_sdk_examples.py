@@ -918,7 +918,7 @@ class SdkExampleTests(unittest.TestCase):
         self.assertNotIn("press_key", operations)
         self.assertEqual(
             operations.count("accessibility_action"),
-            4,
+            2,
             "expired actionRef check must not add a backend action",
         )
 
@@ -950,6 +950,90 @@ class SdkExampleTests(unittest.TestCase):
         )
         self.assertEqual(debug["options"]["contact"], "文件传输助手")
         self.assertIn("appControlCommands", debug)
+
+    def test_expired_action_ref_check_uses_inspected_navigation_ref(
+        self,
+    ) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+        executed_refs: list[dict[str, Any]] = []
+
+        class FakeWechat:
+            def execute_action(self, action_ref: dict[str, Any]) -> Any:
+                executed_refs.append(action_ref)
+                return SimpleNamespace(
+                    success=False,
+                    failure_kind="wechat_action_ref_expired",
+                    to_dict=lambda: {
+                        "success": False,
+                        "failureKind": "wechat_action_ref_expired",
+                    },
+                )
+
+        inspected = ToolObservation.ok(
+            command_id="inspect",
+            tool="wechat.desktop",
+            operation="inspect_window",
+            summary="inspected",
+            observation={
+                "window": {
+                    "actionables": [
+                        {
+                            "actionRef": {
+                                "id": "nav.chats.press",
+                                "expiresAt": "2099-01-01T00:00:00Z",
+                            }
+                        }
+                    ]
+                }
+            },
+        )
+        conversations = ToolObservation.ok(
+            command_id="conversations",
+            tool="wechat.desktop",
+            operation="list_conversations",
+            summary="listed",
+            observation={
+                "items": [
+                    {
+                        "displayName": "redacted",
+                        "actionId": "chats.visible.0.open",
+                        "element": {"frame": {"x": 1, "y": 1, "width": 1, "height": 1}},
+                    }
+                ]
+            },
+        )
+
+        result = module._expired_action_ref_check(
+            FakeWechat(),
+            inspected,
+            conversations,
+        )
+
+        self.assertEqual(result["success"], True)
+        self.assertEqual(len(executed_refs), 1)
+        self.assertEqual(executed_refs[0]["id"], "nav.chats.press")
+        self.assertEqual(executed_refs[0]["expiresAt"], "1970-01-01T00:00:00Z")
+
+    def test_conversation_proof_accepts_semantic_open_action_without_axpress(
+        self,
+    ) -> None:
+        module = _load_wechat_selector_engine_smoke_test_module()
+        conversation = {
+            "displayName": "redacted",
+            "actionId": "chats.visible.0.open",
+            "element": {
+                "role": "AXRow",
+                "frame": {"x": 10, "y": 20, "width": 100, "height": 40},
+            },
+        }
+
+        self.assertEqual(module._conversation_actionable(conversation), True)
+        self.assertEqual(
+            module._conversation_actionable(
+                {**conversation, "actionId": "chats.visible.0.inspect"}
+            ),
+            False,
+        )
 
     def test_wechat_selector_engine_requires_release_sha_and_bounded_limits(
         self,

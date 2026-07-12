@@ -214,7 +214,11 @@ def run_selector_engine_smoke_test(
         if opened.success
         else _skipped_observation("list_conversations", "open_wechat", opened)
     )
-    expired_action_ref = _expired_action_ref_check(wechat, conversations)
+    expired_action_ref = _expired_action_ref_check(
+        wechat,
+        inspected,
+        conversations,
+    )
     opened_contact = (
         wechat.open_contact(contact)
         if opened.success
@@ -427,18 +431,19 @@ def _service_settings(args: argparse.Namespace) -> tuple[str, str | None, float]
 
 def _expired_action_ref_check(
     wechat: WeChatDesktopTool,
+    inspected: ToolObservation,
     conversations: ToolObservation,
 ) -> dict[str, Any]:
-    action_ref = _first_action_ref(conversations)
+    action_ref = _first_action_ref(inspected, conversations)
     if action_ref is None:
         skipped = _skipped_observation(
             "execute_action",
-            "list_conversations",
-            conversations,
+            "inspect_window",
+            inspected,
         )
         return {
             "success": False,
-            "reason": "missing_conversation_action_ref",
+            "reason": "missing_live_action_ref",
             "executeAction": skipped.to_dict(),
         }
     expired_ref = dict(action_ref)
@@ -519,13 +524,29 @@ def _write_generated_invalid_profile(directory: Path) -> Path:
     return path
 
 
-def _first_action_ref(observation: ToolObservation) -> dict[str, Any] | None:
-    items = observation.observation.get("items") if observation.observation else None
-    if not isinstance(items, list):
+def _first_action_ref(
+    *observations: ToolObservation,
+) -> dict[str, Any] | None:
+    def visit(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, Mapping):
+            action_ref = value.get("actionRef")
+            if isinstance(action_ref, Mapping):
+                return dict(action_ref)
+            for child in value.values():
+                found = visit(child)
+                if found is not None:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = visit(child)
+                if found is not None:
+                    return found
         return None
-    for item in items:
-        if isinstance(item, Mapping) and isinstance(item.get("actionRef"), Mapping):
-            return dict(item["actionRef"])
+
+    for observation in observations:
+        found = visit(observation.observation)
+        if found is not None:
+            return found
     return None
 
 
@@ -605,7 +626,7 @@ def _build_selector_proof_v2(
                 "items": [
                     {
                         "semanticFieldsPresent": _conversation_fields_present(item),
-                        "actionable": isinstance(item.get("actionRef"), Mapping),
+                        "actionable": _conversation_actionable(item),
                     }
                     for item in conversations
                 ],
@@ -671,6 +692,29 @@ def _conversation_fields_present(item: Mapping[str, Any]) -> bool:
     )
 
 
+def _conversation_actionable(item: Mapping[str, Any]) -> bool:
+    if isinstance(item.get("actionRef"), Mapping):
+        return True
+    element = item.get("element")
+    if not isinstance(element, Mapping):
+        return False
+    frame = element.get("frame")
+    if not isinstance(frame, Mapping):
+        return False
+    action_id = _non_empty_string(item.get("actionId"))
+    return (
+        action_id is not None
+        and action_id.endswith(".open")
+        and all(
+            isinstance(frame.get(key), int | float)
+            and not isinstance(frame.get(key), bool)
+            for key in ("x", "y", "width", "height")
+        )
+        and float(frame["width"]) > 0
+        and float(frame["height"]) > 0
+    )
+
+
 def _message_text_present(item: Mapping[str, Any]) -> bool:
     return _non_empty_string(item.get("text")) is not None
 
@@ -725,8 +769,8 @@ def _frame_derived_coordinates_only(live_result: Mapping[str, Any]) -> bool:
         input_payload = _mapping_value(command.get("input"))
         if not isinstance(input_payload.get("coordinates"), Mapping):
             continue
-        phase = _mapping_value(command.get("metadata")).get("phase")
-        if not isinstance(phase, str) or not phase.startswith("control_map_"):
+        metadata = _mapping_value(command.get("metadata"))
+        if metadata.get("coordinateSource") != "accessibility_frame":
             return False
     return True
 
