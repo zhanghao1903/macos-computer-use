@@ -6,6 +6,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import select
 import subprocess
@@ -210,6 +211,8 @@ class _AccessibilityWorker:
     """Warm subprocess for repeated Accessibility operations in service mode."""
 
     _PROTOCOL_FAILURE = 70
+    _STARTUP_TIMEOUT_SECONDS = 5.0
+    _MAX_FRAME_BYTES = 16 * 1024 * 1024
 
     def __init__(
         self,
@@ -222,11 +225,14 @@ class _AccessibilityWorker:
         self._worker_script = worker_script
         self._executable = executable
         self._process: subprocess.Popen[str] | None = None
+        self._stdout_buffer = bytearray()
         self._lock = threading.Lock()
 
     def start(self) -> None:
         with self._lock:
-            self._ensure_started()
+            self._ensure_started(
+                deadline=time.monotonic() + self._STARTUP_TIMEOUT_SECONDS
+            )
 
     def stop(self) -> None:
         with self._lock:
@@ -235,9 +241,12 @@ class _AccessibilityWorker:
     def run(self, request: Mapping[str, Any], *, timeout: float) -> CommandResult:
         started = time.monotonic()
         timeout = max(0.1, timeout)
+        deadline = started + timeout
         with self._lock:
             try:
-                process = self._ensure_started()
+                process = self._ensure_started(deadline=deadline)
+            except TimeoutError as exc:
+                return CommandResult(124, "", str(exc), timed_out=True)
             except Exception as exc:
                 return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
             if process.stdin is None or process.stdout is None:
@@ -254,7 +263,11 @@ class _AccessibilityWorker:
                 self._stop_locked()
                 return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
 
-            line = self._read_response_line(process, timeout, started)
+            try:
+                line = self._read_response_line(process, deadline=deadline)
+            except Exception as exc:
+                self._stop_locked()
+                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
             if line is None:
                 stderr = self._terminate_for_timeout(process)
                 return CommandResult(124, "", stderr, timed_out=True)
@@ -272,10 +285,11 @@ class _AccessibilityWorker:
                 )
             return CommandResult(0, line, "")
 
-    def _ensure_started(self) -> subprocess.Popen[str]:
+    def _ensure_started(self, *, deadline: float) -> subprocess.Popen[str]:
         if self._process is not None and self._process.poll() is None:
             return self._process
         self._stop_locked()
+        self._stdout_buffer.clear()
         self._process = subprocess.Popen(
             [
                 self._executable,
@@ -287,42 +301,104 @@ class _AccessibilityWorker:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             bufsize=1,
         )
-        return self._process
+        process = self._process
+        try:
+            readiness_line = self._read_response_line(process, deadline=deadline)
+            if readiness_line is None:
+                stderr = self._terminate_for_timeout(process)
+                raise TimeoutError(
+                    stderr
+                    or (
+                        f"Accessibility {self._worker_name} worker readiness "
+                        "timed out."
+                    )
+                )
+            if not readiness_line:
+                stderr = self._collect_stderr(process)
+                raise RuntimeError(
+                    stderr
+                    or (
+                        f"Accessibility {self._worker_name} worker exited "
+                        "before readiness."
+                    )
+                )
+            self._validate_readiness_line(readiness_line)
+        except Exception:
+            self._stop_locked()
+            raise
+        return process
 
     def _read_response_line(
         self,
         process: subprocess.Popen[str],
-        timeout: float,
-        started: float,
+        *,
+        deadline: float,
     ) -> str | None:
         if process.stdout is None:
             return ""
-        deadline = started + timeout
         while True:
+            buffered_line = self._pop_buffered_line()
+            if buffered_line is not None:
+                if buffered_line:
+                    return buffered_line
+                continue
+
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
-            ready, _, _ = select.select([process.stdout], [], [], remaining)
+            stdout_fd = process.stdout.fileno()
+            ready, _, _ = select.select([stdout_fd], [], [], remaining)
             if not ready:
                 return None
-            line = process.stdout.readline()
-            if line == "":
+            try:
+                chunk = os.read(stdout_fd, 64 * 1024)
+            except InterruptedError:
+                continue
+            if not chunk:
                 return ""
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if self._is_worker_ready_line(stripped):
-                continue
-            return stripped
+            self._stdout_buffer.extend(chunk)
+            if len(self._stdout_buffer) > self._MAX_FRAME_BYTES:
+                raise RuntimeError(
+                    f"Accessibility {self._worker_name} worker response "
+                    f"exceeded {self._MAX_FRAME_BYTES} bytes."
+                )
 
-    def _is_worker_ready_line(self, line: str) -> bool:
+    def _pop_buffered_line(self) -> str | None:
+        newline_index = self._stdout_buffer.find(b"\n")
+        if newline_index < 0:
+            return None
+        raw_line = bytes(self._stdout_buffer[:newline_index])
+        del self._stdout_buffer[: newline_index + 1]
+        try:
+            return raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted invalid UTF-8."
+            ) from exc
+
+    def _validate_readiness_line(self, line: str) -> None:
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError:
-            return False
-        return isinstance(payload, dict) and payload.get("workerReady") is True
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted invalid "
+                "readiness JSON."
+            ) from exc
+        if not isinstance(payload, dict) or payload.get("workerReady") is not True:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted an "
+                "unexpected readiness frame."
+            )
+        if payload.get("status") != "ok":
+            message = payload.get("message")
+            detail = str(message).strip() if message is not None else ""
+            raise RuntimeError(
+                detail
+                or f"Accessibility {self._worker_name} worker failed readiness."
+            )
 
     def _terminate_for_timeout(self, process: subprocess.Popen[str]) -> str:
         try:
@@ -332,6 +408,8 @@ class _AccessibilityWorker:
             stderr = str(exc)
         finally:
             self._process = None
+            self._stdout_buffer.clear()
+            self._close_process_pipes(process)
         return stderr or f"Accessibility {self._worker_name} worker timed out."
 
     def _collect_stderr(self, process: subprocess.Popen[str]) -> str:
@@ -346,14 +424,29 @@ class _AccessibilityWorker:
     def _stop_locked(self) -> None:
         process = self._process
         self._process = None
-        if process is None or process.poll() is not None:
+        self._stdout_buffer.clear()
+        if process is None:
             return
-        process.terminate()
         try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=1)
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
+        finally:
+            self._close_process_pipes(process)
+
+    @staticmethod
+    def _close_process_pipes(process: subprocess.Popen[str]) -> None:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is None or stream.closed:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
 
     def __del__(self) -> None:
         try:

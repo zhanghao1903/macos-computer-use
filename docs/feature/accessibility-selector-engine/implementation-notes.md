@@ -3857,3 +3857,60 @@ contract. The send started while Chats was already selected, so a separate
 non-submit probe first switched to Contacts and then measured `open_contact`
 back to `文件传输助手` at `1272 ms`; no text or Return action occurred in that
 probe. The verification document records both runs and their boundary.
+
+## F4 Review Remediation: Warm-Worker Protocol Framing
+
+Status: implementation and focused deterministic verification complete;
+repository-wide F5 verification and new-head review remain pending.
+
+`PRR-018` identified a race between `select()` on the subprocess file
+descriptor and `TextIOWrapper.readline()`. The text wrapper could prefetch both
+the readiness line and a fast response, return only readiness, and leave the
+response in its private buffer while the next `select()` waited on an empty
+kernel pipe. A valid query or an already-executed action could therefore be
+reported as timed out.
+
+The worker protocol now has explicit phases:
+
+1. process startup reads and validates exactly one readiness frame before
+   `start()` returns or any request is written;
+2. request and response framing uses `os.read()` plus a worker-owned byte
+   buffer, checking buffered complete lines before waiting on the descriptor;
+3. one UTF-8 newline-delimited response is consumed for each serialized
+   request under the existing worker lock;
+4. invalid readiness JSON, non-`ok` readiness, invalid UTF-8, EOF, and frames
+   above 16 MiB fail the worker protocol;
+5. the request deadline includes a required worker restart and handshake;
+6. stop, failed readiness, protocol failure, and timeout clear framing state
+   and close all subprocess pipes.
+
+The action safety boundary is unchanged. If no warm action worker exists, the
+client may use the one-shot subprocess before dispatch. Once a request has
+been written to the action worker, timeout or protocol failure is returned as
+an unknown outcome and the request is never replayed through the subprocess
+runner. Read-only query protocol failures retain their existing fallback.
+
+New real-subprocess regression coverage proves:
+
+- a readiness frame and following response delivered in one OS write remain
+  separately consumable;
+- failed readiness is rejected during `start()` before request dispatch;
+- 100 immediate query responses and 100 immediate action responses have zero
+  false timeouts, dropped frames, or response cross-wiring;
+- a synthetic action worker can record dispatch and then withhold its response;
+  the client returns `TIMEOUT` and makes zero fallback runner calls;
+- subprocess pipes produce no `ResourceWarning` under warning-as-error tests.
+
+Focused result:
+
+```text
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -W error::ResourceWarning -m unittest discover \
+  -s packages/computer-use-macos/tests
+
+Ran 137 tests in 0.702s
+OK (skipped=1)
+```
+
+No real Accessibility action or WeChat message was executed for this
+remediation. All new protocol workers are synthetic subprocesses.
