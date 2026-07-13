@@ -242,7 +242,17 @@ class _AccessibilityWorker:
         started = time.monotonic()
         timeout = max(0.1, timeout)
         deadline = started + timeout
-        with self._lock:
+        try:
+            request_line = json.dumps(request, ensure_ascii=False) + "\n"
+        except Exception as exc:
+            return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not self._lock.acquire(timeout=remaining):
+            return self._pre_dispatch_timeout("waiting for worker access")
+        try:
+            if time.monotonic() >= deadline:
+                return self._pre_dispatch_timeout("after worker access")
             try:
                 process = self._ensure_started(deadline=deadline)
             except TimeoutError as exc:
@@ -256,8 +266,10 @@ class _AccessibilityWorker:
                     "",
                     f"Accessibility {self._worker_name} worker pipes are unavailable.",
                 )
+            if time.monotonic() >= deadline:
+                return self._pre_dispatch_timeout("after worker readiness")
             try:
-                process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                process.stdin.write(request_line)
                 process.stdin.flush()
             except Exception as exc:
                 self._stop_locked()
@@ -284,6 +296,19 @@ class _AccessibilityWorker:
                     ),
                 )
             return CommandResult(0, line, "")
+        finally:
+            self._lock.release()
+
+    def _pre_dispatch_timeout(self, phase: str) -> CommandResult:
+        return CommandResult(
+            124,
+            "",
+            (
+                f"Accessibility {self._worker_name} worker timed out before "
+                f"dispatch while {phase}."
+            ),
+            timed_out=True,
+        )
 
     def _ensure_started(self, *, deadline: float) -> subprocess.Popen[str]:
         if self._process is not None and self._process.poll() is None:

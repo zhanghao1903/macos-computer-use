@@ -12,6 +12,8 @@ import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+import time
 import tomllib
 import unittest
 
@@ -363,6 +365,28 @@ for line in sys.stdin:
         ),
         flush=True,
     )
+'''
+
+
+def _recording_accessibility_worker_script(log_path: Path) -> str:
+    return f'''
+import json
+from pathlib import Path
+import sys
+
+LOG_PATH = Path({str(log_path)!r})
+
+print(
+    json.dumps({{"workerReady": True, "status": "ok", "message": ""}}),
+    flush=True,
+)
+for line in sys.stdin:
+    raw_request = line.strip()
+    if not raw_request:
+        continue
+    with LOG_PATH.open("a", encoding="utf-8") as log_file:
+        log_file.write(raw_request + "\\n")
+    print(raw_request, flush=True)
 '''
 
 
@@ -1054,6 +1078,138 @@ for _ in sys.stdin:
                 worker.start()
         finally:
             worker.stop()
+
+    def test_accessibility_worker_lock_timeout_does_not_dispatch(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "worker-requests.jsonl"
+            worker = _AccessibilityWorker(
+                worker_name="lock-deadline-test",
+                worker_script=_recording_accessibility_worker_script(log_path),
+            )
+            request_started = threading.Event()
+            request_completed = threading.Event()
+            results: list[CommandResult] = []
+
+            def run_contended_request() -> None:
+                request_started.set()
+                results.append(worker.run({"sequence": 1}, timeout=0.1))
+                request_completed.set()
+
+            request_thread = threading.Thread(target=run_contended_request)
+            try:
+                worker.start()
+                process = worker._process
+                self.assertIsNotNone(process)
+                assert process is not None
+                worker._lock.acquire()
+                try:
+                    request_thread.start()
+                    self.assertTrue(request_started.wait(timeout=1.0))
+                    completed_while_lock_held = request_completed.wait(timeout=1.0)
+                finally:
+                    worker._lock.release()
+                    request_thread.join(timeout=1.0)
+
+                self.assertTrue(completed_while_lock_held)
+                self.assertFalse(request_thread.is_alive())
+                self.assertEqual(len(results), 1)
+                self.assertTrue(results[0].timed_out)
+                self.assertEqual(results[0].returncode, 124)
+                self.assertIn("before dispatch", results[0].stderr)
+                self.assertFalse(log_path.exists())
+                self.assertIs(worker._process, process)
+                self.assertIsNone(process.poll())
+
+                follow_up = worker.run({"sequence": 2}, timeout=1.0)
+
+                self.assertFalse(follow_up.timed_out)
+                self.assertEqual(follow_up.returncode, 0)
+                self.assertIs(worker._process, process)
+                self.assertIsNone(process.poll())
+                self.assertEqual(
+                    [json.loads(line) for line in log_path.read_text().splitlines()],
+                    [{"sequence": 2}],
+                )
+            finally:
+                if request_thread.is_alive():
+                    request_thread.join(timeout=1.0)
+                worker.stop()
+
+    def test_accessibility_worker_slow_startup_does_not_dispatch_after_deadline(
+        self,
+    ) -> None:
+        class SlowStartupWorker(_AccessibilityWorker):
+            def __init__(self, *, worker_name: str, worker_script: str) -> None:
+                super().__init__(
+                    worker_name=worker_name,
+                    worker_script=worker_script,
+                )
+                self.readiness_observed = threading.Event()
+                self.resume_startup = threading.Event()
+                self.started_process: subprocess.Popen[str] | None = None
+
+            def _ensure_started(
+                self,
+                *,
+                deadline: float,
+            ) -> subprocess.Popen[str]:
+                process = super()._ensure_started(deadline=deadline)
+                self.started_process = process
+                if not self.readiness_observed.is_set():
+                    self.readiness_observed.set()
+                    if not self.resume_startup.wait(timeout=2.0):
+                        raise RuntimeError("test did not resume worker startup")
+                return process
+
+        with TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "worker-requests.jsonl"
+            worker = SlowStartupWorker(
+                worker_name="startup-deadline-test",
+                worker_script=_recording_accessibility_worker_script(log_path),
+            )
+            request_completed = threading.Event()
+            results: list[CommandResult] = []
+
+            def run_slow_startup_request() -> None:
+                results.append(worker.run({"sequence": 1}, timeout=0.5))
+                request_completed.set()
+
+            request_thread = threading.Thread(target=run_slow_startup_request)
+            try:
+                request_thread.start()
+                self.assertTrue(worker.readiness_observed.wait(timeout=2.0))
+                process = worker.started_process
+                self.assertIsNotNone(process)
+                assert process is not None
+                time.sleep(0.55)
+                worker.resume_startup.set()
+                self.assertTrue(request_completed.wait(timeout=1.0))
+                request_thread.join(timeout=1.0)
+
+                self.assertFalse(request_thread.is_alive())
+                self.assertEqual(len(results), 1)
+                self.assertTrue(results[0].timed_out)
+                self.assertEqual(results[0].returncode, 124)
+                self.assertIn("after worker readiness", results[0].stderr)
+                self.assertFalse(log_path.exists())
+                self.assertIs(worker._process, process)
+                self.assertIsNone(process.poll())
+
+                follow_up = worker.run({"sequence": 2}, timeout=1.0)
+
+                self.assertFalse(follow_up.timed_out)
+                self.assertEqual(follow_up.returncode, 0)
+                self.assertIs(worker._process, process)
+                self.assertIsNone(process.poll())
+                self.assertEqual(
+                    [json.loads(line) for line in log_path.read_text().splitlines()],
+                    [{"sequence": 2}],
+                )
+            finally:
+                worker.resume_startup.set()
+                if request_thread.is_alive():
+                    request_thread.join(timeout=1.0)
+                worker.stop()
 
     def test_package_accessibility_query_can_use_warm_worker_transport(
         self,

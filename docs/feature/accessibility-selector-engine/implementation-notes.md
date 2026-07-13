@@ -3860,8 +3860,9 @@ probe. The verification document records both runs and their boundary.
 
 ## F4 Review Remediation: Warm-Worker Protocol Framing
 
-Status: implementation and focused deterministic verification complete;
-repository-wide F5 verification and new-head review remain pending.
+Status: implementation, repository-wide verification, and new-head review
+complete. That review closed `PRR-018` and opened the follow-up deadline finding
+`PRR-019`, addressed below.
 
 `PRR-018` identified a race between `select()` on the subprocess file
 descriptor and `TextIOWrapper.readline()`. The text wrapper could prefetch both
@@ -3914,3 +3915,56 @@ OK (skipped=1)
 
 No real Accessibility action or WeChat message was executed for this
 remediation. All new protocol workers are synthetic subprocesses.
+
+## F4 Review Remediation: Pre-Dispatch Worker Deadline
+
+Status: implementation and focused deterministic verification complete;
+exact-head F5 verification and new-head review remain pending.
+
+`PRR-019` found that the worker deadline was calculated before acquiring the
+per-worker lock, but the lock wait itself was unbounded. A queued request could
+therefore exhaust its timeout, acquire the lock later, and still be written to
+the worker. For a mutating Accessibility action, that contradicted the caller's
+timeout result and could mutate the desktop after the request was already
+considered expired.
+
+The worker now applies one monotonic deadline to request serialization, lock
+contention, worker startup/readiness, dispatch, and response:
+
+1. the request is serialized before entering the worker critical section;
+2. lock acquisition is bounded by the remaining request budget;
+3. the deadline is checked immediately after lock acquisition;
+4. startup and readiness receive the same deadline, followed by one final
+   deadline check immediately before `stdin.write()`;
+5. a deadline exhausted before dispatch returns code `124` with
+   `timed_out=true`, writes zero request frames, and leaves an existing healthy
+   worker running;
+6. once a request frame has been written, the existing unknown-outcome safety
+   boundary remains unchanged: response timeout terminates the worker and a
+   mutating action is never replayed.
+
+New real-subprocess regression coverage proves both required zero-write cases:
+
+- a request whose complete budget is consumed waiting for the worker lock
+  returns while the lock is still held, does not reach the worker, and a
+  follow-up request succeeds through the same worker process;
+- a newly started worker emits valid readiness, startup completion is then
+  held past the request deadline, and the final pre-write check prevents
+  dispatch while preserving that healthy worker for a follow-up request.
+
+The existing coalesced-frame, 100 immediate query/action response, failed
+readiness, and post-dispatch no-replay tests continue to pass. Focused package
+verification with resource warnings promoted to errors produced:
+
+```text
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -W error::ResourceWarning -m unittest discover \
+  -s packages/computer-use-macos/tests
+
+Ran 139 tests in 1.474s
+OK (skipped=1)
+```
+
+This remediation does not change a public API, protocol schema, configuration
+key, package dependency, or package version. No live Accessibility action or
+WeChat message was executed; all added workers are synthetic subprocesses.
