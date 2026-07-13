@@ -4,25 +4,30 @@
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
-- Reviewed implementation head:
-  `5a010dab632eda2d3d9b39205f4f867c1fed0097`
-- Status: `APPROVE`; implementation is merge-ready
+- Reviewed head:
+  `2f11b23b79040bf315513e1341d15a5e57f72379`
+- Status: `APPROVE`; implementation is merge-ready under the current Review Contract
 - Current review:
-  [`pr-review-macos-computer-use-3-5a010da.md`](./pr-review-macos-computer-use-3-5a010da.md)
+  [`pr-review-macos-computer-use-3-2f11b23.md`](./pr-review-macos-computer-use-3-2f11b23.md)
 
 ## Decision
 
-`PRR-001` through `PRR-017` are resolved. No open blocking finding remains for
+`PRR-001` through `PRR-018` are resolved. No open blocking finding remains for
 the reviewed implementation head.
 
-The final two gates now have direct evidence:
+The final gates now have direct evidence:
 
-1. one authorized public `send_message` to `文件传输助手` returned
+1. historical live integration on `5a010da`: one authorized public
+   `send_message` to `文件传输助手` returned
    `success=true`, `submitted=true` in `2461 ms`, below the `<=3000 ms`
    contract;
-2. GitHub Actions run `29217691709`, job `86797719880`, passed all test,
-   preflight, package, wheel, and distribution checks against the exact
-   implementation head.
+2. post-`PRR-018` protocol proof: real subprocess tests passed coalesced
+   framing, failed readiness, 100 immediate query responses, 100 immediate
+   action responses, fresh-worker 0.2-second stress, and unknown-action
+   no-replay;
+3. GitHub Actions run `29263722778`, job `86863397587`, passed all test,
+   preflight, package, wheel, and distribution checks against exact reviewed
+   head `2f11b23`.
 
 The public send began with Chats already selected. A separate non-submit probe
 started in Contacts and measured `open_contact("文件传输助手")` at `1272 ms`.
@@ -34,6 +39,12 @@ separate live measurements and are not represented as one run.
 Post-send read-back was not requested, so the evidence proves API submission
 rather than delivery confirmation. That limitation does not block this
 feature's approved contract.
+
+No fresh desktop mutation was run after `PRR-018`. The fix changes only parent
+subprocess handshake/framing; the prior live proof establishes AppKit worker
+integration, while the post-fix real subprocess tests directly exercise the
+race and no-replay boundary. The current review accepts that composite evidence
+for this transport-only remediation.
 
 ## Completed Scope
 
@@ -78,23 +89,28 @@ features.
 | `PRR-015` | Resolved | Row refs carry exact labels; unlabeled rows emit no action or coordinate click. |
 | `PRR-016` | Resolved | Visible-window lists return null continuation and reject non-null tokens. |
 | `PRR-017` | Resolved | Public send `2461 ms`; warm Chats action `58 ms`; real Contacts-origin open `1272 ms`. |
+| `PRR-018` | Resolved | Explicit readiness handshake, fd-level framing, 100 query/action responses each, unknown-outcome no-replay, and exact-head CI. |
 
 Historical reports remain immutable. The authoritative current review is the
-`5a010da` report linked above.
+`2f11b23` report linked above.
 
 ## Verification
 
-Deterministic checks on implementation head `5a010da...`:
+Post-fix deterministic checks:
 
-- root repository: 127 tests passed;
-- `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 132 tests passed, 1 skipped;
-- `wechat-desktop-tool`: 123 tests passed;
+- exact reviewed head `2f11b23`: `computer-use-macos` 137 tests passed,
+  1 skipped, with `ResourceWarning` treated as an error;
+- exact reviewed head: fresh-worker query 100/100 and action 100/100 passed at
+  `timeout=0.2`, compile and diff checks passed;
+- implementation head `68d2e4f` (code-identical to `2f11b23`): root 127,
+  `app-control-protocol` 55, `computer-use-macos` 137 plus 1 skip, and
+  `wechat-desktop-tool` 123 passed;
 - compile, wheel/build/install compatibility, release preflight, and diff
   checks passed;
-- worker failure and timeout tests prove action requests are not replayed.
+- real worker failure and timeout tests prove dispatched action requests are
+  not replayed.
 
-Live macOS and WeChat proof:
+Historical live macOS and WeChat proof on `5a010da`:
 
 - one authorized public send ran exactly once and returned in `2461 ms`;
 - exact target title, clipboard draft, and Return submission succeeded;
@@ -107,7 +123,7 @@ Remote proof:
 
 - repository visibility is public;
 - PR #3 is open, draft, and GitHub reports it mergeable;
-- run `29217691709` passed against exact implementation head `5a010da...`.
+- run `29263722778` passed against exact reviewed head `2f11b23...`.
 
 Ruff remains unavailable. Strict mypy reports the existing broad baseline and
 is not a passing gate for this feature.
@@ -123,6 +139,8 @@ is not a passing gate for this feature.
 - contact and conversation lists are visible-window-only, return
   `nextPageToken=null`, and reject non-null continuation input;
 - action worker timeout/protocol failure is non-retryable after dispatch;
+- warm workers validate readiness before dispatch and consume fd-level framed
+  responses without mixing kernel and text-wrapper buffers;
 - message submission remains explicit, with unknown submit outcomes marked
   non-retryable until manual inspection.
 
@@ -132,6 +150,8 @@ is not a passing gate for this feature.
   actions, not part of this read-only review decision.
 - Signed-helper proof and actual release publication remain F7 work.
 - Delivery read-back was not requested for the one-shot send.
+- A fresh post-framing live desktop mutation was not required by the current
+  transport-only review contract; the evidence boundary remains explicit.
 - A future performance suite may collect repeated samples and percentiles; the
   approved feature gate uses bounded representative live samples.
 

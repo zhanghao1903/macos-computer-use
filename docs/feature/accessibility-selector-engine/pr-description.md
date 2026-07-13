@@ -2,14 +2,15 @@
 
 ## Current Review Status
 
-`APPROVE` for implementation head
-`5a010dab632eda2d3d9b39205f4f867c1fed0097`. The current F6 report is
-[`pr-review-macos-computer-use-3-5a010da.md`](./pr-review-macos-computer-use-3-5a010da.md).
+`APPROVE` for reviewed head
+`2f11b23b79040bf315513e1341d15a5e57f72379`. The current F6 report is
+[`pr-review-macos-computer-use-3-2f11b23.md`](./pr-review-macos-computer-use-3-2f11b23.md).
 
-`PRR-001` through `PRR-017` are resolved. Exact-head GitHub CI is green, the
-authorized public send completed in `2461 ms`, and the remediated real
-Contacts-to-Chats action completed in `58 ms` through the warm worker without
-fallback.
+`PRR-001` through `PRR-018` are resolved. Exact-head GitHub CI is green. The
+post-fix transport passed real subprocess readiness/framing tests with 100
+immediate query and 100 immediate action responses plus unknown-outcome
+no-replay. Historical live evidence records a `2461 ms` public send and a
+`58 ms` warm Contacts-to-Chats action without fallback.
 
 ## Problem
 
@@ -66,6 +67,8 @@ Behavior changes:
 - contact/conversation `nextPageToken` is always null, and non-null page tokens
   return `pagination_not_supported`;
 - direct Accessibility queries and actions use independent warm workers;
+- worker readiness is consumed before dispatch, and responses use fd-level
+  newline framing to avoid buffered-response false timeouts;
 - a query worker may fall back once because it is read-only, while an action
   worker never replays after dispatch;
 - helper-backed WeChat selector construction remains unsupported in `0.2.0`.
@@ -95,12 +98,16 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 
 - root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 132 tests passed, 1 skipped;
+- `computer-use-macos`: 137 tests passed, 1 skipped;
 - `wechat-desktop-tool`: 123 tests passed;
 - wheel/build/install compatibility, compile, release preflight, and diff checks
   passed;
-- GitHub Actions run `29217691709`, job `86797719880`, passed every step
-  against exact implementation head `5a010da...`;
+- real subprocess tests passed coalesced framing, failed readiness, 100
+  immediate query responses, 100 immediate action responses, fresh-worker
+  0.2-second stress, and timeout after synthetic action dispatch with zero
+  replay;
+- GitHub Actions run `29263722778`, job `86863397587`, passed every step
+  against exact reviewed head `2f11b23...`;
 - one authorized public `send_message` verified `文件传输助手`, clipboard-
   drafted the message, accepted Return submission, and returned
   `success=true`, `submitted=true` in `2461 ms`;
@@ -113,6 +120,10 @@ The public send started with Chats selected; the Contacts-origin transition was
 measured separately without drafting or sending. Post-send read-back was not
 requested, so `verified=false` means delivery was not independently confirmed.
 No private raw payload is committed.
+
+The live measurements predate the framing fix and establish AppKit worker
+integration. The post-fix evidence directly exercises the private subprocess
+protocol and no-replay boundary without performing another desktop mutation.
 
 ## Merge Decision
 
