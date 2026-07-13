@@ -3811,3 +3811,45 @@ row labels remain confined to the short-lived actionRef identity contract.
 The new regression proves an unlabeled row with a valid frame emits zero
 app-control commands and returns `wechat_action_target_unverified`. The complete
 WeChat package suite passes with 123 tests after this hardening.
+
+## F6 Performance Remediation: Warm Accessibility Action Worker
+
+Status: deterministic implementation complete; authorized post-change live
+timing remains pending.
+
+The successful public send proof on `f2b98ed` measured `3116 ms`, opening
+`PRR-017` against the `<=3000 ms` semantic API contract. The largest removable
+transport gap was the Chats `AXPress`: `1042 ms` wall time versus `734 ms`
+inside the action backend, or about `308 ms` of one-shot process startup and
+transport overhead.
+
+`computer-use-macos` now starts an independent prewarmed Accessibility action
+worker alongside the existing query worker in default direct/service mode. The
+worker executes the unchanged action script, so allowlist checks, bundle/app
+selection, snapshot validation, AX path resolution, role/label/action
+preconditions, and `AXUIElementPerformAction` behavior remain identical.
+
+Failure behavior is deliberately asymmetric:
+
+- the original subprocess is used when no action worker is available before a
+  request is dispatched;
+- after dispatch, worker protocol failure or timeout is returned immediately
+  and is never replayed, because the action may already have mutated the
+  desktop;
+- read-only query workers retain their existing protocol-failure fallback;
+- helper-backed execution remains unchanged and continues to be owned by the
+  helper transport.
+
+Deterministic tests cover worker success, protocol failure without retry,
+timeout without retry, generated worker-script compilation, and existing
+subprocess compatibility when no worker is configured. Current results:
+
+- `computer-use-macos`: 132 tests passed, 1 skipped;
+- root repository: 127 tests passed in 41.695 seconds;
+- `wechat-desktop-tool`: 123 tests passed.
+
+The expected representative saving is approximately `308 ms`, which would move
+the observed `3116 ms` path to roughly `2808 ms` without removing a safety
+check. This estimate is not acceptance evidence. Closing `PRR-017` still
+requires a newly authorized public send against the committed code with an
+observed duration at or below `3000 ms`.

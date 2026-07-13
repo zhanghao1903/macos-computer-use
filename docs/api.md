@@ -229,6 +229,15 @@ Use `accessibility_action` for elements that expose stable AX actions such as
 snapshot-local `axPath`, checks preconditions, and then calls
 `AXUIElementPerformAction`.
 
+On the direct backend, bounded Accessibility queries and actions use separate
+prewarmed worker processes. Successful payloads expose
+`diagnostics.transport.mode` as `worker` or `subprocess`. A worker protocol
+failure may fall back once for a read-only query. Actions are never replayed
+after a worker request: worker timeout or protocol failure is returned directly
+because the action may already have been attempted. The original action
+subprocess remains the fallback only when no action worker is available before
+dispatch. Helper behavior is unchanged.
+
 ```python
 from computer_use_macos import accessibility_action_command
 

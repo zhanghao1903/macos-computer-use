@@ -1691,3 +1691,37 @@ contract by `116 ms`. The live result therefore opens a performance remediation
 gate even though functional submission succeeded. Remediation must preserve
 frontmost-app identity, exact target identity, current-frame coordinates, and
 the target-title postcondition; bypassing those checks is not acceptable.
+
+## F5 Deterministic Verification For PRR-017 Remediation
+
+Date: 2026-07-13.
+
+The direct backend now uses a prewarmed worker for `accessibility_action` while
+retaining the existing action script and subprocess fallback. Named regression
+coverage proves:
+
+- worker success returns the original action payload plus
+  `diagnostics.transport.mode=worker` and emits no subprocess call;
+- worker protocol failure returns `FAILED` without invoking the subprocess
+  fallback;
+- worker timeout returns `TIMEOUT` without invoking the subprocess fallback;
+- the generated worker script compiles and contains ready, execution, failure,
+  and empty-response protocol branches;
+- existing direct action, configured-bundle inference, AXRow, and AXSetFocus
+  tests continue to pass.
+
+Commands and results:
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests` | 132 passed, 1 skipped |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests` | 127 passed in 41.695 s |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | 123 passed |
+| Non-mutating worker protocol smoke | Start the real action worker and send an unsupported action request | Worker returned protocol success with `unsupported_accessibility_action=true`; no target or action was resolved |
+| Non-mutating direct-client smoke | Send an `AXPress` request while WeChat has no focused AX window | Returned `focused_window_missing`, `actionAttempted=false`, `transport.mode=worker`; no action executed |
+| Compile | `.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Release preflight | `.venv/bin/python scripts/release_preflight.py` | Passed; only expected unavailable external-proof and socket warnings |
+
+No additional live desktop action was run. `PRR-017` remains open until the
+remediation is committed and a newly authorized public send measures
+`<=3000 ms`. This section does not replace that external proof.

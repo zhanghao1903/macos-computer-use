@@ -55,6 +55,7 @@ from computer_use_macos.commands import CommandResult
 from computer_use_macos.client import ComputerUseClient as ShortClientFromModule
 from computer_use_macos.client import MacOSComputerUseClient as ClientFromModule
 from computer_use_macos.client import _accessibility_action_script
+from computer_use_macos.client import _accessibility_action_worker_script
 from computer_use_macos.client import _accessibility_click_script
 from computer_use_macos.client import _accessibility_query_script
 from computer_use_macos.client import _accessibility_query_worker_script
@@ -259,6 +260,29 @@ class FakeAccessibilityQueryWorker:
         self.requests.append(request)
         self.timeouts.append(timeout)
         return self.result
+
+
+def _successful_accessibility_action_payload() -> dict[str, object]:
+    return {
+        "schema": "macos.accessibility.action.result.v1",
+        "available": True,
+        "status": "ok",
+        "operation": "accessibility_action",
+        "method": "AXUIElementPerformAction",
+        "snapshotId": "frontmost:TextEdit:Current",
+        "action": "AXPress",
+        "actionAttempted": True,
+        "target": {
+            "axPath": "0/1",
+            "role": "AXButton",
+            "label": "OK",
+            "actions": ["AXPress"],
+        },
+        "diagnostics": {
+            "durationMs": 12,
+            "verifiedPreconditions": True,
+        },
+    }
 
 
 class ComputerUseMacOSPackageTests(unittest.TestCase):
@@ -1332,6 +1356,129 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertEqual(request["preconditions"]["labelIn"], ["OK"])
         self.assertEqual(action["target"]["role"], "AXButton")
         self.assertEqual(action["method"], "AXUIElementPerformAction")
+        self.assertEqual(action["diagnostics"]["transport"]["mode"], "subprocess")
+
+    def test_package_accessibility_action_can_use_warm_worker_transport(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        worker = FakeAccessibilityQueryWorker(
+            CommandResult(
+                0,
+                json.dumps(_successful_accessibility_action_payload()),
+                "",
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {"TextEdit": "com.apple.TextEdit"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+        client._accessibility_action_worker = worker
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                preconditions={
+                    "roleIn": ["AXButton"],
+                    "labelIn": ["OK"],
+                    "actionIn": ["AXPress"],
+                },
+                command_id="cmd_action_worker",
+                timeout_ms=30_000,
+            )
+        )
+
+        action = observation.observation["accessibilityAction"]
+        transport = action["diagnostics"]["transport"]
+        self.assertEqual(observation.status, ToolStatus.OK)
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(worker.requests[0]["bundleId"], "com.apple.TextEdit")
+        self.assertEqual(worker.timeouts[0], 30.0)
+        self.assertEqual(transport["mode"], "worker")
+        self.assertEqual(transport["fallback"], False)
+
+    def test_package_accessibility_action_worker_failure_does_not_retry(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        worker = FakeAccessibilityQueryWorker(
+            CommandResult(70, "", "worker failed")
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {"TextEdit": "com.apple.TextEdit"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+        client._accessibility_action_worker = worker
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                preconditions={"labelIn": ["OK"]},
+                command_id="cmd_action_worker_fallback",
+            )
+        )
+
+        self.assertEqual(observation.status, ToolStatus.FAILED)
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(len(worker.requests), 1)
+
+    def test_package_accessibility_action_worker_timeout_does_not_retry(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        worker = FakeAccessibilityQueryWorker(
+            CommandResult(124, "", "worker timed out", timed_out=True)
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {"TextEdit": "com.apple.TextEdit"},
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+        client._accessibility_action_worker = worker
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                command_id="cmd_action_worker_timeout",
+                timeout_ms=1000,
+            )
+        )
+
+        self.assertEqual(observation.status, ToolStatus.TIMEOUT)
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(worker.timeouts, [1.0])
 
     def test_accessibility_action_uses_configured_bundle_for_target_app(
         self,
@@ -1620,6 +1767,20 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn('"target_app_not_frontmost"', source)
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn("return None", source)
+
+    def test_package_accessibility_action_worker_script_wraps_action_script(
+        self,
+    ) -> None:
+        source = _accessibility_action_worker_script()
+
+        compile(source, "<accessibility-action-worker>", "exec")
+        self.assertIn("workerReady", source)
+        self.assertIn("def warm_frameworks(", source)
+        self.assertIn("ACTION_SCRIPT", source)
+        self.assertIn("redirect_stdout", source)
+        self.assertIn("for line in sys.stdin:", source)
+        self.assertIn("accessibility_action_worker_failed", source)
+        self.assertIn("accessibility_action_worker_empty_response", source)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()
