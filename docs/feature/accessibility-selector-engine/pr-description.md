@@ -3,14 +3,16 @@
 ## Current Review Status
 
 `APPROVE` for reviewed head
-`2f11b23b79040bf315513e1341d15a5e57f72379`. The current F6 report is
-[`pr-review-macos-computer-use-3-2f11b23.md`](./pr-review-macos-computer-use-3-2f11b23.md).
+`a77f5d45b0869f764105fef9cc62b45068e96fe4`. The current F6 report is
+[`pr-review-macos-computer-use-3-a77f5d4.md`](./pr-review-macos-computer-use-3-a77f5d4.md).
 
-`PRR-001` through `PRR-018` are resolved. Exact-head GitHub CI is green. The
+`PRR-001` through `PRR-019` are resolved. Exact-head GitHub CI is green. The
 post-fix transport passed real subprocess readiness/framing tests with 100
 immediate query and 100 immediate action responses plus unknown-outcome
-no-replay. Historical live evidence records a `2461 ms` public send and a
-`58 ms` warm Contacts-to-Chats action without fallback.
+no-replay. Queue and delayed-startup expiration also write zero worker frames,
+preserve the process, and allow same-process recovery. Historical live evidence
+records a `2461 ms` public send and a `58 ms` warm Contacts-to-Chats action
+without fallback.
 
 ## Problem
 
@@ -69,6 +71,9 @@ Behavior changes:
 - direct Accessibility queries and actions use independent warm workers;
 - worker readiness is consumed before dispatch, and responses use fd-level
   newline framing to avoid buffered-response false timeouts;
+- request serialization, worker queueing, startup, readiness, dispatch, and
+  response waiting share one deadline; pre-dispatch expiration writes nothing
+  and preserves a healthy worker;
 - a query worker may fall back once because it is read-only, while an action
   worker never replays after dispatch;
 - helper-backed WeChat selector construction remains unsupported in `0.2.0`.
@@ -90,6 +95,8 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 - stale/reordered row refs fail exact identity preconditions;
 - opened contact title is verified before reads, drafts, or sends continue;
 - action worker timeout/protocol failure is returned without replay;
+- an expired request waiting for worker access or startup returns before
+  dispatch without terminating a healthy worker;
 - submit uncertainty is non-retryable until manual inspection;
 - public release proof excludes contacts, messages, titles, local paths,
   tokens, raw AX nodes, and operation observations.
@@ -98,16 +105,17 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 
 - root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 137 tests passed, 1 skipped;
+- `computer-use-macos`: 139 tests passed, 1 skipped, with resource warnings
+  treated as errors;
 - `wechat-desktop-tool`: 123 tests passed;
 - wheel/build/install compatibility, compile, release preflight, and diff checks
   passed;
 - real subprocess tests passed coalesced framing, failed readiness, 100
   immediate query responses, 100 immediate action responses, fresh-worker
-  0.2-second stress, and timeout after synthetic action dispatch with zero
-  replay;
-- GitHub Actions run `29263722778`, job `86863397587`, passed every step
-  against exact reviewed head `2f11b23...`;
+  stress, lock-expired and delayed-startup zero-write checks, same-process
+  recovery, and timeout after synthetic action dispatch with zero replay;
+- GitHub Actions run `29267848330`, job `86877739176`, passed every step
+  against exact reviewed head `a77f5d4...`;
 - one authorized public `send_message` verified `文件传输助手`, clipboard-
   drafted the message, accepted Return submission, and returned
   `success=true`, `submitted=true` in `2461 ms`;
