@@ -1873,3 +1873,59 @@ No real Accessibility query/action or WeChat send was run for this closure.
 The prior `5a010da` live evidence remains historical performance context and is
 not claimed as post-`PRR-018` live proof. A fresh review of the resulting head,
 plus exact-head CI, remains required before merge readiness can be restored.
+
+## F5 Deterministic Closure For PRR-019
+
+Date: 2026-07-14.
+
+Tested implementation head:
+`55d76f1fef52cc17bfb4e44983576f897ae671f6`.
+
+Validation ran from a clean isolated clone of that exact commit. The primary
+worktree's unrelated modified and untracked files therefore could not affect
+the tested source, package contents, or documentation. The clone remained
+clean after verification, and `git diff --check` passed.
+
+### Deadline counterexamples
+
+The real-subprocess tests record each request frame received by the synthetic
+worker and assert process identity before and after timeout. They prove both
+pre-dispatch expiration boundaries introduced for `PRR-019`:
+
+| Counterexample | Required result | Result |
+| --- | --- | --- |
+| The worker lock remains held longer than the queued request's complete timeout. | The queued call returns `TIMEOUT` while the lock is still held and the worker receives zero frames. | Passed |
+| A new worker emits valid readiness, but startup completion is held until after the same request deadline. | The final pre-write deadline check returns `TIMEOUT` and the worker receives zero frames. | Passed |
+| A pre-dispatch timeout occurs against a healthy process. | The process remains alive; a follow-up request uses the same process and is the only recorded frame. | Passed in both counterexamples |
+| An action frame was already dispatched and its response times out. | The worker is terminated and the mutating request is not replayed through the one-shot runner. | Existing regression still passed |
+| Readiness and immediate responses share or rapidly fill the stdout stream. | Framing remains ordered with zero false timeout across 100 query and 100 action responses. | Existing regressions still passed |
+
+The timeout budget now covers request serialization, bounded lock acquisition,
+worker startup/readiness, the final pre-write gate, and response waiting. This
+is an internal worker transport correction; public commands, schemas,
+configuration, dependencies, and package versions are unchanged.
+
+### Exact commands and results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests` | 127 passed in 42.348 s, including wheel and release checks |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | 55 passed |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 139 passed, 1 skipped |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | 123 passed |
+| Compile | `<workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only expected sandbox socket and unavailable external-proof warnings |
+| Wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py` | All three 0.2.0 wheels built, installed, imported, passed API smoke, and rejected the incompatible 0.1.1 dependency set |
+| Whitespace and clean tree | `git diff --check` and `git status --short` | Passed; no tracked or untracked output in the isolated clone |
+
+Ruff is not installed in either the workspace virtual environment or the
+available Anaconda runtime. Strict mypy was run against the changed
+`computer_use_macos/client.py`; it reported the existing three-error baseline
+at lines 660, 2488, and 2537, all outside the worker change. It is therefore
+recorded as a non-passing repository baseline rather than claimed as proof for
+this slice.
+
+No real Accessibility query/action or WeChat send was executed. Every new
+deadline test used a synthetic subprocess and a temporary request log. A fresh
+review of the verified implementation head and exact-head CI remain required
+before merge readiness can be restored.

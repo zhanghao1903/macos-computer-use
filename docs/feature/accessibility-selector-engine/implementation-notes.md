@@ -3918,8 +3918,8 @@ remediation. All new protocol workers are synthetic subprocesses.
 
 ## F4 Review Remediation: Pre-Dispatch Worker Deadline
 
-Status: implementation and focused deterministic verification complete;
-exact-head F5 verification and new-head review remain pending.
+Status: implementation and exact-head deterministic verification complete;
+new-head review remains pending.
 
 `PRR-019` found that the worker deadline was calculated before acquiring the
 per-worker lock, but the lock wait itself was unbounded. A queued request could
