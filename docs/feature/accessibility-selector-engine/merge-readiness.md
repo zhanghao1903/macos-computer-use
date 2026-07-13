@@ -1,13 +1,13 @@
 # Accessibility Selector Engine Merge Readiness
 
-- Review date: 2026-07-12
+- Review date: 2026-07-13
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
-- Reviewed head: `feb937d7aaac0aff9747dd802e03d5d6eb063707`
+- Reviewed head: `a49c57ef26a471b0e28f89223554895de3bcf8fd`
 - Status: `INCOMPLETE`; not yet merge-ready
 - Current review:
-  [`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md)
+  [`pr-review-macos-computer-use-3-a49c57e.md`](./pr-review-macos-computer-use-3-a49c57e.md)
 
 ## Decision
 
@@ -16,13 +16,16 @@ No open code finding remains on the reviewed source. `PRR-001` through
 
 Merge readiness remains incomplete for two external evidence gates:
 
-1. the exact-code public `send_message` smoke to `文件传输助手` did not execute
-   because the local-action approval service reached its usage limit;
-2. current GitHub Actions status could not be read for the same reason.
+1. the authorized public `send_message` smoke to `文件传输助手` executed once
+   but failed closed because Codex remained frontmost after bounded focus
+   recovery;
+2. current GitHub Actions failed before any job step because of the repository
+   account's Billing/spending-limit state.
 
-The failed live attempt stopped before process creation. It did not switch a
-contact, draft text, submit, or send a message. This document must not change to
-merge-ready until both gates are observed.
+The live attempt did not query or click a contact, draft text, submit, or send a
+message, and it was not retried. GitHub's failure is external to the code and
+workflow. This document must not change to merge-ready until a successful live
+send and a green current CI run are observed.
 
 ## Completed Scope
 
@@ -69,6 +72,7 @@ Historical reports remain immutable:
 
 - [`pr-review-macos-computer-use-3-07fa052.md`](./pr-review-macos-computer-use-3-07fa052.md)
 - [`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md)
+- [`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md)
 
 ## Verification
 
@@ -81,12 +85,15 @@ Latest code head `ca6d4a8...`, followed only by verification documentation:
 - package wheel build/install/rejection checks passed through the root suite;
 - compile and diff checks passed.
 
-Exact review head `feb937d...`:
+Exact review head `a49c57e...`:
 
 - release preflight passed public API, docs, config, command-builder,
   dry-run-smoke, packaging metadata, and workflow checks;
 - current external proofs remain warnings;
-- no current GitHub check result was observed.
+- the one-shot public send stopped at target-app identity with zero contact or
+  message side effects;
+- workflow run `29200626621` failed before any step because of GitHub Billing,
+  not a code or workflow error.
 
 Historical exact-code selector proof remains valid for the shared semantic
 read/open implementation: 11 contacts, 14 conversations, 30 visible messages,
@@ -114,12 +121,13 @@ errors in 15 files and is not treated as a passing gate.
 
 ## Remaining Evidence
 
-1. Restart `computer-use-macos serve` from the final code worktree.
-2. Run the command recorded in `verification.md` exactly once with target
-   `文件传输助手` and `WECHAT_TOOL_ALLOW_SEND=1`.
-3. If the result is `unknown`, inspect WeChat manually and do not retry.
-4. Record target postcondition, submit result, and elapsed public API time.
-5. Read current PR checks and require green CI for the pushed code head.
+1. Correct the GitHub account Billing/spending-limit condition.
+2. Rerun the existing workflow without changing it and require green current
+   checks for the pushed head.
+3. Run the public send smoke in an environment where WeChat can remain
+   frontmost, restricted to target `文件传输助手`.
+4. If submission returns `unknown`, inspect WeChat manually and do not retry.
+5. Record the target postcondition, submit result, and elapsed public API time.
 6. Refresh this file and the F6 report decision to `APPROVE` only after both
    evidence gates pass.
 

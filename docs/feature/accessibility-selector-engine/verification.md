@@ -1599,3 +1599,44 @@ After that commit:
 The new counterexample supplies an unlabeled `AXRow` with a valid frame and
 asserts `wechat_action_target_unverified` plus zero app-control commands. The
 live send-proof limitation above is unchanged.
+
+## F5 One-Shot Public Send Attempt And Current CI
+
+Date: 2026-07-13 Asia/Shanghai (`2026-07-12T16:44Z`).
+
+Reviewed branch head: `a49c57ef26a471b0e28f89223554895de3bcf8fd`.
+The runtime source is unchanged from `ca6d4a8412978e4be44f546ee839c187fb71a7d0`;
+the intervening commits contain review and verification documentation only.
+
+The local service was restarted from the current worktree. The user-authorized
+public smoke was then executed exactly once with target `文件传输助手`, explicit
+focus/select permission, and explicit send permission.
+
+Result: `send_message` returned `not_ready` before resolving or acting on a
+contact. The initial target identity observation and the bounded focus recovery
+both found `com.openai.codex` frontmost instead of the required
+`com.tencent.xinWeChat`, so the operation failed closed.
+
+| Step | Duration | Result |
+| --- | ---: | --- |
+| `open_app` | 86 ms | WeChat launch/activation command accepted |
+| Initial `observe` | 539 ms | Target identity mismatch |
+| Bounded `focus_app` | 2132 ms | Action accepted |
+| Post-focus `observe` | 184 ms | Codex was still frontmost; stop |
+
+No Accessibility query/action, contact-row click, `type_text`, draft, Return,
+submit, or message-send command ran. No message was sent, and the smoke was not
+retried. This is positive fail-closed evidence for target-app identity, but it
+does not satisfy the successful public `send_message` merge gate.
+
+Current PR metadata was also refreshed for
+[PR #3](https://github.com/zhanghao1903/macos-computer-use/pull/3): the draft PR
+is open and GitHub reports the branch as mergeable. Workflow run
+`29200626621`, job `86671264119`, failed before any step started because recent
+account payments failed or the repository spending limit must be increased.
+This is an external GitHub Billing gate, not a product-code or workflow
+failure. The separate `macos-latest` migration annotation is informational.
+
+After GitHub Billing is corrected, rerun CI without changing the workflow. A
+successful public send smoke must be captured in an environment where WeChat
+can remain frontmost; do not retry an `unknown` submit result.

@@ -3,8 +3,8 @@
 ## Current Review Status
 
 `INCOMPLETE` for reviewed head
-`feb937d7aaac0aff9747dd802e03d5d6eb063707`. The fresh F6 report is
-[`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md).
+`a49c57ef26a471b0e28f89223554895de3bcf8fd`. The fresh F6 report is
+[`pr-review-macos-computer-use-3-a49c57e.md`](./pr-review-macos-computer-use-3-a49c57e.md).
 
 No open code finding remains. `PRR-001` through `PRR-016` are resolved in the
 source and deterministic regression suites. PR #3 remains draft until one
@@ -100,19 +100,24 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 
 Not yet observed:
 
-- exact-code public `send_message` smoke after focus-path unification;
-- current GitHub Actions for the pushed final code head;
+- a successful public `send_message` smoke after focus-path unification;
+- green GitHub Actions for the pushed final code/doc head;
 - Ruff, which is not installed.
 
-The authorized live command did not start because the local-action approval
-service reached its usage limit. No message was sent by that attempt.
+The authorized live command ran exactly once and failed closed before contact
+resolution because Codex remained frontmost after bounded focus recovery. No
+Accessibility query/action, contact click, draft, submit, or message send ran,
+and the attempt was not retried. Current GitHub Actions was observed, but job
+`86671264119` never started because the account's Billing/spending limit needs
+attention; this is external to the code and workflow.
 
 ## Required Before Merge
 
-1. Run the documented public send smoke exactly once against
-   `文件传输助手`; do not retry an unknown submit result.
-2. Confirm the target-title postcondition, submit result, and public API time.
-3. Confirm current PR checks are green.
+1. Correct the GitHub Billing/spending-limit condition and rerun the unchanged
+   workflow to green.
+2. Run the documented public send smoke where WeChat can remain frontmost,
+   restricted to `文件传输助手`; do not retry an unknown submit result.
+3. Confirm the target-title postcondition, submit result, and public API time.
 4. Reissue the short F6 merge decision as `APPROVE` when both evidence gates
    pass.
 
