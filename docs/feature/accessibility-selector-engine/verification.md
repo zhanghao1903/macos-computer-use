@@ -1814,3 +1814,62 @@ no-replay tests, and exact-head green CI close the `PRR-017` performance
 remediation gate without weakening safety checks. Residual limitations are one
 timing sample per live path, no same-command send sample that started in
 Contacts, and no post-submit delivery read-back.
+
+## F5 Deterministic Closure For PRR-018
+
+Date: 2026-07-13.
+
+Tested implementation head:
+`68d2e4f85a216f2898f40162650bae222552ec96`.
+
+Validation ran from an isolated clone of that commit so unrelated dirty files
+in the primary worktree could not affect source, package, or documentation
+inputs. The change does not alter public commands, schemas, configuration, or
+package versions.
+
+### Protocol counterexamples
+
+The `computer-use-macos` suite now launches real `_AccessibilityWorker`
+subprocesses rather than substituting the previous fake worker. Named tests
+prove all required boundaries:
+
+| Counterexample | Required result | Result |
+| --- | --- | --- |
+| Readiness and a following response arrive in one OS write. | `start()` consumes only readiness and preserves the complete response frame. | Passed |
+| Query worker emits immediate responses. | 100 requests produce 100 ordered responses, zero timeout, zero fallback. | Passed |
+| Action worker emits immediate responses. | 100 requests produce 100 ordered responses, zero timeout, zero fallback. | Passed |
+| Readiness reports `status=error`. | Startup fails before any request dispatch. | Passed |
+| Action worker records dispatch and then returns no response. | Client reports `TIMEOUT`; one-shot runner call count remains zero. | Passed |
+| Workers stop, fail readiness, or time out. | All pipes close without `ResourceWarning`. | Passed with warnings treated as errors |
+
+The timeout counterexample's file write is a synthetic subprocess side effect,
+not a macOS Accessibility action. It proves the parent observed that dispatch
+had occurred while preserving the no-replay boundary.
+
+### Exact commands and results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests` | 127 passed in 42.077 s |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src .venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | 55 passed |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 137 passed, 1 skipped |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | 123 passed |
+| Compile | `.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Release preflight | `env -u PYTHONPATH .venv/bin/python scripts/release_preflight.py` | Passed; only expected socket and external-proof warnings |
+| Wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py` | All three 0.2.0 wheels built, installed, imported, passed API smoke, and rejected the incompatible 0.1.1 dependency set |
+
+The workspace `.venv` intentionally has no `pip` module, so an initial direct
+`.venv/bin/python scripts/wheel_check.py` invocation stopped before building a
+wheel. The check was rerun with the repository's available Python 3.12 runtime
+at `/opt/anaconda3/bin/python` and passed completely. This is an environment
+tooling distinction, not a product failure.
+
+`git diff --check` initially found one extra blank line at the end of the newly
+received `435d945` review Markdown. The non-semantic EOF whitespace was removed
+in the verification documentation slice and must pass again on its resulting
+head.
+
+No real Accessibility query/action or WeChat send was run for this closure.
+The prior `5a010da` live evidence remains historical performance context and is
+not claimed as post-`PRR-018` live proof. A fresh review of the resulting head,
+plus exact-head CI, remains required before merge readiness can be restored.

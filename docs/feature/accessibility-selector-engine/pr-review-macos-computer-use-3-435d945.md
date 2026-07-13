@@ -194,4 +194,3 @@ blocking_findings:
 validation_status: FAILED
 report_status: CURRENT
 ```
-
