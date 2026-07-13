@@ -1,0 +1,340 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "a77f5d45b0869f764105fef9cc62b45068e96fe4",
+    "reviewed_at": "2026-07-13T16:51:42Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "current PR metadata, exact base and head SHAs, changed-file metadata, complete main-to-head diff, and exact-head CI",
+      "focused 14c58c7-to-a77f5d4 three-commit, six-file remediation delta",
+      "Accessibility worker serialization, lock contention, startup, readiness, dispatch, response timeout, process preservation, and pipe cleanup",
+      "query fallback and mutating action no-replay call paths",
+      "real-subprocess deadline, framing, immediate-response, failed-readiness, and dispatched-timeout regressions",
+      "isolated root and package tests, compile, preflight, wheel build and install, whitespace, clean-tree, and feature documentation evidence"
+    ],
+    "excluded_scope": [
+      "fresh real WeChat action or message submission",
+      "post-submit delivery read-back and repeated live latency percentiles",
+      "signed helper execution and real TestPyPI or PyPI publication",
+      "private raw smoke artifacts and unrelated dirty worktree files",
+      "Ruff installation and cleanup of the existing strict-mypy baseline"
+    ]
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "PRR-019 is resolved: one total deadline now bounds serialization, lock waiting, startup and readiness, pre-write dispatch, and response waiting. Both pre-dispatch expiration paths write zero frames and preserve a healthy worker, post-dispatch mutating actions remain non-replayable, and all required local and exact-head CI gates pass.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The three-commit delta records, fixes, and verifies PRR-019. Bounded lock acquisition plus deadline checks after lock acquisition and startup prevent expired actions from being written, while real subprocess tests prove zero writes and same-process recovery. No open blocking finding remains for the reviewed snapshot.",
+  "change_map": [
+    {
+      "area": "Worker queue deadline",
+      "change": "Serialize the request first and acquire the worker lock only within the remaining request budget.",
+      "external_behavior": "A queued request returns timeout without late dispatch.",
+      "risk": "Low",
+      "validation": "The call completes while the lock remains held, records zero worker frames, and preserves the process."
+    },
+    {
+      "area": "Startup and readiness deadline",
+      "change": "Check the same deadline after worker startup and readiness immediately before stdin dispatch.",
+      "external_behavior": "A ready worker is preserved if startup completion consumes the request budget.",
+      "risk": "Low",
+      "validation": "Delayed startup completion records zero frames and the follow-up request reuses the same process."
+    },
+    {
+      "area": "Mutating action safety",
+      "change": "Retain worker termination on post-dispatch timeout and no one-shot action fallback or replay.",
+      "external_behavior": "Unknown action outcomes are not automatically duplicated.",
+      "risk": "Low",
+      "validation": "The existing dispatched-action timeout test records one request and zero fallback runner calls."
+    },
+    {
+      "area": "Framing and resources",
+      "change": "Retain the readiness handshake, fd-level newline framing, and pipe cleanup.",
+      "external_behavior": "Immediate responses remain ordered and worker resources close cleanly.",
+      "risk": "Low",
+      "validation": "One hundred query and action responses and ResourceWarning-as-error tests pass."
+    },
+    {
+      "area": "Compatibility and release",
+      "change": "Keep public API, protocol schema, configuration, dependency, and version surfaces unchanged.",
+      "external_behavior": "Existing 0.2.0 consumers retain the same public contract.",
+      "risk": "Low",
+      "validation": "Root and package suites, compile, preflight, wheel checks, and exact-head CI pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-019",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "concurrency",
+      "title": "Expired queued actions were dispatched before timeout was reported",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 241,
+        "line_end": 310,
+        "symbol": "_AccessibilityWorker.run",
+        "side": "RIGHT",
+        "commit_sha": "a77f5d45b0869f764105fef9cc62b45068e96fe4"
+      },
+      "observation": "The previous worker could exhaust its deadline waiting for the lock and still write. The current implementation serializes within the budget, bounds lock acquisition by remaining time, checks after acquisition, and checks again after startup and readiness immediately before writing.",
+      "trigger": "Another request holds the shared worker lock beyond this request timeout, or a restart reaches valid readiness but startup completion returns after the same deadline.",
+      "impact": "Before remediation, a mutating Accessibility action could begin after its caller timeout and then be retried as an unknown result. Both repaired paths now return timeout before dispatch and preserve a healthy process.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "One monotonic deadline covers request serialization, bounded lock acquisition, startup and readiness, the final pre-write gate, and response waiting.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:241"
+        },
+        {
+          "kind": "test",
+          "description": "The lock-contention test completes while the lock remains held, records zero frames, and proves a follow-up uses the same process.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:1082"
+        },
+        {
+          "kind": "test",
+          "description": "The delayed-startup test passes valid readiness, expires before write, records zero frames, and proves same-process follow-up.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:1138"
+        },
+        {
+          "kind": "test",
+          "description": "The existing post-dispatch action timeout regression still records one dispatch and makes zero one-shot fallback calls.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:test_real_action_worker_timeout_after_dispatch_does_not_retry"
+        },
+        {
+          "kind": "ci",
+          "description": "Exact reviewed-head GitHub Actions completed successfully.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29267848330/job/86877739176"
+        }
+      ],
+      "remediation": "Completed: bound worker access by the remaining request budget, check the deadline after lock acquisition and startup or readiness, return timeout with zero writes before dispatch, and preserve a healthy worker.",
+      "verification": "Completed: both zero-write counterexamples, same-process follow-up, framing stress, post-dispatch no-replay, package and root tests, compile, preflight, wheel checks, and exact-head CI passed.",
+      "status": "resolved",
+      "fingerprint": "accessibility-worker-queued-deadline-late-dispatch"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-019",
+      "action": "Prevent worker dispatch after queue or startup consumes the request deadline, preserve a healthy worker, and add deterministic zero-write regressions.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Private desktop logs can contain transient UI text.",
+      "mitigation": "Keep raw artifacts untracked and publish only bounded semantic evidence.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "A timeout after actual dispatch still represents an unknown desktop outcome.",
+      "mitigation": "Never replay a dispatched mutating action and require caller recovery.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "One worker intentionally serializes requests and can return pre-dispatch timeout under contention.",
+      "mitigation": "Charge queue and startup to one deadline and preserve the healthy process.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "Contended calls can exhaust their budget before dispatch.",
+      "mitigation": "Return promptly without worker churn and retain transport timing diagnostics.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "Internal timeout timing is stricter for queued direct-mode requests.",
+      "mitigation": "Public APIs, schemas, failure status, configuration, and versions remain unchanged.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Low",
+      "description": "The warm worker remains on the direct and service path.",
+      "mitigation": "Revert the focused worker commits if needed; one-shot behavior remains available before worker dispatch.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "maintainability",
+      "level": "Low",
+      "description": "The private worker and generated scripts remain in a large module.",
+      "mitigation": "Keep real-subprocess contract tests and extract only in a separate change.",
+      "owner": "computer-use-macos"
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests",
+        "environment": "isolated 55d76f1 implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 repository tests passed in 42.348 seconds, including wheel and release checks.",
+        "evidence_ref": "PRR-019"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "isolated 55d76f1 implementation clone; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "isolated 55d76f1 implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "139 tests passed and 1 platform-conditional test skipped; no ResourceWarning occurred.",
+        "evidence_ref": "PRR-019"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "isolated 55d76f1 implementation clone; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "123 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "<workspace>/.venv/bin/python -m compileall -q packages examples scripts tests",
+        "environment": "isolated 55d76f1 implementation clone; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Python compilation passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py",
+        "environment": "isolated 55d76f1 implementation clone; CPython 3.12.7",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "All required local gates passed; only expected sandbox socket and unavailable external-proof warnings remained.",
+        "evidence_ref": null
+      },
+      {
+        "command": "/opt/anaconda3/bin/python scripts/wheel_check.py",
+        "environment": "isolated 55d76f1 implementation clone; CPython 3.12",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "All three 0.2.0 wheels built, installed, imported, passed API smoke, and rejected incompatible 0.1.1 dependencies.",
+        "evidence_ref": null
+      },
+      {
+        "command": "git diff --check fed652343ec73734247955d44dc8e60293a7b373...a77f5d45b0869f764105fef9cc62b45068e96fe4",
+        "environment": "current review snapshot",
+        "head_sha": "a77f5d45b0869f764105fef9cc62b45068e96fe4",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "The complete reviewed diff has no whitespace errors.",
+        "evidence_ref": null
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src /opt/anaconda3/bin/python -m mypy --config-file packages/computer-use-macos/pyproject.toml packages/computer-use-macos/src/computer_use_macos/client.py",
+        "environment": "isolated 55d76f1 implementation clone; mypy 1.11.2",
+        "head_sha": "55d76f1fef52cc17bfb4e44983576f897ae671f6",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "Three existing errors remain at lines 660, 2488, and 2537; none intersects the worker remediation delta and strict mypy is not a configured CI gate.",
+        "evidence_ref": null
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test - run 29267848330, job 86877739176",
+        "observed_at": "2026-07-13T16:49:49Z",
+        "status": "PASS",
+        "summary": "Exact reviewed head a77f5d4 completed successfully; GitHub reports the PR mechanically mergeable with merge state CLEAN.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29267848330/job/86877739176"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "fresh real WeChat action or send",
+        "reason": "The transport correction is covered by synthetic subprocesses and did not require another desktop mutation."
+      },
+      {
+        "check": "post-submit delivery read-back",
+        "reason": "Outside this worker deadline re-review."
+      },
+      {
+        "check": "signed helper and real release publication",
+        "reason": "These remain later release-stage external gates."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the project virtual environment or available Anaconda runtime."
+      }
+    ]
+  },
+  "limitations": [
+    "This review is authoritative only for head a77f5d45b0869f764105fef9cc62b45068e96fe4.",
+    "Implementation validation ran at 55d76f1; a77f5d4 adds only its verification documentation and passed exact-head CI.",
+    "No fresh real desktop mutation, signed helper, or release publication was performed.",
+    "Private raw observations and unrelated dirty worktree files were excluded.",
+    "The GitHub PR body remains stale and the PR remains draft until the maintainer explicitly changes platform state."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "A request timeout is a total caller budget including serialization, queue, startup and readiness, dispatch, and response time.",
+    "A mutating request is potentially dispatched once write and flush begin, so an unknown post-dispatch result must never trigger automatic replay.",
+    "Direct users may share one client across threads and the worker lock is the intended serialization boundary.",
+    "The existing three strict-mypy errors are outside this delta and are not a configured CI merge gate."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced legacy private focus implementation in a separate cleanup.",
+      "value": "Reduces dead-code ambiguity without expanding the current worker safety fix."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group or remove it as an unavailable documented gate.",
+      "value": "Makes the configured lint check reproducible in clean environments."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live percentiles if the three-second target becomes an operational SLO.",
+      "value": "Separates representative feature acceptance from an ongoing latency guarantee."
+    },
+    {
+      "id": "NOTE-015",
+      "category": "documentation",
+      "recommendation": "Synchronize the GitHub PR body with the current review and refreshed merge-readiness record before changing draft state.",
+      "value": "The platform body still points to an obsolete REQUEST_CHANGES snapshot."
+    }
+  ]
+}
