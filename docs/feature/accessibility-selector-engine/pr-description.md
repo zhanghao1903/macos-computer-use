@@ -3,13 +3,14 @@
 ## Current Review Status
 
 `INCOMPLETE` for reviewed head
-`a49c57ef26a471b0e28f89223554895de3bcf8fd`. The fresh F6 report is
-[`pr-review-macos-computer-use-3-a49c57e.md`](./pr-review-macos-computer-use-3-a49c57e.md).
+`f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2`. The fresh F6 report is
+[`pr-review-macos-computer-use-3-f2b98ed.md`](./pr-review-macos-computer-use-3-f2b98ed.md).
 
-No open code finding remains. `PRR-001` through `PRR-016` are resolved in the
-source and deterministic regression suites. PR #3 remains draft until one
-exact-code public send smoke to `文件传输助手` and current green GitHub CI are
-observed.
+`PRR-001` through `PRR-016` are resolved in source and deterministic regression
+suites. The authorized public send succeeded but opened `PRR-017`: the
+end-to-end API measured `3116 ms`, exceeding the `<=3000 ms` performance
+contract. PR #3 remains draft until that finding is remediated and current
+GitHub CI is green.
 
 ## Problem
 
@@ -96,30 +97,32 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 - exact-head release preflight, compile, and diff checks passed;
 - historical exact-code selector proof recorded 11 contacts, 14
   conversations, 30 visible messages, and every measured semantic API below
-  3000 ms.
+  3000 ms;
+- newly authorized public `send_message` verified `文件传输助手`, clipboard-
+  drafted the message, accepted Return submission, and returned
+  `success=true`, `submitted=true` in `3116 ms`.
 
 Not yet observed:
 
-- a successful public `send_message` smoke after focus-path unification;
+- a public `send_message` result at or below `3000 ms` after performance
+  remediation;
 - green GitHub Actions for the pushed final code/doc head;
 - Ruff, which is not installed.
 
-The authorized live command ran exactly once and failed closed before contact
-resolution because Codex remained frontmost after bounded focus recovery. No
-Accessibility query/action, contact click, draft, submit, or message send ran,
-and the attempt was not retried. Current GitHub Actions was observed, but job
-`86671264119` never started because the account's Billing/spending limit needs
-attention; this is external to the code and workflow.
+The new live command ran exactly once and succeeded at the public API contract.
+Post-send read-back was not requested, so `verified=false` must not be
+interpreted as delivery verification. Current GitHub Actions was observed, but
+job `86712598586` never started because the account's Billing/spending limit
+needs attention; this is external to the code and workflow.
 
 ## Required Before Merge
 
-1. Correct the GitHub Billing/spending-limit condition and rerun the unchanged
+1. Remediate `PRR-017` without weakening app, target, frame, or title checks.
+2. Obtain new authorization and prove public `send_message <=3000 ms`; do not
+   retry an unknown submit result.
+3. Correct the GitHub Billing/spending-limit condition and rerun the unchanged
    workflow to green.
-2. Run the documented public send smoke where WeChat can remain frontmost,
-   restricted to `文件传输助手`; do not retry an unknown submit result.
-3. Confirm the target-title postcondition, submit result, and public API time.
-4. Reissue the short F6 merge decision as `APPROVE` when both evidence gates
-   pass.
+4. Reissue the short F6 merge decision as `APPROVE` when both gates pass.
 
 ## Release Note
 

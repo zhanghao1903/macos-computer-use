@@ -1640,3 +1640,54 @@ failure. The separate `macos-latest` migration annotation is informational.
 After GitHub Billing is corrected, rerun CI without changing the workflow. A
 successful public send smoke must be captured in an environment where WeChat
 can remain frontmost; do not retry an `unknown` submit result.
+
+## F5 Authorized Public Send Success And Performance Result
+
+Date: 2026-07-13 Asia/Shanghai (`2026-07-13T01:04:48Z`).
+
+Tested branch head: `f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2`.
+Runtime source remains `ca6d4a8412978e4be44f546ee839c187fb71a7d0`;
+commits between those heads contain review and verification documentation only.
+
+The user granted a new one-shot authorization. The local service was started
+from the current worktree, WeChat was activated immediately before the public
+smoke, and `send_message` was executed once with target `文件传输助手`. The
+attempt was not retried.
+
+Result:
+
+| Contract | Evidence |
+| --- | --- |
+| Public status | `ok`; `success=true` |
+| Focus result | `focus_contact` succeeded through verified `open_contact` |
+| Open method | `control_map_visible_action_ref` |
+| Target postcondition | `currentChatTitle=文件传输助手`, confidence `0.95` |
+| Draft input | Clipboard method, 39 characters, `submitted=false` at draft phase |
+| Submit | Return key accepted, `submitted=true`, `sendAttempted=true` |
+| Read-back verification | Not requested; top-level `verified=false` |
+| Total public API duration | `3116 ms` |
+
+Selected child timings from the same command:
+
+| Child operation | Duration |
+| --- | ---: |
+| `open_app` | 67 ms |
+| Frontmost-window `observe` | 504 ms |
+| Chats selector query | 73 ms |
+| Chats `AXPress` | 1042 ms wall time; 734 ms backend diagnostic |
+| Visible-conversation query | 24 ms |
+| Current-frame coordinate click | 482 ms |
+| Contact-title verification | 20 ms |
+| Clipboard `type_text` | 517 ms |
+| Submit Return | 319 ms |
+
+This closes the successful public focus/draft/submit evidence gate. It does not
+claim delivery read-back because `verifyAfterSubmit` was false. No private raw
+observation, message body, token, socket path, AX path, or conversation preview
+is promoted into a tracked proof artifact.
+
+The `3116 ms` result exceeds the approved `<=3000 ms` public semantic API
+contract by `116 ms`. The live result therefore opens a performance remediation
+gate even though functional submission succeeded. Remediation must preserve
+frontmost-app identity, exact target identity, current-frame coordinates, and
+the target-title postcondition; bypassing those checks is not acceptable.

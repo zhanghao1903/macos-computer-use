@@ -4,28 +4,30 @@
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
-- Reviewed head: `a49c57ef26a471b0e28f89223554895de3bcf8fd`
+- Reviewed head: `f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2`
 - Status: `INCOMPLETE`; not yet merge-ready
 - Current review:
-  [`pr-review-macos-computer-use-3-a49c57e.md`](./pr-review-macos-computer-use-3-a49c57e.md)
+  [`pr-review-macos-computer-use-3-f2b98ed.md`](./pr-review-macos-computer-use-3-f2b98ed.md)
 
 ## Decision
 
-No open code finding remains on the reviewed source. `PRR-001` through
-`PRR-016` have implementation and named deterministic closure evidence.
+`PRR-001` through `PRR-016` have implementation and named deterministic
+closure evidence. The successful public send opened one performance finding,
+`PRR-017`.
 
-Merge readiness remains incomplete for two external evidence gates:
+Merge readiness remains incomplete for one code gate and one external gate:
 
-1. the authorized public `send_message` smoke to `文件传输助手` executed once
-   but failed closed because Codex remained frontmost after bounded focus
-   recovery;
-2. current GitHub Actions failed before any job step because of the repository
-   account's Billing/spending-limit state.
+1. the newly authorized public `send_message` smoke succeeded and submitted to
+   `文件传输助手`, but measured `3116 ms`, exceeding the `<=3000 ms` contract by
+   `116 ms`;
+2. current GitHub Actions still fails before any job step because of the
+   repository account's Billing/spending-limit state.
 
-The live attempt did not query or click a contact, draft text, submit, or send a
-message, and it was not retried. GitHub's failure is external to the code and
-workflow. This document must not change to merge-ready until a successful live
-send and a green current CI run are observed.
+The successful attempt verified the target title, used clipboard draft input,
+and accepted Return submission exactly once. Post-send read-back was not
+requested, so the evidence proves API-level submission rather than delivery
+read-back. This document must not change to merge-ready until performance is
+remediated and verified and a current CI run is green.
 
 ## Completed Scope
 
@@ -67,12 +69,14 @@ features.
 | `PRR-014` | Resolved | Explicit AX targets are allowlisted and bundle/name identity is proven. |
 | `PRR-015` | Resolved | Row refs carry exact label preconditions; unlabeled rows emit no action or coordinate click. |
 | `PRR-016` | Resolved | Visible-window lists return null continuation and reject non-null tokens. |
+| `PRR-017` | Open | Successful public `send_message` measured `3116 ms`, above the `<=3000 ms` contract. |
 
 Historical reports remain immutable:
 
 - [`pr-review-macos-computer-use-3-07fa052.md`](./pr-review-macos-computer-use-3-07fa052.md)
 - [`pr-review-macos-computer-use-3-eb0e793.md`](./pr-review-macos-computer-use-3-eb0e793.md)
 - [`pr-review-macos-computer-use-3-feb937d.md`](./pr-review-macos-computer-use-3-feb937d.md)
+- [`pr-review-macos-computer-use-3-a49c57e.md`](./pr-review-macos-computer-use-3-a49c57e.md)
 
 ## Verification
 
@@ -85,21 +89,23 @@ Latest code head `ca6d4a8...`, followed only by verification documentation:
 - package wheel build/install/rejection checks passed through the root suite;
 - compile and diff checks passed.
 
-Exact review head `a49c57e...`:
+Exact review head `f2b98ed...`:
 
 - release preflight passed public API, docs, config, command-builder,
   dry-run-smoke, packaging metadata, and workflow checks;
 - current external proofs remain warnings;
-- the one-shot public send stopped at target-app identity with zero contact or
-  message side effects;
-- workflow run `29200626621` failed before any step because of GitHub Billing,
+- the newly authorized public send succeeded with verified target title,
+  clipboard draft, and accepted Return submission;
+- public `send_message` measured `3116 ms`, which does not satisfy the
+  `<=3000 ms` performance contract;
+- workflow run `29216231545` failed before any step because of GitHub Billing,
   not a code or workflow error.
 
 Historical exact-code selector proof remains valid for the shared semantic
 read/open implementation: 11 contacts, 14 conversations, 30 visible messages,
 all measured APIs below 3000 ms, target-title postcondition passed, and no raw
-observation or message submission. It does not prove the newly unified public
-send wrapper.
+observation or message submission. That historical proof did not cover the
+newly unified public send wrapper; the new evidence above does.
 
 Ruff is unavailable. Strict mypy reports the existing broad baseline of 184
 errors in 15 files and is not treated as a passing gate.
@@ -121,15 +127,16 @@ errors in 15 files and is not treated as a passing gate.
 
 ## Remaining Evidence
 
-1. Correct the GitHub account Billing/spending-limit condition.
-2. Rerun the existing workflow without changing it and require green current
-   checks for the pushed head.
-3. Run the public send smoke in an environment where WeChat can remain
-   frontmost, restricted to target `文件传输助手`.
-4. If submission returns `unknown`, inspect WeChat manually and do not retry.
-5. Record the target postcondition, submit result, and elapsed public API time.
-6. Refresh this file and the F6 report decision to `APPROVE` only after both
-   evidence gates pass.
+1. Remediate `PRR-017` without removing or weakening any app, target, frame, or
+   title verification.
+2. Obtain a new explicit authorization before re-running a live send; if the
+   result is `unknown`, inspect WeChat manually and do not retry.
+3. Prove the remediated public `send_message` path completes within `3000 ms`.
+4. Correct the GitHub account Billing/spending-limit condition.
+5. Rerun the existing workflow and require green current checks for the pushed
+   head.
+6. Refresh this file and the F6 decision to `APPROVE` only after both remaining
+   gates pass.
 
 ## Repository Hygiene
 

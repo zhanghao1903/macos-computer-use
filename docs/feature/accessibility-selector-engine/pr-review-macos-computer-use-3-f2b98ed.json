@@ -1,0 +1,230 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2",
+    "reviewed_at": "2026-07-13T01:10:38Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "complete origin/main-to-f2b98ed feature diff and prior finding ledger",
+      "newly authorized public send_message result and child-operation timings",
+      "current GitHub PR head, workflow run, and check annotation",
+      "approved three-second public semantic API contract",
+      "existing deterministic tests and exact-code selector read and open proof"
+    ],
+    "excluded_scope": [
+      "post-submit message delivery read-back",
+      "remediated public send timing",
+      "GitHub Actions execution after a runner starts",
+      "signed helper and real release publication"
+    ]
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": true,
+    "rationale": "The newly authorized public send succeeded functionally but measured 3116 ms, exceeding the approved 3000 ms maximum by 116 ms. Current GitHub CI also executed zero steps because of an external Billing or spending-limit condition.",
+    "blocking_finding_ids": [
+      "PRR-017"
+    ]
+  },
+  "summary": "PRR-001 through PRR-016 remain resolved. One public send to 文件传输助手 verified the target, drafted via clipboard, accepted Return submission, and returned success with submitted true. Its 3116 ms duration violates the public performance contract and opens PRR-017; delivery read-back was not requested.",
+  "change_map": [
+    {
+      "area": "functional public send",
+      "change": "Exercise the existing verified focus, draft, and submit convenience flow on the real client.",
+      "external_behavior": "The public API selected the requested chat and submitted once.",
+      "risk": "Low",
+      "validation": "Target title matched 文件传输助手, clipboard draft succeeded, Return was accepted, and the top-level result was successful."
+    },
+    {
+      "area": "public send performance",
+      "change": "Measure the complete consumer-facing API path.",
+      "external_behavior": "The operation returned in 3116 ms rather than within the approved 3000 ms maximum.",
+      "risk": "Medium",
+      "validation": "Top-level timing and child operation timings were captured from the same one-shot command."
+    },
+    {
+      "area": "remote CI",
+      "change": "No repository change is indicated.",
+      "external_behavior": "The current runner did not start because of GitHub Billing.",
+      "risk": "Unknown",
+      "validation": "Workflow run 29216231545, job 86712598586, has zero steps and the account payment or spending-limit annotation."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-017",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "performance",
+      "title": "Public send exceeds the three-second API contract",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 2574,
+        "line_end": null,
+        "symbol": "WeChatDesktopTool._send_message",
+        "side": "RIGHT",
+        "commit_sha": "f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2"
+      },
+      "observation": "The representative public send_message operation completed successfully in 3116 ms, while the approved public semantic API contract requires at most 3000 ms.",
+      "trigger": "Start with WeChat frontmost in Contacts and execute public send_message for a visible conversation.",
+      "impact": "Consumers cannot rely on the documented three-second upper bound for the complete convenience API.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "One authorized public command returned success true and submitted true with top-level duration 3116 ms.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md"
+        },
+        {
+          "kind": "log",
+          "description": "The same command measured 1042 ms for chats AXPress, 482 ms for the current-frame click, 517 ms for clipboard draft, and 319 ms for Return submission.",
+          "reference": "private live service output; no raw payload committed"
+        },
+        {
+          "kind": "spec",
+          "description": "The reviewed design requires each public WeChat semantic API to complete within three seconds in the representative smoke environment.",
+          "reference": "docs/feature/accessibility-selector-engine/design-remediation-2026-07-12.md"
+        }
+      ],
+      "remediation": "Remove bounded transport or startup overhead, with a warm Accessibility action transport as the first candidate, without bypassing app identity, target identity, current-frame coordinate, or title postcondition checks.",
+      "verification": "Add deterministic worker success, timeout, and subprocess fallback tests; run package suites and preflight; then obtain new authorization and prove public send_message completes within 3000 ms.",
+      "status": "open",
+      "fingerprint": "wechat-public-send-over-3000ms"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-017",
+      "action": "Implement a safety-equivalent bounded performance optimization and prove the public send path completes within 3000 ms.",
+      "status": "open"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Post-submit delivery read-back was not requested.",
+      "mitigation": "Represent the evidence as API submission only and keep raw live payloads private.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "Desktop UI state can change between resolution and action.",
+      "mitigation": "Preserve exact preconditions, current-frame coordinates, and target-title postcondition during performance remediation.",
+      "owner": "wechat-desktop-tool"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Functional public integration now has positive one-shot evidence.",
+      "mitigation": "Retain fail-closed identity checks and the non-retryable unknown submit contract.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Medium",
+      "description": "Public send exceeded the maximum by 116 ms.",
+      "mitigation": "Resolve PRR-017 and obtain a new authorized timing proof.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Unknown",
+      "description": "Current CI executed no repository step because the runner did not start.",
+      "mitigation": "Correct GitHub Billing and rerun the existing workflow unchanged.",
+      "owner": "repository owner"
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "ca6d4a8412978e4be44f546ee839c187fb71a7d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 tests passed in 42.09 seconds; later commits through the reviewed head contain documentation only."
+      },
+      {
+        "command": "package unittest suites",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "ca6d4a8412978e4be44f546ee839c187fb71a7d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 protocol, 128 computer-use with one skipped, and 123 WeChat tests passed."
+      },
+      {
+        "command": "authorized one-shot wechat_desktop_tool.examples.wechat_smoke",
+        "environment": "macOS live WeChat service, target restricted to 文件传输助手",
+        "head_sha": "f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Functional submission passed with target-title verification, clipboard draft, Return submit, success true, and submitted true; timing 3116 ms failed the separate performance acceptance criterion."
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "GitHub Actions run 29216231545 / job 86712598586",
+        "observed_at": "2026-07-13T01:10:38Z",
+        "status": "FAIL",
+        "summary": "Job did not start because recent account payments failed or the spending limit must be increased; no repository step executed.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29216231545/job/86712598586"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "post-submit delivery read-back",
+        "reason": "verifyAfterSubmit was false for the authorized one-shot command; no additional live operation was performed."
+      },
+      {
+        "check": "remediated public send performance",
+        "reason": "PRR-017 is newly opened and requires implementation plus new explicit authorization."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the project or Anaconda environment."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is valid only for f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2.",
+    "The live result proves API submission, not delivery read-back.",
+    "One timing sample disproves a hard maximum but does not characterize percentiles.",
+    "No sensitive raw payload or local smoke artifact is tracked."
+  ],
+  "open_questions": [
+    "Will a safety-equivalent warm Accessibility action path bring public send below 3000 ms?",
+    "Will all current checks pass after GitHub Billing is corrected?"
+  ],
+  "assumptions": [
+    "The observed top-level timing uses the same public SDK path consumers use.",
+    "WeChat in Contacts with a visible target is representative of the approved smoke environment.",
+    "A future live send requires new explicit authorization."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced private legacy focus implementation in a later cleanup.",
+      "value": "Reduces dead executable safety logic while retaining compatibility configuration parsing independently."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group.",
+      "value": "Makes the configured lint gate reproducible."
+    }
+  ]
+}
