@@ -1725,3 +1725,92 @@ Commands and results:
 No additional live desktop action was run. `PRR-017` remains open until the
 remediation is committed and a newly authorized public send measures
 `<=3000 ms`. This section does not replace that external proof.
+
+## F5 Exact-Head Public Send And Warm-Action Live Proof
+
+Date: 2026-07-13 Asia/Shanghai (`2026-07-13T12:14:23Z` through
+`2026-07-13T12:18:44Z`).
+
+Tested implementation head:
+`5a010dab632eda2d3d9b39205f4f867c1fed0097`.
+
+The user authorized one new live send. The local service was started from the
+tested head and `send_message` was executed exactly once with target
+`文件传输助手`, focus/select permission, and submit permission. The command was
+not retried. A prior sandbox-denied `uv` startup exited before Python started
+and before the service received a command, so it did not consume a send
+attempt.
+
+### Public send result
+
+| Contract | Evidence |
+| --- | --- |
+| Public status | `ok`; `success=true` |
+| Target | `focusedContact=文件传输助手` |
+| Target postcondition | `currentChatTitle=文件传输助手`, confidence `0.95` |
+| Open method | `control_map_visible_action_ref` |
+| Draft input | Clipboard, 56 characters, draft phase `submitted=false` |
+| Submit | Return accepted; `submitted=true`, `sendAttempted=true` |
+| Read-back | Not requested; top-level `verified=false` |
+| Total public API duration | `2461 ms` |
+
+Selected child timings from the same command:
+
+| Child operation | Duration |
+| --- | ---: |
+| `open_app` | 96 ms |
+| Frontmost-window `observe` | 477 ms |
+| Visible-conversation query | 96 ms |
+| Current-frame coordinate click | 585 ms |
+| Contact-title verification | 183 ms |
+| Clipboard `type_text` | 595 ms |
+| Submit Return | 393 ms |
+
+This public result is `539 ms` below the `3000 ms` contract and `655 ms`
+faster than the earlier `3116 ms` result. It proves API-level submission, not
+delivery read-back. The command began with Chats already selected, and the log
+therefore records `control_map_switch_chats_skipped`; it did not exercise the
+new action worker during that send.
+
+### Separate non-submit Contacts-to-Chats proof
+
+To test the remediated component without sending another message, a second
+service session performed two semantic operations:
+
+1. `list_contacts(limit=1)` switched WeChat from Chats to Contacts;
+2. `open_contact("文件传输助手")` switched back to Chats, opened the target, and
+   verified the current chat title.
+
+No draft, `type_text`, Return, submit, or send command ran in this probe. No
+returned contact or message value is retained in tracked evidence.
+
+| Measurement | Result |
+| --- | ---: |
+| Contacts `AXPress` wall time | 108 ms |
+| Contacts worker transport | 95 ms; `fallback=false` |
+| Chats selector query | 24 ms |
+| Chats `AXPress` wall time | 58 ms |
+| Chats worker transport/backend | 44 ms / 42 ms; `fallback=false` |
+| Chats selected-state verification | 156 ms |
+| Complete `open_contact` from Contacts | 1272 ms reported; 1273 ms wall |
+
+The prior failing send measured the same Chats `AXPress` at `1042 ms`. The
+exact-head warm-worker probe reduced that action by `984 ms` while retaining
+bundle/app identity, snapshot, role, label, action, and selected-state
+postconditions. The send and state-transition measurements are separate runs;
+they are not represented as a single end-to-end sample.
+
+### Exact-head CI
+
+After the repository became public, GitHub Actions run `29217691709`, job
+`86797719880`, was rerun unchanged against the exact tested head and passed.
+Unit tests, release preflight, all three package suites, all three wheel builds,
+wheel-content checks, and final sdist/wheel content verification completed
+successfully.
+
+Together, the successful `2461 ms` public send, the `1272 ms` real
+Contacts-to-target open path, the `58 ms` warm `AXPress`, deterministic
+no-replay tests, and exact-head green CI close the `PRR-017` performance
+remediation gate without weakening safety checks. Residual limitations are one
+timing sample per live path, no same-command send sample that started in
+Contacts, and no post-submit delivery read-back.

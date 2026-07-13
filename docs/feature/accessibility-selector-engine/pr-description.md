@@ -2,15 +2,14 @@
 
 ## Current Review Status
 
-`INCOMPLETE` for reviewed head
-`f2b98ed11da7a261f0e81ea8fb671cf5e633c4b2`. The fresh F6 report is
-[`pr-review-macos-computer-use-3-f2b98ed.md`](./pr-review-macos-computer-use-3-f2b98ed.md).
+`APPROVE` for implementation head
+`5a010dab632eda2d3d9b39205f4f867c1fed0097`. The current F6 report is
+[`pr-review-macos-computer-use-3-5a010da.md`](./pr-review-macos-computer-use-3-5a010da.md).
 
-`PRR-001` through `PRR-016` are resolved in source and deterministic regression
-suites. The authorized public send succeeded but opened `PRR-017`: the
-end-to-end API measured `3116 ms`, exceeding the `<=3000 ms` performance
-contract. PR #3 remains draft until that finding is remediated and current
-GitHub CI is green.
+`PRR-001` through `PRR-017` are resolved. Exact-head GitHub CI is green, the
+authorized public send completed in `2461 ms`, and the remediated real
+Contacts-to-Chats action completed in `58 ms` through the warm worker without
+fallback.
 
 ## Problem
 
@@ -26,8 +25,10 @@ This feature adds an internal Accessibility selector engine owned by
 
 - validated selector, matcher, constraint, relation, confidence, cache,
   collection, and actionRef contracts;
-- bounded AX query execution with a warm worker, scoped roots, safe attributes,
-  node/time/depth limits, and step timing;
+- bounded AX query execution with scoped roots, safe attributes,
+  node/time/depth limits, step timing, and a warm query worker;
+- verified AX action execution with a separate warm action worker and no replay
+  after an uncertain mutating dispatch;
 - stable control-map resolution with bounded selector fallback;
 - current-frame, policy-gated coordinate fallback and semantic postconditions;
 - selector-backed contacts, conversations, contact opening/focus, and visible
@@ -64,8 +65,10 @@ Behavior changes:
   any backend/coordinate work when identity is missing;
 - contact/conversation `nextPageToken` is always null, and non-null page tokens
   return `pagination_not_supported`;
-- helper-backed WeChat selector construction remains unsupported in `0.2.0`;
-  direct and direct-backed local service modes remain supported.
+- direct Accessibility queries and actions use independent warm workers;
+- a query worker may fall back once because it is read-only, while an action
+  worker never replays after dispatch;
+- helper-backed WeChat selector construction remains unsupported in `0.2.0`.
 
 New optional configuration:
 
@@ -83,6 +86,7 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
   policy-gated;
 - stale/reordered row refs fail exact identity preconditions;
 - opened contact title is verified before reads, drafts, or sends continue;
+- action worker timeout/protocol failure is returned without replay;
 - submit uncertainty is non-retryable until manual inspection;
 - public release proof excludes contacts, messages, titles, local paths,
   tokens, raw AX nodes, and operation observations.
@@ -91,42 +95,36 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 
 - root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 128 tests passed, 1 skipped;
+- `computer-use-macos`: 132 tests passed, 1 skipped;
 - `wechat-desktop-tool`: 123 tests passed;
-- wheel/build/install compatibility checks passed through the root suite;
-- exact-head release preflight, compile, and diff checks passed;
-- historical exact-code selector proof recorded 11 contacts, 14
-  conversations, 30 visible messages, and every measured semantic API below
-  3000 ms;
-- newly authorized public `send_message` verified `文件传输助手`, clipboard-
+- wheel/build/install compatibility, compile, release preflight, and diff checks
+  passed;
+- GitHub Actions run `29217691709`, job `86797719880`, passed every step
+  against exact implementation head `5a010da...`;
+- one authorized public `send_message` verified `文件传输助手`, clipboard-
   drafted the message, accepted Return submission, and returned
-  `success=true`, `submitted=true` in `3116 ms`.
+  `success=true`, `submitted=true` in `2461 ms`;
+- a separate no-submit probe started in Contacts and completed
+  `open_contact("文件传输助手")` in `1272 ms`;
+- that probe measured the remediated Chats `AXPress` at `58 ms` wall time,
+  `44 ms` worker transport, `fallback=false`, with verified preconditions.
 
-Not yet observed:
+The public send started with Chats selected; the Contacts-origin transition was
+measured separately without drafting or sending. Post-send read-back was not
+requested, so `verified=false` means delivery was not independently confirmed.
+No private raw payload is committed.
 
-- a public `send_message` result at or below `3000 ms` after performance
-  remediation;
-- green GitHub Actions for the pushed final code/doc head;
-- Ruff, which is not installed.
+## Merge Decision
 
-The new live command ran exactly once and succeeded at the public API contract.
-Post-send read-back was not requested, so `verified=false` must not be
-interpreted as delivery verification. Current GitHub Actions was observed, but
-job `86712598586` never started because the account's Billing/spending limit
-needs attention; this is external to the code and workflow.
-
-## Required Before Merge
-
-1. Remediate `PRR-017` without weakening app, target, frame, or title checks.
-2. Obtain new authorization and prove public `send_message <=3000 ms`; do not
-   retry an unknown submit result.
-3. Correct the GitHub Billing/spending-limit condition and rerun the unchanged
-   workflow to green.
-4. Reissue the short F6 merge decision as `APPROVE` when both gates pass.
+No open blocking finding remains for the reviewed implementation head. PR #3
+is open, draft, and GitHub reports it mergeable. Marking the PR ready and
+merging it remain repository-owner actions. Signed-helper and publication proof
+belong to the later release phase.
 
 ## Release Note
 
 Add an internal Accessibility selector engine, packaged WeChat selector/control
 maps, verified selector-backed contact and message operations, exact actionRef
-identity, visible-window list semantics, optional profile injection, bounded AX
-performance diagnostics, and privacy-safe release proof.
+identity, visible-window list semantics, optional profile injection, warm
+bounded AX query/action execution, performance diagnostics, and privacy-safe
+release proof.

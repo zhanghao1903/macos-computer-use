@@ -1,0 +1,286 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+    "reviewed_at": "2026-07-13T12:19:32Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "complete main-to-5a010da feature diff and prior finding ledger",
+      "warm query and action worker lifecycle, diagnostics, failure, timeout, fallback, and no-replay behavior",
+      "public WeChat focus, open, draft, and send call path",
+      "deterministic package and root suites plus release preflight",
+      "exact-head GitHub Actions result",
+      "authorized public send and separate non-submit Contacts-to-Chats proof"
+    ],
+    "excluded_scope": [
+      "post-submit delivery read-back",
+      "repeated latency sampling and percentile characterization",
+      "one send command whose initial state was Contacts",
+      "signed helper and real release publication",
+      "unrelated dirty worktree files and private raw smoke artifacts"
+    ]
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "All prior findings are resolved. The exact implementation head has deterministic no-replay worker coverage, a successful 2461 ms public send, a separate 1272 ms Contacts-origin open path with a 58 ms warm Chats action, and green GitHub CI.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The selector engine, semantic WeChat migration, safety checks, packaging, and release proof are complete. PRR-017 is resolved by warm action transport plus exact-head live and CI evidence; no open blocking finding remains. The public send and Contacts-origin transition were separate runs, and delivery read-back was not requested.",
+  "change_map": [
+    {
+      "area": "Accessibility selector engine",
+      "change": "Add bounded profile, resolver, cache, collection, and actionRef infrastructure.",
+      "external_behavior": "WeChat APIs return semantic models and actions without exposing raw Accessibility trees.",
+      "risk": "Low",
+      "validation": "Deterministic resolver, collection, cache, ambiguity, privacy, and failure tests passed."
+    },
+    {
+      "area": "Mutating Accessibility transport",
+      "change": "Execute direct actions through a separate prewarmed worker while retaining the original action script.",
+      "external_behavior": "Verified AX actions avoid repeated framework startup and are never replayed after uncertain dispatch.",
+      "risk": "Low",
+      "validation": "Worker success, protocol failure, timeout, no-replay, subprocess compatibility, and live transport diagnostics passed."
+    },
+    {
+      "area": "Public WeChat send",
+      "change": "Use verified open_contact before clipboard drafting and explicit Return submission.",
+      "external_behavior": "The authorized operation selected the requested chat and submitted once in 2461 ms.",
+      "risk": "Low",
+      "validation": "Target title matched 文件传输助手, draft and Return succeeded, and the command was not retried."
+    },
+    {
+      "area": "Packaging and CI",
+      "change": "Coordinate 0.2.0 package floors and enforce release proof, wheel, and source-path checks.",
+      "external_behavior": "Clean package combinations build and incompatible old dependency combinations fail early.",
+      "risk": "Low",
+      "validation": "Exact-head GitHub Actions passed all tests, preflight, wheel, and distribution checks."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-017",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "performance",
+      "title": "Public send exceeds the three-second API contract",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 1415,
+        "line_end": null,
+        "symbol": "MacOSComputerUseClient._run_accessibility_action_request",
+        "side": "RIGHT",
+        "commit_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097"
+      },
+      "observation": "The prior representative public send measured 3116 ms. The exact-head remediation removes repeated action-process startup while preserving the original verified action script and no-replay safety boundary.",
+      "trigger": "Start WeChat outside Chats and execute the verified contact-open path used by public send_message.",
+      "impact": "Without remediation, consumers could observe the public convenience API above the approved 3000 ms representative performance target.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "The direct backend starts a separate warm action worker and returns worker timeout or protocol failure without replay after dispatch.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py"
+        },
+        {
+          "kind": "test",
+          "description": "Named tests cover worker success, protocol failure without subprocess replay, timeout without replay, worker script compilation, and original subprocess compatibility.",
+          "reference": "packages/computer-use-macos/tests/test_package.py"
+        },
+        {
+          "kind": "reproduction",
+          "description": "One authorized public send returned success true and submitted true in 2461 ms without retry.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md"
+        },
+        {
+          "kind": "reproduction",
+          "description": "A separate non-submit Contacts-origin open_contact returned in 1272 ms and measured the Chats AXPress at 58 ms with worker transport, no fallback, and verified preconditions.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md"
+        },
+        {
+          "kind": "ci",
+          "description": "GitHub Actions run 29217691709 passed every test, preflight, wheel, and distribution step against the exact head.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29217691709"
+        }
+      ],
+      "remediation": "Completed: reuse a prewarmed action process, preserve all app, snapshot, role, label, action, frame, and postcondition checks, and never replay after an uncertain dispatch.",
+      "verification": "Completed: deterministic suites, one authorized public send below 3000 ms, a real non-submit Contacts-to-Chats transition, and exact-head CI all passed.",
+      "status": "resolved",
+      "fingerprint": "wechat-public-send-over-3000ms"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-017",
+      "action": "Implement a safety-equivalent bounded performance optimization and prove the public send path completes within 3000 ms.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Local raw service logs can contain transient WeChat text.",
+      "mitigation": "Keep raw artifacts untracked and publish only bounded semantic evidence.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "Desktop UI state can change between resolution and action.",
+      "mitigation": "Retain exact identity, snapshot, frame, precondition, and target-title checks that fail closed.",
+      "owner": "wechat-desktop-tool"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "A worker timeout can leave a mutating action outcome unknown.",
+      "mitigation": "Never replay after dispatch; return timeout or failure for manual recovery.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "Live evidence is representative and does not characterize percentiles.",
+      "mitigation": "Retain bounded timing diagnostics and add repeated sampling if the threshold becomes an operational SLO.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "The transport changed internally for direct mode.",
+      "mitigation": "Public semantic APIs and helper behavior remain unchanged, with package and wheel compatibility tests.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Low",
+      "description": "Default direct mode now owns two long-lived Accessibility workers.",
+      "mitigation": "The original subprocess remains available before dispatch, and the performance slice can be reverted as one commit.",
+      "owner": "computer-use-macos"
+    }
+  ],
+  "validation": {
+    "overall_status": "PASSED",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 tests passed in 41.695 seconds."
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "132 tests passed and 1 skipped."
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "123 tests passed."
+      },
+      {
+        "command": ".venv/bin/python scripts/release_preflight.py",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Required local gates passed; unavailable external proof and socket checks remained warning-only."
+      },
+      {
+        "command": "authorized one-shot wechat_desktop_tool.examples.wechat_smoke",
+        "environment": "macOS live WeChat service, target restricted to 文件传输助手",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Target-title verification, clipboard draft, Return submit, success true, and submitted true completed once in 2461 ms."
+      },
+      {
+        "command": "non-submit list_contacts(limit=1) then open_contact(文件传输助手)",
+        "environment": "macOS live WeChat service; no draft, Return, or send",
+        "head_sha": "5a010dab632eda2d3d9b39205f4f867c1fed0097",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Contacts-origin open_contact completed in 1272 ms; Chats AXPress completed in 58 ms through worker transport with no fallback."
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "GitHub Actions run 29217691709 / job 86797719880",
+        "observed_at": "2026-07-13T12:19:32Z",
+        "status": "PASS",
+        "summary": "Exact head 5a010da passed unit tests, release preflight, all package suites, all wheel builds, wheel-content checks, and final distribution-content checks.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29217691709/job/86797719880"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "post-submit delivery read-back",
+        "reason": "verifyAfterSubmit was false for the authorized one-shot command."
+      },
+      {
+        "check": "one-command send whose initial state was Contacts",
+        "reason": "The single authorized send began in Chats; the exact Contacts-to-Chats transition was exercised separately without sending."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the project environment."
+      },
+      {
+        "check": "signed helper and real release publication",
+        "reason": "These are later release gates and are outside the feature merge review."
+      }
+    ]
+  },
+  "limitations": [
+    "The implementation review is valid only for 5a010dab632eda2d3d9b39205f4f867c1fed0097.",
+    "The live send result proves API submission, not delivery read-back.",
+    "The public send and Contacts-origin state transition were separate runs.",
+    "One timing sample per live path does not characterize percentiles.",
+    "No sensitive raw payload or local smoke artifact is tracked."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "The approved performance gate is a bounded representative live sample rather than a percentile service-level objective.",
+    "API-level submitted true is sufficient for the approved send workflow gate.",
+    "Committed changelog entries already cover the selector feature and performance behavior; unrelated local changelog edits remain excluded."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced private legacy focus implementation in a later cleanup.",
+      "value": "Reduces dead executable safety logic while retaining compatibility configuration parsing independently."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group.",
+      "value": "Makes the configured lint gate reproducible."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live timing samples if the target becomes an operational service-level objective.",
+      "value": "Provides percentile and variance evidence beyond feature acceptance samples."
+    }
+  ]
+}

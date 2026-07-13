@@ -3814,8 +3814,8 @@ WeChat package suite passes with 123 tests after this hardening.
 
 ## F6 Performance Remediation: Warm Accessibility Action Worker
 
-Status: deterministic implementation complete; authorized post-change live
-timing remains pending.
+Status: deterministic implementation and authorized post-change live timing
+complete.
 
 The successful public send proof on `f2b98ed` measured `3116 ms`, opening
 `PRR-017` against the `<=3000 ms` semantic API contract. The largest removable
@@ -3848,8 +3848,12 @@ subprocess compatibility when no worker is configured. Current results:
 - root repository: 127 tests passed in 41.695 seconds;
 - `wechat-desktop-tool`: 123 tests passed.
 
-The expected representative saving is approximately `308 ms`, which would move
-the observed `3116 ms` path to roughly `2808 ms` without removing a safety
-check. This estimate is not acceptance evidence. Closing `PRR-017` still
-requires a newly authorized public send against the committed code with an
-observed duration at or below `3000 ms`.
+The expected representative saving was approximately `308 ms`. Exact-head live
+verification subsequently measured the warm Chats `AXPress` at `58 ms` wall
+time (`44 ms` worker transport, `42 ms` backend) instead of the previous
+`1042 ms`, with `fallback=false` and all preconditions verified. A separate
+authorized public `send_message` completed in `2461 ms`, below the `3000 ms`
+contract. The send started while Chats was already selected, so a separate
+non-submit probe first switched to Contacts and then measured `open_contact`
+back to `文件传输助手` at `1272 ms`; no text or Return action occurred in that
+probe. The verification document records both runs and their boundary.
