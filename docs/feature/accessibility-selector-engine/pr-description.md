@@ -3,16 +3,17 @@
 ## Current Review Status
 
 `APPROVE` for reviewed head
-`a77f5d45b0869f764105fef9cc62b45068e96fe4`. The current F6 report is
-[`pr-review-macos-computer-use-3-a77f5d4.md`](./pr-review-macos-computer-use-3-a77f5d4.md).
+`ba733dc622f794b7e49bba17b96f64a0ac4c2e0a`. The current F6 report is
+[`pr-review-macos-computer-use-3-ba733dc.md`](./pr-review-macos-computer-use-3-ba733dc.md).
 
-`PRR-001` through `PRR-019` are resolved. Exact-head GitHub CI is green. The
+`PRR-001` through `PRR-020` are resolved. Exact-head GitHub CI is green. The
 post-fix transport passed real subprocess readiness/framing tests with 100
 immediate query and 100 immediate action responses plus unknown-outcome
 no-replay. Queue and delayed-startup expiration also write zero worker frames,
-preserve the process, and allow same-process recovery. Historical live evidence
-records a `2461 ms` public send and a `58 ms` warm Contacts-to-Chats action
-without fallback.
+preserve the process, and allow same-process recovery. Dispatch-aware timeout
+tests prove safe pre-write retry and non-retryable post-write or unknown action
+outcomes. Historical live evidence records a `2461 ms` public send and a
+`58 ms` warm Contacts-to-Chats action without fallback.
 
 ## Problem
 
@@ -74,6 +75,9 @@ Behavior changes:
 - request serialization, worker queueing, startup, readiness, dispatch, and
   response waiting share one deadline; pre-dispatch expiration writes nothing
   and preserves a healthy worker;
+- worker action transport exposes `requestDispatched` when known; only explicit
+  zero-write evidence is retryable, while dispatched or unknown timeouts are
+  fail-closed with consistent top-level and nested error guidance;
 - a query worker may fall back once because it is read-only, while an action
   worker never replays after dispatch;
 - helper-backed WeChat selector construction remains unsupported in `0.2.0`.
@@ -94,7 +98,8 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
   policy-gated;
 - stale/reordered row refs fail exact identity preconditions;
 - opened contact title is verified before reads, drafts, or sends continue;
-- action worker timeout/protocol failure is returned without replay;
+- action worker timeout/protocol failure is returned without replay, and a
+  dispatched or unknown timeout is explicitly non-retryable;
 - an expired request waiting for worker access or startup returns before
   dispatch without terminating a healthy worker;
 - submit uncertainty is non-retryable until manual inspection;
@@ -105,7 +110,7 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 
 - root repository: 127 tests passed;
 - `app-control-protocol`: 55 tests passed;
-- `computer-use-macos`: 139 tests passed, 1 skipped, with resource warnings
+- `computer-use-macos`: 141 tests passed, 1 skipped, with resource warnings
   treated as errors;
 - `wechat-desktop-tool`: 123 tests passed;
 - wheel/build/install compatibility, compile, release preflight, and diff checks
@@ -113,9 +118,10 @@ Invalid or policy-invalid override profiles fall back to the packaged profile.
 - real subprocess tests passed coalesced framing, failed readiness, 100
   immediate query responses, 100 immediate action responses, fresh-worker
   stress, lock-expired and delayed-startup zero-write checks, same-process
-  recovery, and timeout after synthetic action dispatch with zero replay;
-- GitHub Actions run `29267848330`, job `86877739176`, passed every step
-  against exact reviewed head `a77f5d4...`;
+  recovery, pre/post-dispatch retryability, unknown transport fail-closed
+  behavior, and timeout after one synthetic action dispatch with zero replay;
+- GitHub Actions run `29342939601`, job `87119164572`, passed every step
+  against exact reviewed head `ba733dc...`;
 - one authorized public `send_message` verified `文件传输助手`, clipboard-
   drafted the message, accepted Return submission, and returned
   `success=true`, `submitted=true` in `2461 ms`;
@@ -129,9 +135,10 @@ measured separately without drafting or sending. Post-send read-back was not
 requested, so `verified=false` means delivery was not independently confirmed.
 No private raw payload is committed.
 
-The live measurements predate the framing fix and establish AppKit worker
-integration. The post-fix evidence directly exercises the private subprocess
-protocol and no-replay boundary without performing another desktop mutation.
+The live measurements predate the framing/deadline/retryability fixes and
+establish AppKit worker integration. The post-fix evidence directly exercises
+the private subprocess protocol, dispatch evidence, and no-replay boundary
+without performing another desktop mutation.
 
 ## Merge Decision
 

@@ -5,14 +5,14 @@
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
 - Reviewed head:
-  `a77f5d45b0869f764105fef9cc62b45068e96fe4`
+  `ba733dc622f794b7e49bba17b96f64a0ac4c2e0a`
 - Status: `APPROVE`; implementation is merge-ready under the current Review Contract
 - Current review:
-  [`pr-review-macos-computer-use-3-a77f5d4.md`](./pr-review-macos-computer-use-3-a77f5d4.md)
+  [`pr-review-macos-computer-use-3-ba733dc.md`](./pr-review-macos-computer-use-3-ba733dc.md)
 
 ## Decision
 
-`PRR-001` through `PRR-019` are resolved. No open blocking finding remains for
+`PRR-001` through `PRR-020` are resolved. No open blocking finding remains for
 the reviewed implementation head.
 
 The final gates now have direct evidence:
@@ -28,9 +28,14 @@ The final gates now have direct evidence:
 3. post-`PRR-019` deadline proof: lock contention and delayed startup/readiness
    each return timeout with zero worker writes, preserve the healthy worker,
    and allow a follow-up request through the same process;
-4. GitHub Actions run `29267848330`, job `86877739176`, passed all tests,
+4. post-`PRR-020` recovery proof: a zero-write action timeout exposes
+   `requestDispatched=false` and is retryable, while one recorded `AXPress`
+   followed by response timeout exposes `requestDispatched=true` and is not
+   retryable; both paths make zero fallback calls and keep top-level/nested
+   recovery fields consistent;
+5. GitHub Actions run `29342939601`, job `87119164572`, passed all tests,
    preflight, package, wheel, and distribution checks against exact reviewed
-   head `a77f5d4`.
+   head `ba733dc`.
 
 The public send began with Chats already selected. A separate non-submit probe
 started in Contacts and measured `open_contact("文件传输助手")` at `1272 ms`.
@@ -43,12 +48,13 @@ Post-send read-back was not requested, so the evidence proves API submission
 rather than delivery confirmation. That limitation does not block this
 feature's approved contract.
 
-No fresh desktop mutation was run after `PRR-018` or `PRR-019`. Both fixes
-change only parent subprocess framing/deadline behavior; the prior live proof
-establishes AppKit worker integration, while the post-fix real subprocess tests
-directly exercise framing, queue/startup expiration, worker preservation, and
-the no-replay boundary. The current review accepts that composite evidence for
-these transport-only remediations.
+No fresh desktop mutation was run after `PRR-018`, `PRR-019`, or `PRR-020`.
+These fixes change only parent subprocess framing, deadline, and public recovery
+classification; the prior live proof establishes AppKit worker integration,
+while post-fix real subprocess tests directly exercise framing, queue/startup
+expiration, worker preservation, dispatch evidence, and no-replay behavior.
+The current review accepts that composite evidence for these transport-only
+remediations.
 
 ## Completed Scope
 
@@ -95,25 +101,29 @@ features.
 | `PRR-017` | Resolved | Public send `2461 ms`; warm Chats action `58 ms`; real Contacts-origin open `1272 ms`. |
 | `PRR-018` | Resolved | Explicit readiness handshake, fd-level framing, 100 query/action responses each, unknown-outcome no-replay, and exact-head CI. |
 | `PRR-019` | Resolved | Bounded lock wait and post-readiness deadline gate, zero-write expiration, same-process recovery, and exact-head CI. |
+| `PRR-020` | Resolved | Dispatch-aware action timeout recovery, consistent retryability fields, unknown-outcome fail-closed behavior, and exact-head CI. |
 
 Historical reports remain immutable. The authoritative current review is the
-`a77f5d4` report linked above.
+`ba733dc` report linked above.
 
 ## Verification
 
 Post-fix deterministic checks:
 
-- implementation head `55d76f1` (code-identical to reviewed documentation head
-  `a77f5d4`): root 127, `app-control-protocol` 55,
-  `computer-use-macos` 139 plus 1 skip with `ResourceWarning` treated as an
+- implementation head `74d5890` (code-identical to reviewed documentation head
+  `ba733dc`): root 127, `app-control-protocol` 55,
+  `computer-use-macos` 141 plus 1 skip with `ResourceWarning` treated as an
   error, and `wechat-desktop-tool` 123 passed;
 - lock-contention and delayed-startup regressions each proved zero expired
   writes, no healthy-worker termination, and same-process follow-up success;
+- action-timeout regressions proved zero-write safe retry, one recorded
+  post-dispatch action with non-retryable unknown outcome, conservative unknown
+  worker/subprocess handling, and identical top-level/nested recovery guidance;
 - fresh-worker query 100/100 and action 100/100, coalesced framing, failed
   readiness, and post-dispatch action timeout/no-replay regressions passed;
 - compile, wheel/build/install compatibility, release preflight, and diff
   checks passed;
-- exact reviewed head `a77f5d4` passed GitHub CI.
+- exact reviewed head `ba733dc` passed GitHub CI.
 
 Historical live macOS and WeChat proof on `5a010da`:
 
@@ -128,10 +138,11 @@ Remote proof:
 
 - repository visibility is public;
 - PR #3 is open, draft, and GitHub reports it mergeable;
-- run `29267848330` passed against exact reviewed head `a77f5d4...`.
+- run `29342939601` passed against exact reviewed head `ba733dc...`.
 
-Ruff remains unavailable. Targeted strict mypy reports three existing errors
-outside the worker delta and is not a configured passing gate for this feature.
+Ruff remains unavailable. The recorded strict-mypy run reports 29 existing
+errors across imported modules, none on a remediation line, and is not a
+configured passing gate for this feature.
 
 ## Public Contract
 
@@ -143,7 +154,9 @@ outside the worker delta and is not a configured passing gate for this feature.
   `preconditions.labelIn`;
 - contact and conversation lists are visible-window-only, return
   `nextPageToken=null`, and reject non-null continuation input;
-- action worker timeout/protocol failure is non-retryable after dispatch;
+- action worker timeout is retryable only with explicit zero-write
+  `requestDispatched=false` evidence; dispatched or unknown outcomes are
+  non-retryable, with identical top-level and nested guidance;
 - warm workers validate readiness before dispatch and consume fd-level framed
   responses without mixing kernel and text-wrapper buffers;
 - the worker queue, startup, and readiness consume one request deadline;
@@ -157,9 +170,9 @@ outside the worker delta and is not a configured passing gate for this feature.
   actions, not part of this read-only review decision.
 - Signed-helper proof and actual release publication remain F7 work.
 - Delivery read-back was not requested for the one-shot send.
-- A fresh post-framing/deadline live desktop mutation was not required by the
-  current transport-only review contract; the evidence boundary remains
-  explicit.
+- A fresh post-framing/deadline/retryability live desktop mutation was not
+  required by the current transport-only review contract; the evidence boundary
+  remains explicit.
 - A future performance suite may collect repeated samples and percentiles; the
   approved feature gate uses bounded representative live samples.
 
