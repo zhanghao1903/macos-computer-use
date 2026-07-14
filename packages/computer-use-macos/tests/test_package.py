@@ -20,6 +20,7 @@ import unittest
 from app_control_protocol import (
     HELPER_RESPONSE_SCHEMA,
     ToolCommand,
+    ToolError,
     ToolEvent,
     ToolEventType,
     ToolObservation,
@@ -1116,6 +1117,10 @@ for _ in sys.stdin:
                 self.assertTrue(results[0].timed_out)
                 self.assertEqual(results[0].returncode, 124)
                 self.assertIn("before dispatch", results[0].stderr)
+                self.assertIs(
+                    getattr(results[0], "request_dispatched", None),
+                    False,
+                )
                 self.assertFalse(log_path.exists())
                 self.assertIs(worker._process, process)
                 self.assertIsNone(process.poll())
@@ -1124,6 +1129,10 @@ for _ in sys.stdin:
 
                 self.assertFalse(follow_up.timed_out)
                 self.assertEqual(follow_up.returncode, 0)
+                self.assertIs(
+                    getattr(follow_up, "request_dispatched", None),
+                    True,
+                )
                 self.assertIs(worker._process, process)
                 self.assertIsNone(process.poll())
                 self.assertEqual(
@@ -1191,6 +1200,10 @@ for _ in sys.stdin:
                 self.assertTrue(results[0].timed_out)
                 self.assertEqual(results[0].returncode, 124)
                 self.assertIn("after worker readiness", results[0].stderr)
+                self.assertIs(
+                    getattr(results[0], "request_dispatched", None),
+                    False,
+                )
                 self.assertFalse(log_path.exists())
                 self.assertIs(worker._process, process)
                 self.assertIsNone(process.poll())
@@ -1199,6 +1212,10 @@ for _ in sys.stdin:
 
                 self.assertFalse(follow_up.timed_out)
                 self.assertEqual(follow_up.returncode, 0)
+                self.assertIs(
+                    getattr(follow_up, "request_dispatched", None),
+                    True,
+                )
                 self.assertIs(worker._process, process)
                 self.assertIsNone(process.poll())
                 self.assertEqual(
@@ -1692,6 +1709,48 @@ for _ in sys.stdin:
         self.assertEqual(action["method"], "AXUIElementPerformAction")
         self.assertEqual(action["diagnostics"]["transport"]["mode"], "subprocess")
 
+    def test_package_accessibility_action_subprocess_timeout_is_not_retryable(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue_timeout()
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["TextEdit"],
+                    "allowed_app_bundle_ids": {
+                        "TextEdit": "com.apple.TextEdit"
+                    },
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="TextEdit",
+                bundle_id="com.apple.TextEdit",
+                snapshot_id="frontmost:TextEdit:Current",
+                ax_path="0/1",
+                action="AXPress",
+                command_id="cmd_action_subprocess_timeout",
+                timeout_ms=1000,
+            )
+        )
+
+        transport = observation.observation["metadata"][
+            "accessibility_action_transport"
+        ]
+        self.assertEqual(observation.status, ToolStatus.TIMEOUT)
+        self.assertEqual(observation.retryable, False)
+        assert isinstance(observation.error, ToolError)
+        self.assertEqual(observation.error.retryable, False)
+        self.assertEqual(transport["mode"], "subprocess")
+        self.assertNotIn("requestDispatched", transport)
+        self.assertEqual(len(runner.calls), 1)
+
     def test_package_accessibility_action_can_use_warm_worker_transport(
         self,
     ) -> None:
@@ -1786,6 +1845,10 @@ for _ in sys.stdin:
                     action["diagnostics"]["transport"]["mode"],
                     "worker",
                 )
+                self.assertEqual(
+                    action["diagnostics"]["transport"]["requestDispatched"],
+                    True,
+                )
         finally:
             worker.stop()
 
@@ -1860,8 +1923,87 @@ for _ in sys.stdin:
         )
 
         self.assertEqual(observation.status, ToolStatus.TIMEOUT)
+        self.assertEqual(observation.retryable, False)
+        assert isinstance(observation.error, ToolError)
+        self.assertEqual(observation.error.retryable, False)
         self.assertEqual(runner.calls, [])
         self.assertEqual(worker.timeouts, [1.0])
+
+    def test_real_action_worker_timeout_before_dispatch_is_retryable(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        with TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "action-requests.jsonl"
+            worker = _AccessibilityWorker(
+                worker_name="action",
+                worker_script=_recording_accessibility_worker_script(log_path),
+            )
+            client = ComputerUseClient.from_config(
+                {
+                    "computer_use": {
+                        "backend": "direct",
+                        "allowed_apps": ["TextEdit"],
+                        "allowed_app_bundle_ids": {
+                            "TextEdit": "com.apple.TextEdit"
+                        },
+                    }
+                },
+                probe=FakeProbe(),
+                runner=runner,
+            )
+            request_started = threading.Event()
+            request_completed = threading.Event()
+            observations: list[ToolObservation] = []
+
+            def run_contended_action() -> None:
+                request_started.set()
+                observations.append(
+                    client.run_command(
+                        accessibility_action_command(
+                            target_app="TextEdit",
+                            bundle_id="com.apple.TextEdit",
+                            snapshot_id="frontmost:TextEdit:Current",
+                            ax_path="0/1",
+                            action="AXPress",
+                            command_id="cmd_real_action_pre_dispatch_timeout",
+                            timeout_ms=100,
+                        )
+                    )
+                )
+                request_completed.set()
+
+            request_thread = threading.Thread(target=run_contended_action)
+            try:
+                worker.start()
+                client._accessibility_action_worker = worker
+                worker._lock.acquire()
+                try:
+                    request_thread.start()
+                    self.assertTrue(request_started.wait(timeout=1.0))
+                    completed_while_lock_held = request_completed.wait(timeout=1.0)
+                finally:
+                    worker._lock.release()
+                    request_thread.join(timeout=1.0)
+
+                self.assertTrue(completed_while_lock_held)
+                self.assertFalse(request_thread.is_alive())
+                self.assertEqual(len(observations), 1)
+                observation = observations[0]
+                transport = observation.observation["metadata"][
+                    "accessibility_action_transport"
+                ]
+                self.assertEqual(observation.status, ToolStatus.TIMEOUT)
+                self.assertEqual(observation.retryable, True)
+                assert isinstance(observation.error, ToolError)
+                self.assertEqual(observation.error.retryable, True)
+                self.assertEqual(transport["requestDispatched"], False)
+                self.assertFalse(log_path.exists())
+                self.assertEqual(runner.calls, [])
+            finally:
+                if request_thread.is_alive():
+                    request_thread.join(timeout=1.0)
+                worker.stop()
 
     def test_real_action_worker_timeout_after_dispatch_does_not_retry(
         self,
@@ -1881,7 +2023,8 @@ print(
 )
 for line in sys.stdin:
     request = json.loads(line)
-    Path({str(marker_path)!r}).write_text(json.dumps(request), encoding="utf-8")
+    with Path({str(marker_path)!r}).open("a", encoding="utf-8") as marker:
+        marker.write(json.dumps(request) + "\\n")
     time.sleep(10)
 '''
             worker = _AccessibilityWorker(
@@ -1919,10 +2062,23 @@ for line in sys.stdin:
             finally:
                 worker.stop()
 
-            dispatched_request = json.loads(marker_path.read_text(encoding="utf-8"))
+            dispatched_requests = [
+                json.loads(line)
+                for line in marker_path.read_text(encoding="utf-8").splitlines()
+            ]
 
         self.assertEqual(observation.status, ToolStatus.TIMEOUT)
-        self.assertEqual(dispatched_request["action"], "AXPress")
+        self.assertEqual(observation.retryable, False)
+        assert isinstance(observation.error, ToolError)
+        self.assertEqual(observation.error.retryable, False)
+        self.assertEqual(len(dispatched_requests), 1)
+        self.assertEqual(dispatched_requests[0]["action"], "AXPress")
+        self.assertEqual(
+            observation.observation["metadata"][
+                "accessibility_action_transport"
+            ]["requestDispatched"],
+            True,
+        )
         self.assertEqual(runner.calls, [])
 
     def test_accessibility_action_uses_configured_bundle_for_target_app(

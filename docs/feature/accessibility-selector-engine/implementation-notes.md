@@ -3968,3 +3968,49 @@ OK (skipped=1)
 This remediation does not change a public API, protocol schema, configuration
 key, package dependency, or package version. No live Accessibility action or
 WeChat message was executed; all added workers are synthetic subprocesses.
+
+## F4 Review Remediation: Action Timeout Retryability
+
+Status: implementation and focused package verification complete; exact-head
+repository verification and re-review remain pending.
+
+`PRR-020` found that the warm action worker correctly suppressed internal
+fallback after dispatch, but the public protocol still classified every
+timeout as retryable. A consumer following that recovery hint could therefore
+repeat an action whose first UI outcome was unknown.
+
+The worker result now preserves whether the request crossed the dispatch
+boundary. Every result before a write attempt carries
+`request_dispatched=false`; once `stdin.write()` is attempted, every success,
+protocol failure, EOF, or response timeout carries
+`request_dispatched=true`. The action transport publishes this state as
+`requestDispatched` when known.
+
+Protocol retryability is now fail-closed for mutating action timeouts:
+
+- a reliably identified pre-dispatch zero-write timeout remains retryable;
+- a post-dispatch timeout is not retryable because its UI outcome is unknown;
+- a timeout with no dispatch evidence, including legacy fake workers and the
+  one-shot subprocess transport, is conservatively not retryable;
+- non-action timeout behavior is unchanged;
+- one computed value populates both the top-level observation and nested
+  `ToolError`, preventing contradictory recovery guidance.
+
+Real-subprocess regressions prove both sides of the boundary. The pre-dispatch
+case exhausts its deadline while the worker lock is held, records zero request
+frames, performs zero fallback calls, and returns both retryability fields as
+`true`. The post-dispatch case records exactly one `AXPress`, withholds the
+response, performs zero fallback calls, and returns both fields as `false`.
+Focused verification produced:
+
+```text
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -W error::ResourceWarning -m unittest discover \
+  -s packages/computer-use-macos/tests
+
+Ran 141 tests in 1.612s
+OK (skipped=1)
+```
+
+No live Accessibility action or WeChat message was executed. All new behavior
+was exercised with synthetic subprocess workers and temporary request markers.

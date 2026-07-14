@@ -238,6 +238,16 @@ because the action may already have been attempted. The original action
 subprocess remains the fallback only when no action worker is available before
 dispatch. Helper behavior is unchanged.
 
+Successful worker-backed actions expose
+`diagnostics.transport.requestDispatched`; timeout observations expose the same
+field at
+`observation.metadata.accessibility_action_transport.requestDispatched`. A
+value of `false` means the request deadline expired before any worker write and
+the timeout is safe to retry. A value of `true` means dispatch was attempted;
+if its result is unknown, the timeout is not retryable. When dispatch state is
+unavailable, action timeouts are conservatively not retryable. The top-level
+observation and nested `ToolError` always carry the same `retryable` value.
+
 ```python
 from computer_use_macos import accessibility_action_command
 

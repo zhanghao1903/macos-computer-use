@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -207,6 +207,11 @@ _ACCESSIBILITY_ROLE_COLLECTIONS = {
 }
 
 
+@dataclass(frozen=True)
+class _AccessibilityWorkerResult(CommandResult):
+    request_dispatched: bool = False
+
+
 class _AccessibilityWorker:
     """Warm subprocess for repeated Accessibility operations in service mode."""
 
@@ -245,7 +250,11 @@ class _AccessibilityWorker:
         try:
             request_line = json.dumps(request, ensure_ascii=False) + "\n"
         except Exception as exc:
-            return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+            return _AccessibilityWorkerResult(
+                self._PROTOCOL_FAILURE,
+                "",
+                str(exc),
+            )
 
         remaining = deadline - time.monotonic()
         if remaining <= 0 or not self._lock.acquire(timeout=remaining):
@@ -256,12 +265,21 @@ class _AccessibilityWorker:
             try:
                 process = self._ensure_started(deadline=deadline)
             except TimeoutError as exc:
-                return CommandResult(124, "", str(exc), timed_out=True)
+                return _AccessibilityWorkerResult(
+                    124,
+                    "",
+                    str(exc),
+                    timed_out=True,
+                )
             except Exception as exc:
-                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                )
             if process.stdin is None or process.stdout is None:
                 self._stop_locked()
-                return CommandResult(
+                return _AccessibilityWorkerResult(
                     self._PROTOCOL_FAILURE,
                     "",
                     f"Accessibility {self._worker_name} worker pipes are unavailable.",
@@ -273,20 +291,36 @@ class _AccessibilityWorker:
                 process.stdin.flush()
             except Exception as exc:
                 self._stop_locked()
-                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                    request_dispatched=True,
+                )
 
             try:
                 line = self._read_response_line(process, deadline=deadline)
             except Exception as exc:
                 self._stop_locked()
-                return CommandResult(self._PROTOCOL_FAILURE, "", str(exc))
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                    request_dispatched=True,
+                )
             if line is None:
                 stderr = self._terminate_for_timeout(process)
-                return CommandResult(124, "", stderr, timed_out=True)
+                return _AccessibilityWorkerResult(
+                    124,
+                    "",
+                    stderr,
+                    timed_out=True,
+                    request_dispatched=True,
+                )
             if not line:
                 stderr = self._collect_stderr(process)
                 self._stop_locked()
-                return CommandResult(
+                return _AccessibilityWorkerResult(
                     self._PROTOCOL_FAILURE,
                     "",
                     stderr
@@ -294,13 +328,19 @@ class _AccessibilityWorker:
                         f"Accessibility {self._worker_name} worker exited "
                         "without a response."
                     ),
+                    request_dispatched=True,
                 )
-            return CommandResult(0, line, "")
+            return _AccessibilityWorkerResult(
+                0,
+                line,
+                "",
+                request_dispatched=True,
+            )
         finally:
             self._lock.release()
 
     def _pre_dispatch_timeout(self, phase: str) -> CommandResult:
-        return CommandResult(
+        return _AccessibilityWorkerResult(
             124,
             "",
             (
@@ -1546,6 +1586,9 @@ class MacOSComputerUseClient:
             "durationMs": _duration_ms(worker_started),
             "fallback": False,
         }
+        request_dispatched = getattr(worker_result, "request_dispatched", None)
+        if isinstance(request_dispatched, bool):
+            worker_transport["requestDispatched"] = request_dispatched
         return worker_result, worker_transport
 
     def _run_accessibility_action_subprocess(
@@ -5001,18 +5044,30 @@ def _result_to_protocol_observation(
         status=_protocol_status(result, tool_status_cls),
         failure_kind=_failure_kind(result),
         message=result.summary,
-        retryable=result.status
-        in {
-            ComputerUseStatus.NEEDS_USER,
-            ComputerUseStatus.NOT_AVAILABLE,
-            ComputerUseStatus.TIMEOUT,
-        },
+        retryable=_result_retryable(result),
         observation=observation,
         evidence=_result_evidence(result),
         metadata={"legacyStatus": result.status.value},
         tool_observation_cls=tool_observation_cls,
         tool_error_cls=tool_error_cls,
     )
+
+
+def _result_retryable(result: ComputerUseResult) -> bool:
+    if (
+        result.operation == ComputerUseOperation.ACCESSIBILITY_ACTION
+        and result.status == ComputerUseStatus.TIMEOUT
+    ):
+        transport = result.metadata.get("accessibility_action_transport")
+        return (
+            isinstance(transport, Mapping)
+            and transport.get("requestDispatched") is False
+        )
+    return result.status in {
+        ComputerUseStatus.NEEDS_USER,
+        ComputerUseStatus.NOT_AVAILABLE,
+        ComputerUseStatus.TIMEOUT,
+    }
 
 
 def _protocol_failure(
