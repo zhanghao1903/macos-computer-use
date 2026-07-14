@@ -248,6 +248,15 @@ if its result is unknown, the timeout is not retryable. When dispatch state is
 unavailable, action timeouts are conservatively not retryable. The top-level
 observation and nested `ToolError` always carry the same `retryable` value.
 
+Higher-level adapters must preserve this no-replay boundary. The packaged
+WeChat adapter permits one alternative mutation only when the result explicitly
+proves `requestDispatched=false` and `retryable=true`, or when the backend
+explicitly reports an unsupported Accessibility action without reporting that
+the action was attempted. `actionAttempted=true`, `requestDispatched=true`,
+`retryable=false`, contradictory evidence, and missing dispatch evidence all
+stop recovery before any coordinate click, selector click, Return keypress, or
+next mutating strategy.
+
 ```python
 from computer_use_macos import accessibility_action_command
 

@@ -27,6 +27,9 @@ from app_control_protocol import (
     ToolStatus,
     validate_protocol_payload,
 )
+from computer_use_macos import ComputerUseClient
+from computer_use_macos.client import _AccessibilityWorker
+from computer_use_macos.commands import CommandResult
 import wechat_desktop_tool.cli as cli_module
 import wechat_desktop_tool.tool as tool_module
 from wechat_desktop_tool import (
@@ -120,6 +123,172 @@ class FakeAppControl:
             summary=f"app-control ok: {tool_command.operation}",
             observation={"input": tool_command.input},
         )
+
+
+class CrossPackageActionAppControl:
+    def __init__(self, client: ComputerUseClient) -> None:
+        self.client = client
+        self.commands: list[ToolCommand] = []
+
+    def run_command(
+        self,
+        command: ToolCommand | Mapping[str, Any],
+        *,
+        observer: object | None = None,
+    ) -> ToolObservation:
+        del observer
+        tool_command = (
+            ToolCommand.from_dict(dict(command))
+            if isinstance(command, Mapping)
+            else command
+        )
+        self.commands.append(tool_command)
+        if tool_command.operation == "accessibility_action":
+            return self.client.run_command(tool_command)
+        return ToolObservation.ok(
+            command_id=tool_command.command_id,
+            tool=tool_command.tool,
+            operation=tool_command.operation,
+            summary=f"synthetic fallback ok: {tool_command.operation}",
+            observation={"input": tool_command.input},
+        )
+
+
+class CrossPackageProbe:
+    def platform_name(self) -> str:
+        return "Darwin"
+
+    def accessibility_trusted(self) -> bool:
+        return True
+
+    def screen_recording_available(self) -> bool:
+        return True
+
+    def apple_events_available(self) -> bool:
+        return True
+
+
+class NoFallbackRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+
+    def run(
+        self,
+        args: list[str] | tuple[str, ...],
+        *,
+        timeout: float,
+    ) -> CommandResult:
+        del timeout
+        self.calls.append(tuple(args))
+        return CommandResult(0, "", "")
+
+
+def _cross_package_action_worker_script(mode: str, log_path: Path) -> str:
+    return (
+        r'''
+import json
+from pathlib import Path
+import sys
+import time
+
+MODE = __MODE__
+LOG_PATH = Path(__LOG_PATH__)
+
+print(
+    json.dumps({"workerReady": True, "status": "ok", "message": ""}),
+    flush=True,
+)
+for line in sys.stdin:
+    request = json.loads(line)
+    with LOG_PATH.open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(request) + "\n")
+    if MODE == "eof":
+        sys.exit(0)
+    if MODE == "timeout":
+        time.sleep(10)
+    elif MODE == "malformed":
+        print("{not-json", flush=True)
+    else:
+        attempted = MODE == "native_failure"
+        failure_kind = (
+            "accessibility_action_failed"
+            if attempted
+            else "unsupported_accessibility_action"
+        )
+        print(
+            json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": False,
+                    "status": "failed",
+                    "failureKind": failure_kind,
+                    "message": failure_kind,
+                    "action": request["action"],
+                    "actionAttempted": attempted,
+                    "target": {
+                        "axPath": request["target"]["axPath"],
+                        "role": "AXRow",
+                        "label": "File Transfer",
+                        "actions": ["AXPress"],
+                    },
+                }
+            ),
+            flush=True,
+        )
+'''
+        .replace("__MODE__", repr(mode))
+        .replace("__LOG_PATH__", repr(str(log_path)))
+    )
+
+
+def _cross_package_action_fixture(
+    mode: str,
+    log_path: Path,
+    *,
+    timeout_ms: int,
+) -> tuple[
+    ComputerUseClient,
+    _AccessibilityWorker,
+    CrossPackageActionAppControl,
+    NoFallbackRunner,
+    WeChatDesktopTool,
+]:
+    runner = NoFallbackRunner()
+    client = ComputerUseClient.from_config(
+        {
+            "computer_use": {
+                "backend": "direct",
+                "allowed_apps": ["WeChat"],
+                "allowed_app_bundle_ids": {
+                    "WeChat": "com.tencent.xinWeChat"
+                },
+            }
+        },
+        probe=CrossPackageProbe(),
+        runner=runner,
+    )
+    worker = _AccessibilityWorker(
+        worker_name="action",
+        worker_script=_cross_package_action_worker_script(mode, log_path),
+    )
+    app_control = CrossPackageActionAppControl(client)
+    tool = WeChatDesktopTool(
+        app_control,
+        WeChatDesktopConfig(default_timeout_ms=timeout_ms),
+    )
+    return client, worker, app_control, runner, tool
+
+
+def _cross_package_click_node(
+    tool: WeChatDesktopTool,
+) -> ToolObservation:
+    return tool._click_node_phase(
+        wechat_command("open_contact", {"contact": "File Transfer"}),
+        _normalized_row("0/11/1/0/0", "File Transfer"),
+        phase="open_visible_contact",
+        evidence={},
+        snapshot_id="frontmost:WeChat:微信 (聊天)",
+    )
 
 
 def _is_explicit_observe_response(response: dict[str, Any] | ToolObservation) -> bool:
@@ -705,6 +874,22 @@ def _coordinate_click_response() -> dict[str, Any]:
     return {"observation": {"metadata": {"coordinateClick": True}}}
 
 
+def _failed_click_response() -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_click",
+        tool="macos.computer_use",
+        operation="click",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="click_failed",
+            message="Click outcome is unknown.",
+            retryable=False,
+        ),
+        summary="Click outcome is unknown.",
+        observation={"actionAttempted": True},
+    )
+
+
 def _unsupported_accessibility_action_response() -> ToolObservation:
     return ToolObservation.failure(
         command_id="cmd_accessibility_action",
@@ -741,6 +926,11 @@ def _precondition_failed_accessibility_action_response() -> ToolObservation:
 
 
 def _failed_accessibility_action_response() -> ToolObservation:
+    transport = {
+        "mode": "worker",
+        "fallback": False,
+        "requestDispatched": True,
+    }
     return ToolObservation.failure(
         command_id="cmd_accessibility_action",
         tool="macos.computer_use",
@@ -753,9 +943,40 @@ def _failed_accessibility_action_response() -> ToolObservation:
         ),
         summary="AXUIElementPerformAction returned error: -25206",
         observation={
+            "actionAttempted": True,
+            "metadata": {
+                "action_attempted": True,
+                "accessibility_action_transport": transport,
+            },
             "accessibilityAction": {
                 "failureKind": "accessibility_action_failed",
                 "message": "AXUIElementPerformAction returned error: -25206",
+                "actionAttempted": True,
+                "diagnostics": {"transport": transport},
+            }
+        },
+    )
+
+
+def _predispatch_accessibility_action_response() -> ToolObservation:
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.TIMEOUT,
+        error=ToolError(
+            failure_kind="accessibility_action_timeout",
+            message="Timed out before dispatch.",
+            retryable=True,
+        ),
+        summary="Timed out before dispatch.",
+        observation={
+            "metadata": {
+                "accessibility_action_transport": {
+                    "mode": "worker",
+                    "fallback": False,
+                    "requestDispatched": False,
+                }
             }
         },
     )
@@ -1652,7 +1873,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             result.observation["items"][0]["element"].get("actions", []),
         )
 
-    def test_list_contacts_maps_selector_failure_to_wechat_failure(self) -> None:
+    def test_list_contacts_stops_after_dispatched_action_failure(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
@@ -1661,7 +1882,6 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     label="通讯录",
                 ),
                 _failed_accessibility_action_response(),
-                _coordinate_click_disabled_response(),
             ]
         )
         tool = WeChatDesktopTool(app_control)
@@ -1678,12 +1898,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "observe",
                 "accessibility_query",
                 "accessibility_action",
-                "click",
             ],
         )
         self.assertEqual(app_control.commands[2].timeout_ms, 800)
         self.assertEqual(app_control.commands[3].timeout_ms, 2_000)
-        self.assertEqual(app_control.commands[4].timeout_ms, 1_200)
 
     def test_list_contacts_preserves_selector_permission_failure(self) -> None:
         permission_failure = _failed_accessibility_query_response(
@@ -2506,6 +2724,141 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(result.failure_kind, "wechat_action_target_unverified")
         self.assertEqual(app_control.commands, [])
 
+    def test_click_node_phase_allows_explicit_predispatch_fallback(self) -> None:
+        app_control = FakeAppControl(
+            [_predispatch_accessibility_action_response(), {}]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool._click_node_phase(
+            wechat_command("open_contact", {"contact": "Ada"}),
+            _normalized_row("0/11/1/0/0", "Ada"),
+            phase="open_visible_contact",
+            evidence={},
+            snapshot_id="frontmost:WeChat:微信 (聊天)",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action", "click"],
+        )
+
+    def test_click_node_phase_does_not_replay_failed_selector_fallback(self) -> None:
+        app_control = FakeAppControl(
+            [_unsupported_accessibility_action_response(), _failed_click_response()]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool._click_node_phase(
+            wechat_command("open_contact", {"contact": "Ada"}),
+            _normalized_row("0/11/1/0/0", "Ada"),
+            phase="open_visible_contact",
+            evidence={},
+            snapshot_id="frontmost:WeChat:微信 (聊天)",
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "click_failed")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action", "click"],
+        )
+
+    def test_cross_package_dispatched_action_failures_do_not_mutate_again(
+        self,
+    ) -> None:
+        for mode in ("eof", "timeout", "malformed", "native_failure"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:
+                log_path = Path(temp_dir) / "requests.jsonl"
+                client, worker, app_control, runner, tool = (
+                    _cross_package_action_fixture(
+                        mode,
+                        log_path,
+                        timeout_ms=200,
+                    )
+                )
+
+                try:
+                    worker.start()
+                    client._accessibility_action_worker = worker
+                    result = _cross_package_click_node(tool)
+                finally:
+                    worker.stop()
+
+                requests = [
+                    json.loads(line)
+                    for line in log_path.read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertFalse(result.success)
+                self.assertEqual(result.retryable, False)
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0]["action"], "AXPress")
+                self.assertEqual(
+                    tool_module._accessibility_action_request_dispatched(result),
+                    True,
+                )
+                self.assertEqual(
+                    [command.operation for command in app_control.commands],
+                    ["accessibility_action"],
+                )
+                self.assertEqual(runner.calls, [])
+
+    def test_cross_package_predispatch_failure_allows_one_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "requests.jsonl"
+            client, worker, app_control, runner, tool = (
+                _cross_package_action_fixture(
+                    "timeout",
+                    log_path,
+                    timeout_ms=100,
+                )
+            )
+
+            try:
+                worker.start()
+                client._accessibility_action_worker = worker
+                worker._lock.acquire()
+                try:
+                    result = _cross_package_click_node(tool)
+                finally:
+                    worker._lock.release()
+            finally:
+                worker.stop()
+
+            self.assertTrue(result.success)
+            self.assertFalse(log_path.exists())
+            self.assertEqual(
+                [command.operation for command in app_control.commands],
+                ["accessibility_action", "click"],
+            )
+            self.assertEqual(runner.calls, [])
+
+    def test_cross_package_unsupported_action_allows_one_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "requests.jsonl"
+            client, worker, app_control, runner, tool = (
+                _cross_package_action_fixture(
+                    "unsupported",
+                    log_path,
+                    timeout_ms=200,
+                )
+            )
+
+            try:
+                worker.start()
+                client._accessibility_action_worker = worker
+                result = _cross_package_click_node(tool)
+            finally:
+                worker.stop()
+
+            self.assertTrue(result.success)
+            self.assertEqual(
+                [command.operation for command in app_control.commands],
+                ["accessibility_action", "click"],
+            )
+            self.assertEqual(runner.calls, [])
+
     def test_open_contact_uses_packaged_selector_profile(self) -> None:
         app_control = FakeAppControl(
             [
@@ -2583,7 +2936,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[9].input["query"]["attributes"],
         )
 
-    def test_open_contact_uses_coordinates_when_search_row_action_fails(self) -> None:
+    def test_open_contact_stops_when_search_row_action_was_dispatched(self) -> None:
         app_control = FakeAppControl(
             [
                 {},
@@ -2601,25 +2954,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     [_normalized_row("0/11/search/0", "Ada Lovelace")]
                 ),
                 _failed_accessibility_action_response(),
-                {},
-                _accessibility_query_response(
-                    [
-                        _normalized_node(
-                            "0/11/4/2",
-                            "AXStaticText",
-                            value="Ada Lovelace",
-                        )
-                    ]
-                ),
             ]
         )
         tool = WeChatDesktopTool(app_control)
 
         result = tool.open_contact("Ada")
 
-        self.assertTrue(result.success)
-        self.assertEqual(result.observation["status"], "opened")
-        self.assertEqual(result.observation["currentChat"]["title"], "Ada Lovelace")
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "contact_not_found")
+        self.assertEqual(result.retryable, False)
         self.assertEqual(
             [command.operation for command in app_control.commands],
             [
@@ -2637,13 +2980,54 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 "type_text",
                 "accessibility_query",
                 "accessibility_action",
-                "click",
-                "accessibility_query",
             ],
         )
+
+    def test_open_contact_stops_after_dispatched_visible_row_action(self) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _accessibility_query_response(
+                    [_normalized_row("0/12/1/0/0", "File Transfer")]
+                ),
+                _failed_accessibility_action_response(),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).open_contact("File Transfer")
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_failed")
+        self.assertEqual(result.retryable, False)
         self.assertEqual(
-            app_control.commands[14].input["coordinates"],
-            {"x": 465, "y": 152},
+            [command.operation for command in app_control.commands],
+            ["open_app", "observe", "accessibility_query", "accessibility_action"],
+        )
+
+    def test_selector_visible_contact_stops_after_dispatched_action(self) -> None:
+        app_control = FakeAppControl(
+            [
+                _accessibility_query_response(
+                    [_normalized_row("0/11/1/0/0", "File Transfer")]
+                ),
+                _failed_accessibility_action_response(),
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+
+        result = tool._open_visible_contact_phase(
+            wechat_command("open_contact", {"contact": "File Transfer"}),
+            contact="File Transfer",
+            main_content={"axPath": "0/11", "role": "AXSplitGroup"},
+            evidence={},
+        )
+
+        assert result is not None
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_failed")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_query", "accessibility_action"],
         )
 
     def test_open_contact_uses_visible_row_action_ref_before_search(self) -> None:
@@ -2979,6 +3363,63 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertNotIn(
             "accessibility_action",
             [command.operation for command in app_control.commands],
+        )
+
+    def test_search_focus_stops_after_dispatched_ax_set_focus_failure(self) -> None:
+        app_control = FakeAppControl([_failed_accessibility_action_response()])
+        tool = WeChatDesktopTool(app_control)
+        search_element = argparse.Namespace(
+            role="AXTextArea",
+            label="搜索",
+            actions=(),
+            element_ref=argparse.Namespace(
+                ax_path="0/12/0",
+                snapshot_id="frontmost:WeChat:微信 (聊天)",
+            ),
+            frame=None,
+        )
+
+        result = tool._focus_search_box_phase(
+            wechat_command("open_contact", {"contact": "Ada"}),
+            contact="Ada",
+            search_box=argparse.Namespace(elements=[search_element]),
+            evidence={},
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "search_focus_failed")
+        self.assertEqual(result.retryable, False)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action"],
+        )
+
+    def test_search_focus_stops_after_failed_coordinate_click(self) -> None:
+        app_control = FakeAppControl([_failed_click_response()])
+        tool = WeChatDesktopTool(app_control)
+        search_element = argparse.Namespace(
+            role="AXTextArea",
+            label="搜索",
+            actions=(),
+            element_ref=argparse.Namespace(
+                ax_path="0/12/0",
+                snapshot_id="frontmost:WeChat:微信 (聊天)",
+            ),
+            frame=argparse.Namespace(x=383, y=49, width=205, height=26),
+        )
+
+        result = tool._focus_search_box_phase(
+            wechat_command("open_contact", {"contact": "Ada"}),
+            contact="Ada",
+            search_box=argparse.Namespace(elements=[search_element]),
+            evidence={},
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "search_focus_failed")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["click"],
         )
 
     def test_open_contact_ignores_offscreen_search_candidate_and_uses_return(

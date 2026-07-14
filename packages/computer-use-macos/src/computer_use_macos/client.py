@@ -4056,14 +4056,20 @@ def finish(payload: dict[str, Any]) -> None:
     sys.exit(0)
 
 
-def fail(failure_kind: str, message: str, *, target: dict[str, Any] | None = None) -> None:
+def fail(
+    failure_kind: str,
+    message: str,
+    *,
+    target: dict[str, Any] | None = None,
+    action_attempted: bool = False,
+) -> None:
     payload: dict[str, Any] = {
         "schema": "macos.accessibility.action.result.v1",
         "available": False,
         "status": "failed",
         "failureKind": failure_kind,
         "message": message,
-        "actionAttempted": False,
+        "actionAttempted": action_attempted,
         "diagnostics": {
             "durationMs": int(round((time.monotonic() - STARTED_AT) * 1000)),
         },
@@ -4375,6 +4381,7 @@ if err != 0:
         "accessibility_action_failed",
         f"{method} returned error: {err}",
         target=facts,
+        action_attempted=True,
     )
 
 finish(

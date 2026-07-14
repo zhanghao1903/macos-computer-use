@@ -457,6 +457,17 @@ search box, verifies exact-element focus, replaces the current query, resolves
 one result, and applies the same chat-title postcondition. Unknown focus or
 multiple semantic matches fail before opening a row or drafting a message.
 
+Mutating recovery is fail-closed across mapped navigation, visible-contact
+opening, search focus, and search-result selection. A failed
+`accessibility_action` can use one configured fallback only when the lower
+result explicitly proves that no worker request was dispatched and marks the
+result retryable, or explicitly reports that the action is unsupported without
+reporting an attempted action. Dispatched, attempted, non-retryable, and
+unknown outcomes return immediately; the tool does not follow them with a
+coordinate click, selector click, Return keypress, or another open strategy.
+If an allowed fallback itself fails, that failure is final for the semantic
+operation.
+
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event
 uses the top-level WeChat command id, stores the app-control operation and

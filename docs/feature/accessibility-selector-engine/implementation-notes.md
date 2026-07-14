@@ -4014,3 +4014,68 @@ OK (skipped=1)
 
 No live Accessibility action or WeChat message was executed. All new behavior
 was exercised with synthetic subprocess workers and temporary request markers.
+
+## F4 Review Remediation: Downstream Mutating No-Replay
+
+Status: implementation and focused package verification complete; exact-head
+repository verification and re-review remain pending.
+
+`PRR-021` found that the macOS action transport correctly returned
+`requestDispatched=true` and `retryable=false` after a lost worker response,
+but several WeChat recovery paths looked only at a generic failure kind. They
+could therefore execute a coordinate click, selector click, Return keypress, or
+next contact-opening strategy after the first action may already have mutated
+the desktop.
+
+The WeChat adapter now uses one fail-closed recovery predicate:
+
+| Lower action evidence | Automatic mutating fallback |
+| --- | --- |
+| `actionAttempted=true` | Blocked |
+| `requestDispatched=true` | Blocked unless the result explicitly reports an unsupported action and no attempt |
+| `retryable=false` or missing/contradictory dispatch evidence | Blocked |
+| `requestDispatched=false` and `retryable=true` | One configured fallback allowed |
+| Explicit unsupported action with no attempted-action evidence | One configured fallback allowed |
+
+Mapped navigation, visible-contact opening through both control-map and
+selector paths, search-box focus, search-result selection, coordinate fallback,
+and public actionRef execution all use that predicate. Once an allowed selector
+fallback is issued, its result is final; a failed click is no longer discarded
+in favor of another mutation.
+
+The generated native action script also records
+`actionAttempted=true` when `AXUIElementPerformAction` or
+`AXUIElementSetAttributeValue` has been invoked and returns an error. Failures
+that occur before the native call retain `actionAttempted=false`.
+
+Cross-package tests run the real `ComputerUseClient` against synthetic warm
+worker subprocesses. Dispatch followed by EOF, response timeout, malformed
+JSON, and a structured native-action failure each records exactly one
+`AXPress`, performs zero one-shot runner calls, and produces zero additional
+WeChat mutations. Separate cross-package cases prove that an explicit
+pre-dispatch timeout and an explicit unsupported action still execute exactly
+one configured selector fallback. Path-specific tests cover mapped navigation,
+both visible-contact strategies, search focus, search-result Return recovery,
+and a failed selector fallback.
+
+Focused verification produced:
+
+```text
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:\
+packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests
+
+Ran 132 tests in 0.827s
+OK
+
+PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
+  .venv/bin/python -W error::ResourceWarning -m unittest discover \
+  -s packages/computer-use-macos/tests
+
+Ran 141 tests in 1.557s
+OK (skipped=1)
+```
+
+This remediation changes recovery behavior but adds no command, schema,
+configuration key, dependency, package version, or live desktop proof. No real
+Accessibility action or WeChat message was executed.

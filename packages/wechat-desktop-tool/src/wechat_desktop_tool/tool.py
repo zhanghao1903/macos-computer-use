@@ -1475,7 +1475,16 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         if not opened.success:
-            return None
+            if _should_fallback_from_accessibility_action(opened):
+                return None
+            if opened.tool == WECHAT_TOOL:
+                return opened
+            return _from_app_control_failure(
+                command,
+                _execute_action_failure_kind(opened),
+                opened,
+                evidence=evidence,
+            )
         return self._opened_contact_observation(
             command,
             contact=contact,
@@ -1551,7 +1560,16 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         if not opened.success:
-            return None
+            if _should_fallback_from_accessibility_action(opened):
+                return None
+            if opened.tool == WECHAT_TOOL:
+                return opened
+            return _from_app_control_failure(
+                command,
+                _execute_action_failure_kind(opened),
+                opened,
+                evidence=evidence,
+            )
         return self._opened_contact_observation(
             command,
             contact=contact,
@@ -1799,7 +1817,14 @@ class WeChatDesktopTool:
             _safe_app_control_observation(focused)
         )
         if not focused.success:
-            return None
+            if _should_fallback_from_accessibility_action(focused):
+                return None
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                focused,
+                evidence=evidence,
+            )
         verified = self._verify_search_focus_phase(
             command,
             phase="verify_search_focus_after_accessibility_action",
@@ -1810,7 +1835,12 @@ class WeChatDesktopTool:
             _safe_app_control_observation(verified)
         )
         if not verified.success:
-            return None
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified,
+                evidence=evidence,
+            )
         focus_failure = _search_focus_failure(
             command,
             contact,
@@ -1818,7 +1848,7 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
         if focus_failure is not None:
-            return None
+            return focus_failure
         return verified
 
     def _focus_search_box_coordinate_fallback(
@@ -1845,7 +1875,14 @@ class WeChatDesktopTool:
         )
         evidence["click_search_box_coordinate"] = _safe_app_control_observation(clicked)
         if not clicked.success:
-            return None
+            if _coordinate_click_disabled(clicked):
+                return None
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                clicked,
+                evidence=evidence,
+            )
         verified = self._verify_search_focus_phase(
             command,
             phase="verify_search_focus_after_coordinate",
@@ -3101,9 +3138,7 @@ class WeChatDesktopTool:
         evidence[f"{phase}:selector_fallback"] = _safe_app_control_observation(
             fallback_result
         )
-        if fallback_result.success:
-            return fallback_result
-        return result
+        return fallback_result
 
     def _accessibility_action_input(
         self,
@@ -4096,47 +4131,120 @@ def _stable_id(label: str, fallback_index: int) -> str:
 
 
 def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
+    if result.success or result.operation != "accessibility_action":
+        return False
+    if _accessibility_action_attempted(result) is True:
+        return False
     failure_kind = _accessibility_action_failure_kind(result)
-    if failure_kind in {
+    unsupported = failure_kind in {
         "unsupported_operation",
         "unsupported_accessibility_action",
-    }:
-        return True
+    }
     metadata = result.metadata if isinstance(result.metadata, Mapping) else {}
     legacy_status = metadata.get("legacyStatus")
     observation = result.observation
-    if legacy_status == "failed" and isinstance(observation, Mapping):
+    if (
+        not unsupported
+        and legacy_status == "failed"
+        and isinstance(observation, Mapping)
+    ):
         nested = observation.get("accessibilityAction")
         if isinstance(nested, Mapping):
             nested_kind = nested.get("failureKind")
-            return nested_kind in {
+            unsupported = nested_kind in {
                 "unsupported_operation",
                 "unsupported_accessibility_action",
             }
-    return False
+    if unsupported:
+        return True
+    if result.retryable is not True:
+        return False
+    return _accessibility_action_request_dispatched(result) is False
 
 
 def _should_try_coordinate_click_after_accessibility_action(
     result: ToolObservation,
 ) -> bool:
-    return _accessibility_action_failure_kind(result) in {
-        "accessibility_action_failed",
-        "needs_user",
-        "unsupported_operation",
-        "unsupported_accessibility_action",
-    }
+    return _should_fallback_from_accessibility_action(result)
 
 
 def _should_press_return_for_search_result(result: ToolObservation) -> bool:
-    if result.success:
+    return _should_fallback_from_accessibility_action(result)
+
+
+def _accessibility_action_attempted(result: ToolObservation) -> bool | None:
+    values: list[bool] = []
+    observation = result.observation
+    for payload in (result.metadata, observation):
+        if not isinstance(payload, Mapping):
+            continue
+        for key in ("actionAttempted", "action_attempted"):
+            value = payload.get(key)
+            if isinstance(value, bool):
+                values.append(value)
+    if isinstance(observation, Mapping):
+        metadata = observation.get("metadata")
+        if isinstance(metadata, Mapping):
+            value = metadata.get("action_attempted")
+            if isinstance(value, bool):
+                values.append(value)
+        for key in ("accessibilityAction", "accessibility_action"):
+            nested = observation.get(key)
+            if not isinstance(nested, Mapping):
+                continue
+            for attempted_key in ("actionAttempted", "action_attempted"):
+                value = nested.get(attempted_key)
+                if isinstance(value, bool):
+                    values.append(value)
+    if True in values:
+        return True
+    if False in values:
         return False
-    failure_kind = _accessibility_action_failure_kind(result)
-    return failure_kind in {
-        "accessibility_action_failed",
-        "needs_user",
-        "unsupported_operation",
-        "unsupported_accessibility_action",
-    }
+    return None
+
+
+def _accessibility_action_request_dispatched(
+    result: ToolObservation,
+) -> bool | None:
+    values: list[bool] = []
+    observation = result.observation
+    transport_candidates: list[Mapping[str, Any]] = []
+    for payload in (result.metadata, observation):
+        if not isinstance(payload, Mapping):
+            continue
+        for key in (
+            "accessibility_action_transport",
+            "accessibilityActionTransport",
+        ):
+            transport = payload.get(key)
+            if isinstance(transport, Mapping):
+                transport_candidates.append(transport)
+    if isinstance(observation, Mapping):
+        metadata = observation.get("metadata")
+        if isinstance(metadata, Mapping):
+            transport = metadata.get("accessibility_action_transport")
+            if isinstance(transport, Mapping):
+                transport_candidates.append(transport)
+        for key in ("accessibilityAction", "accessibility_action"):
+            nested = observation.get(key)
+            if not isinstance(nested, Mapping):
+                continue
+            diagnostics = nested.get("diagnostics")
+            if not isinstance(diagnostics, Mapping):
+                continue
+            transport = diagnostics.get("transport")
+            if isinstance(transport, Mapping):
+                transport_candidates.append(transport)
+    for transport in transport_candidates:
+        for key in ("requestDispatched", "request_dispatched"):
+            value = transport.get(key)
+            if isinstance(value, bool):
+                values.append(value)
+    if True in values:
+        return True
+    if False in values:
+        return False
+    return None
 
 
 def _execute_action_failure_kind(result: ToolObservation) -> str:

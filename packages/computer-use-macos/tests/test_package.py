@@ -2368,6 +2368,9 @@ for line in sys.stdin:
         self.assertIn('"target_app_not_frontmost"', source)
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn("return None", source)
+        self.assertIn("action_attempted: bool = False", source)
+        self.assertIn('"actionAttempted": action_attempted', source)
+        self.assertIn("action_attempted=True", source)
 
     def test_package_accessibility_action_worker_script_wraps_action_script(
         self,
