@@ -1981,3 +1981,63 @@ configuration key, dependency, or package version. No live Accessibility
 action or WeChat message was executed. A fresh review of the resulting
 documented head and exact-head CI remain required before merge readiness can be
 restored.
+
+## F5 Deterministic Closure For PRR-021
+
+Date: 2026-07-15.
+
+Tested implementation head:
+`b8d4bbdcc2da27dea6f2206713ceafb49c39a867`.
+
+Validation ran from a clean local clone of that exact commit. The primary
+worktree's unrelated modified and untracked files could not affect source,
+tests, package contents, or wheel inputs. The clone remained clean after all
+checks, and `git diff --check` passed.
+
+### Cross-package no-replay counterexamples
+
+The WeChat regression uses the real `ComputerUseClient`, real
+`_AccessibilityWorker` subprocess framing, and a recording fake outer app
+control. Each unsafe mode writes one `AXPress` request and then exercises a
+different lower-layer result boundary.
+
+| Worker outcome after dispatch | Required WeChat result | Result |
+| --- | --- | --- |
+| Worker exits before a response frame. | Return failure with zero click/key/strategy mutations. | Passed; one recorded `AXPress`, only one outer `accessibility_action`, zero runner fallback calls. |
+| Worker withholds its response past the deadline. | Return non-retryable timeout with zero additional mutations. | Passed with `requestDispatched=true`. |
+| Worker returns malformed JSON. | Fail closed instead of treating protocol failure as a safe click fallback. | Passed. |
+| Worker returns structured native failure with `actionAttempted=true`. | Preserve attempted-action evidence and execute no fallback. | Passed. |
+| Worker times out before dispatch while its lock is held. | Permit exactly one configured fallback because the write count is proven zero. | Passed; worker request log was absent and one selector click ran. |
+| Worker explicitly reports an unsupported action without an attempt. | Permit exactly one configured fallback. | Passed; one action request and one selector click ran. |
+
+The four unsafe modes were then executed together ten consecutive times with
+`ResourceWarning` promoted to an error. All ten runs passed, covering 40
+dispatch/outcome executions without a second mutation.
+
+Path-specific tests additionally prove that mapped navigation, control-map and
+selector visible-contact opening, search-box coordinate and AX focus, search
+result Return recovery, and failed selector fallback all stop after an unsafe
+mutation result.
+
+### Exact commands and results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests` | 127 passed in 43.043 s, including wheel and release integration checks. |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | 55 passed in 0.014 s. |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 141 passed in 1.531 s, 1 skipped. |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests` | 132 passed in 0.812 s. |
+| Cross-package stress | Core dispatched no-replay test repeated ten times with `ResourceWarning` as error. | 10 of 10 passed; each run covered EOF, timeout, malformed response, and native failure. |
+| Compile | `PYTHONPYCACHEPREFIX=<temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed. |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only the sandbox socket and seven unavailable external-proof warnings remained. |
+| Wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py` | All three 0.2.0 wheels built, installed in isolation, imported, passed API smoke, and rejected the incompatible local 0.1.1 dependency set. |
+| Whitespace and clean tree | `git diff --check`, `git status --short`, and `git rev-parse HEAD` | Passed; clone remained clean at the tested SHA. |
+
+Ruff and mypy are not installed in the workspace virtual environment and are
+not configured CI gates; both module-version probes returned `No module named`.
+No passing static-analysis claim is made.
+
+This verification used only synthetic worker processes. No real Accessibility
+action, WeChat contact switch, or message send was executed. A fresh review of
+the resulting documentation head and exact-head GitHub CI remain required
+before merge readiness can be restored.
