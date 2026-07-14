@@ -1929,3 +1929,55 @@ No real Accessibility query/action or WeChat send was executed. Every new
 deadline test used a synthetic subprocess and a temporary request log. A fresh
 review of the verified implementation head and exact-head CI remain required
 before merge readiness can be restored.
+
+## F5 Deterministic Closure For PRR-020
+
+Date: 2026-07-14.
+
+Tested implementation head:
+`74d589057f994a0918c441243259543bd61a9f63`.
+
+Validation ran from a clean isolated clone of that exact commit. Unrelated
+modified and untracked files in the primary worktree could not affect source,
+package, documentation, or wheel inputs. The clone remained clean after all
+configured checks, and `git diff --check origin/main...HEAD` passed.
+
+### Retryability counterexamples
+
+The worker result now carries a private `request_dispatched` boundary and the
+action transport publishes it as `requestDispatched` when known. Protocol
+retryability is computed once and copied into both the top-level observation
+and nested `ToolError`.
+
+| Counterexample | Required result | Result |
+| --- | --- | --- |
+| An action request exhausts its deadline while waiting for the worker lock. | Zero worker frames and zero fallback calls; `requestDispatched=false`; both retryability fields are `true`. | Passed with a real synthetic worker subprocess. |
+| A worker records an `AXPress` and then withholds its response. | Exactly one recorded action and zero fallback calls; `requestDispatched=true`; both retryability fields are `false`. | Passed with a real synthetic worker subprocess. |
+| A legacy/fake worker returns a timeout without dispatch evidence. | Treat the unknown action outcome as non-retryable. | Passed. |
+| The one-shot action subprocess times out without dispatch evidence. | Treat the unknown action outcome as non-retryable. | Passed. |
+| A non-action command times out. | Preserve the existing retryable timeout contract. | Existing regression passed. |
+
+### Exact commands and results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests` | 127 passed in 53.942 s, including all three wheel builds, isolated installs, API smoke, dependency rejection, and release checks |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests` | 55 passed |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 141 passed in 1.618 s, 1 skipped |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests` | 123 passed |
+| Compile | `<workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only expected sandbox socket and unavailable external-proof warnings |
+| Whitespace and clean tree | `git diff --check origin/main...HEAD` and `git status --short` | Passed; isolated clone remained clean |
+
+The workspace virtual environment does not include mypy. `uv run mypy` was
+also recorded as a non-passing repository baseline: it reported 29 strict
+errors across six imported files, with no error on a line changed by this
+remediation. Mypy is not a configured CI gate and is not claimed as passing
+evidence.
+
+This correction adds transport diagnostics and changes only action-timeout
+recovery guidance; it does not change a command, protocol schema version,
+configuration key, dependency, or package version. No live Accessibility
+action or WeChat message was executed. A fresh review of the resulting
+documented head and exact-head CI remain required before merge readiness can be
+restored.
