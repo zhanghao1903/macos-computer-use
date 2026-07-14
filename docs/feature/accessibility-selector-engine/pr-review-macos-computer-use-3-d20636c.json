@@ -1,0 +1,352 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "d20636cd5edf3db4e9521a982fce976cbbb656ba",
+    "reviewed_at": "2026-07-14T18:37:47Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "Current PR metadata, complete main-to-head diff, exact base and head SHAs, commit history, and exact-head GitHub CI",
+      "Focused 3392c27-to-d20636c three-commit remediation delta and b8d4bbd seven-file implementation",
+      "All WeChat action recovery paths: mapped navigation, node click, visible contacts, search focus, search result, Return, coordinate, selector, and strategy continuation",
+      "Native Accessibility action attempt reporting after the native API call",
+      "EOF, timeout, malformed response, native failure, pre-dispatch, and unsupported cross-package outcomes",
+      "Root and package suites, ten-iteration stress, compilation, release preflight, wheel checks, whitespace, docs, and clean-tree evidence"
+    ],
+    "excluded_scope": [
+      "Fresh real WeChat action or message submission",
+      "Post-submit delivery read-back and repeated live latency percentiles",
+      "Signed or notarized helper execution and real TestPyPI or PyPI publication",
+      "Private raw smoke artifacts and unrelated dirty worktree files",
+      "Ruff and mypy because they are unavailable and are not configured CI gates"
+    ]
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "PRR-021 is resolved: one recovery predicate blocks every downstream mutation after dispatched, attempted, non-retryable, or unknown action outcomes. Real synthetic-worker counterexamples, path regressions, package/root gates, wheel checks, and exact-head CI pass.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The remediation makes WeChat action recovery dispatch- and attempt-aware, treats an issued fallback as final, and corrects native actionAttempted reporting. No blocking finding remains for the reviewed snapshot; all deterministic PRR-021 checks and exact-head CI passed.",
+  "change_map": [
+    {
+      "area": "Recovery policy",
+      "change": "One predicate consumes attempt, dispatch, retryability, and unsupported evidence.",
+      "external_behavior": "Unsafe or unknown action outcomes return without another mutation.",
+      "risk": "Low",
+      "validation": "Four real-worker unsafe outcomes and path-specific tests pass."
+    },
+    {
+      "area": "Safe fallback",
+      "change": "Proven pre-dispatch retryable and explicit unsupported outcomes retain one fallback.",
+      "external_behavior": "Compatibility fallback remains available without replaying an action.",
+      "risk": "Low",
+      "validation": "Real worker lock-timeout and unsupported-response tests pass."
+    },
+    {
+      "area": "Fallback finality",
+      "change": "An issued selector fallback result is returned even when it fails.",
+      "external_behavior": "A failed fallback cannot trigger coordinate or strategy replay.",
+      "risk": "Low",
+      "validation": "Dedicated failed-selector-fallback regression passes."
+    },
+    {
+      "area": "Native attempt evidence",
+      "change": "Native AX errors set actionAttempted=true while pre-call failures retain false.",
+      "external_behavior": "Downstream recovery can distinguish attempted native operations.",
+      "risk": "Low",
+      "validation": "Source assertion and structured-failure cross-package test pass."
+    },
+    {
+      "area": "Compatibility and release",
+      "change": "No command, schema version, configuration key, dependency, or package version changed.",
+      "external_behavior": "Recovery becomes fail-closed while public schemas remain stable.",
+      "risk": "Low",
+      "validation": "Package boundaries, docs, wheels, preflight, and CI pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-021",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "WeChat replayed actions after dispatched or unknown outcomes",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 4133,
+        "line_end": 4247,
+        "symbol": "_should_fallback_from_accessibility_action / action recovery callers",
+        "side": "RIGHT",
+        "commit_sha": "d20636cd5edf3db4e9521a982fce976cbbb656ba"
+      },
+      "observation": "The prior implementation selected fallback from generic failure kind and could ignore dispatch, attempt, and non-retryable evidence. The current implementation routes every affected recovery path through one fail-closed predicate and treats an issued fallback as final.",
+      "trigger": "A warm worker receives AXPress or AXSetFocus but its response is lost, malformed, times out, or reports a native API error after invocation.",
+      "impact": "Before remediation, one semantic request could perform two desktop mutations and use stale coordinates after an unknown first outcome. The current paths execute zero additional mutations in every unsafe case.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "The central predicate gives positive attempt and dispatch evidence fail-closed precedence, requires explicit pre-dispatch plus retryable evidence, and preserves explicit unsupported fallback.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:4133-4247@d20636c"
+        },
+        {
+          "kind": "code",
+          "description": "Mapped navigation, visible contacts, search focus, search result, coordinates, selector fallback, and strategy continuation all use the central decision or stop on the final fallback result.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:950-990,1355-1390,1450-1572,1706-1885,2991-3141@d20636c"
+        },
+        {
+          "kind": "code",
+          "description": "The generated native action script sets actionAttempted=true after AXUIElementPerformAction or AXUIElementSetAttributeValue returns an error.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:4059-4079,4373-4385@d20636c"
+        },
+        {
+          "kind": "test",
+          "description": "Real synthetic workers cover EOF, post-dispatch timeout, malformed JSON, native failure, pre-dispatch timeout, and unsupported action; path-specific tests cover every affected WeChat strategy.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py:1876,2727-2866,2939-3029,3368-3428@d20636c"
+        },
+        {
+          "kind": "test",
+          "description": "The four unsafe cross-package modes passed ten consecutive iterations, covering 40 dispatch/outcome executions with no second mutation.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-021"
+        },
+        {
+          "kind": "ci",
+          "description": "Exact-head CI passed unit tests, release preflight, all package tests, wheel and sdist builds, and distribution-content checks.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29358425055/job/87171908549"
+        }
+      ],
+      "remediation": "Completed: preserve the no-replay boundary throughout WeChat, make a fallback result final, and report native action attempts accurately.",
+      "verification": "Completed: EOF, timeout, malformed response, native failure, pre-dispatch, unsupported, path-specific, package/root, wheel, preflight, and exact-head CI gates pass.",
+      "status": "resolved",
+      "fingerprint": "wechat-action-recovery-bypasses-dispatch-no-replay"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-021",
+      "action": "Make every WeChat mutating fallback honor dispatch, attempt, and non-retryable evidence; correct native attempt reporting; add cross-package no-replay regressions.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Private desktop logs can contain transient UI text.",
+      "mitigation": "Keep raw artifacts untracked and publish bounded semantic evidence only.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "A dispatched action can still have an unknown desktop outcome.",
+      "mitigation": "Return non-retryable failure and execute zero downstream mutations.",
+      "owner": "computer-use-macos and wechat-desktop-tool"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Worker EOF, timeout, or malformed responses remain possible.",
+      "mitigation": "Preserve dispatch evidence and central fail-closed recovery.",
+      "owner": "computer-use-macos and wechat-desktop-tool"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "One worker serializes Accessibility actions.",
+      "mitigation": "Keep the bounded deadline and timing diagnostics.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "Unsafe generic fallback is now rejected.",
+      "mitigation": "Preserve schemas and explicitly allow proven pre-dispatch and unsupported fallbacks.",
+      "owner": "wechat-desktop-tool"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Low",
+      "description": "Recovery semantics changed across normal WeChat action paths.",
+      "mitigation": "Revert b8d4bbd if necessary; no data migration exists.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "maintainability",
+      "level": "Low",
+      "description": "Recovery evidence exists in direct and nested protocol locations.",
+      "mitigation": "Keep one extraction and policy helper with cross-package contract tests.",
+      "owner": "wechat-desktop-tool"
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 tests passed in 43.043 seconds, including wheel and release integration checks.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-021"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed in 0.014 seconds.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "141 tests passed in 1.531 seconds; one sandbox skip; no ResourceWarning.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "132 tests passed in 0.812 seconds.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "for run in {1..10}; do <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest test_tool.WeChatDesktopToolTests.test_cross_package_dispatched_action_failures_do_not_mutate_again; done",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Ten of ten iterations passed; each run covered EOF, timeout, malformed response, and native failure.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#cross-package-no-replay-counterexamples"
+      },
+      {
+        "command": "PYTHONPYCACHEPREFIX=<temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Compilation passed without dirtying the clone.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Mandatory gates passed; expected socket and seven external-proof warnings remained.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "/opt/anaconda3/bin/python scripts/wheel_check.py",
+        "environment": "Clean isolated b8d4bbd implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "b8d4bbdcc2da27dea6f2206713ceafb49c39a867",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Three 0.2.0 wheels built and installed; API smoke passed and the incompatible local 0.1.1 dependency set was rejected.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "git diff --check origin/main...HEAD && git diff --name-only b8d4bbd...d20636c",
+        "environment": "Local exact review head d20636c",
+        "head_sha": "d20636cd5edf3db4e9521a982fce976cbbb656ba",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors; the post-implementation commit changes only the F5 verification record.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-021"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test",
+        "observed_at": "2026-07-14T18:37:47Z",
+        "status": "PASS",
+        "summary": "Exact head d20636c passed unit tests, release preflight, all package tests, wheel and sdist builds, and distribution-content checks.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29358425055/job/87171908549"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Fresh real WeChat action or send",
+        "reason": "Deterministic synthetic workers cover the recovery boundary without risking a desktop mutation; prior live feature evidence remains historical context."
+      },
+      {
+        "check": "Post-submit delivery read-back",
+        "reason": "Outside this recovery review."
+      },
+      {
+        "check": "Signed helper and real release publication",
+        "reason": "These are later F7 external gates."
+      },
+      {
+        "check": "Ruff and mypy",
+        "reason": "Neither module is installed in the workspace environment, and neither is a configured CI gate."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is authoritative only for head d20636cd5edf3db4e9521a982fce976cbbb656ba; any later code or behavior change requires re-review.",
+    "The complete feature diff is covered through the prior stable finding ledger, the focused three-commit delta, and current root, package, and CI gates.",
+    "Local implementation tests ran at b8d4bbd; d20636c adds only the F5 verification record and exact-head CI reran all configured checks.",
+    "No fresh real desktop mutation, signed helper, or publication was performed.",
+    "Private raw observations and unrelated dirty worktree files were excluded.",
+    "The GitHub PR remains draft and its body still describes the obsolete 07fa052 request-changes result."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "Explicit unsupported-operation results mean the requested native action was not performed unless positive attempt evidence contradicts them.",
+    "Once a mutating request is dispatched or attempted, missing response data leaves its desktop outcome unknown and prohibits another mutation.",
+    "Automatic fallback is safe only with proven zero dispatch plus retryability, or explicit unsupported action without a positive attempt.",
+    "Unavailable Ruff and mypy checks are not merge gates because exact-head CI does not configure them."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced legacy private focus implementation in a separate cleanup.",
+      "value": "Reduces dead code without mixing cleanup into this safety remediation."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group or remove it as an unavailable documented gate.",
+      "value": "Makes the repository quality gate reproducible."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live percentiles if the three-second target becomes an operational SLO.",
+      "value": "Separates representative proof from sustained latency guarantees."
+    },
+    {
+      "id": "NOTE-015",
+      "category": "documentation",
+      "recommendation": "Synchronize the GitHub PR body, tracked PR description, and merge-readiness record before changing draft state.",
+      "value": "Prevents maintainers from acting on obsolete review conclusions."
+    },
+    {
+      "id": "NOTE-016",
+      "category": "documentation",
+      "recommendation": "Expand the final release note to name the warm action worker and dispatch-aware downstream recovery behavior.",
+      "value": "Makes the release record traceable to the recovery contract."
+    }
+  ]
+}
