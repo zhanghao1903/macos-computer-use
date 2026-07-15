@@ -5,29 +5,26 @@
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
 - Verified implementation/evidence head:
-  `916ac1d`
+  `d85703a`
 - Current review:
-  [`pr-review-macos-computer-use-3-d5204dd.md`](./pr-review-macos-computer-use-3-d5204dd.md),
-  published at `bf20423`
+  [`pr-review-macos-computer-use-3-d85703a.md`](./pr-review-macos-computer-use-3-d85703a.md),
+  published at `376401e`
 - Current decision: `APPROVE`; no blocking findings remain for the reviewed
-  `d5204dd` snapshot
+  `d85703a` snapshot
 
 ## Remediation Status
 
-The `d2dadd0` review requested changes for `PRR-022` and `PRR-023` and recorded
-`PRR-024` as a documentation contradiction. The replacement `d5204dd` review
-verified all three remediations and returned `APPROVE` with no blockers.
+The `3f792e4` review requested changes for `PRR-025` and `PRR-026` after
+revalidating `PRR-022` through `PRR-024`. Both new blockers are resolved:
 
-- `PRR-022` is remediated at `3fd41ce`. Native Accessibility results now
-  distinguish a definite unsupported/no-effect result from an uncertain
-  attempted outcome.
-- F5 evidence is recorded at `916ac1d`; clean-clone package, root, stress,
-  preflight, compile, and wheel checks passed.
-- `PRR-023` is resolved. The pending-review merge-readiness record, tracked PR
-  description, and GitHub PR body were synchronized at `d5204dd`, and the
-  replacement review verified that state.
-- `PRR-024` is remediated in `docs/api.md` and
-  `docs/wechat-desktop-tool.md`; both now define the same recovery precedence.
+- the strict proof contract and implementation plan were amended at
+  `804348b`;
+- `0b78eff` declares the emitted failure in the stable public tuple, parses
+  malformed effects without raising, and validates the complete WeChat proof;
+- F5 evidence is recorded at `d85703a`; clean-clone package, root, 150-outcome
+  stress, preflight, compile, and wheel checks passed;
+- the `d85703a` replacement review is published at `376401e` with decision
+  `APPROVE` and no blocking findings.
 
 The replacement report is the authoritative current review. This final
 docs-only update makes its decision discoverable from both F6 entry points; it
@@ -40,39 +37,36 @@ The direct backend reports three native action effect states:
 | Result | Public evidence | Higher-level recovery |
 | --- | --- | --- |
 | Native success | `actionAttempted=true`, `actionEffect=performed` | Continue without fallback. |
-| `AXPress/-25206` or `AXSetFocus/-25205` | `failureKind=accessibility_action_unsupported`, `actionAttempted=true`, `actionEffect=none`, `nativeErrorCode` | Permit exactly one existing policy-gated fallback. |
+| `AXPress/-25206` or `AXSetFocus/-25205` | Registered `failureKind=accessibility_action_unsupported`, exact action/code pair, `actionAttempted=true`, `actionEffect=none` | Permit exactly one existing policy-gated fallback. |
 | Any other native error, including `-25204` | `failureKind=accessibility_action_failed`, `actionAttempted=true`, `actionEffect=unknown`, `nativeErrorCode` | Stop; do not mutate again. |
 
-The WeChat adapter requires the new failure kind and consistent `none` effect
-evidence before applying the exception. Missing or contradictory effect data,
-legacy unsupported results with positive attempt evidence, EOF, timeout,
-malformed responses, and unknown dispatch outcomes remain fail-closed. Once an
-allowed fallback is issued, its result is final.
+The WeChat adapter requires every public, metadata, alias, and nested proof
+field to have the expected type and agree. Missing action, attempted state,
+effect, or native code; wrong action/code pairing; non-string or empty effects;
+non-integer codes; contradictory duplicates; legacy attempted results; EOF;
+timeout; malformed responses; and unknown dispatch outcomes remain
+fail-closed. Once an allowed fallback is issued, its result is final.
 
 ## Verification
 
-Clean-clone verification of implementation head `3fd41ce`:
+Clean-clone verification of implementation head `0b78eff`:
 
-- root repository: 127 passed in 44.070 seconds;
+- root repository: 127 passed in 51.076 seconds;
 - `app-control-protocol`: 55 passed;
-- `computer-use-macos`: 142 passed, 1 skipped, with `ResourceWarning` treated
+- `computer-use-macos`: 143 passed, 1 skipped, with `ResourceWarning` treated
   as an error;
-- `wechat-desktop-tool`: 137 passed with `ResourceWarning` treated as an
+- `wechat-desktop-tool`: 138 passed with `ResourceWarning` treated as an
   error;
-- seven unsafe cross-package modes repeated ten times: 10/10 passes, 70
+- fifteen unsafe cross-package modes repeated ten times: 10/10 passes, 150
   dispatch/outcome executions, zero second mutation;
 - compile, release preflight, whitespace, clean-tree, three-wheel build,
   isolated install/import/API smoke, and old dependency rejection: passed.
 
 GitHub Actions run
-[`29396951638`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29396951638),
-job `87292520782`, passed in 2 minutes 23 seconds against exact F5 head
-`916ac1d`.
-
-GitHub Actions run
-[`29418761726`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29418761726),
-job `87363517193`, passed in 1 minute 47 seconds against exact reviewed F6 head
-`d5204dd` after tracked and GitHub PR descriptions were synchronized.
+[`29428052131`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29428052131)
+passed against exact implementation head `0b78eff`. Run
+[`29429104699`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29429104699)
+passed against exact F5/review head `d85703a`.
 
 No real Accessibility action or WeChat message was executed for this
 classification remediation. Historical authorized live evidence remains
@@ -87,17 +81,19 @@ protocol tests cover the corrected boundary.
 | `PRR-022` | Resolved; exact native unsupported/no-effect semantics and regressions are implemented and verified. |
 | `PRR-023` | Resolved; tracked/platform F6 synchronization was verified by the replacement review. |
 | `PRR-024` | Resolved; both stable documents publish one precedence rule. |
+| `PRR-025` | Resolved; the emitted unsupported failure is declared and registered in the stable tuple. |
+| `PRR-026` | Resolved; only complete, consistent native no-effect proof permits one fallback. |
 
-Historical review reports remain immutable. The `d2dadd0` report retains its
-`REQUEST_CHANGES` decision for that older snapshot; the `d5204dd` replacement
+Historical review reports remain immutable. The `3f792e4` report retains its
+`REQUEST_CHANGES` decision for that older snapshot; the `d85703a` replacement
 report supersedes it for current merge evaluation.
 
 ## Release Record
 
-The committed `CHANGELOG.md` already records the selector engine, warm bounded
-AX execution, no-replay behavior, and the compatibility requirement for
-WeChat rows that omit or reject `AXPress`. No package version, dependency,
-command, configuration key, or schema version changes in this remediation.
+The committed `CHANGELOG.md` records the selector engine and compatibility
+fallback for WeChat rows that omit or reject `AXPress`. No package version,
+dependency, command, configuration key, or schema version changes in this
+remediation.
 
 The release note should retain the existing selector-engine summary and name
 the dispatch/attempt-aware no-replay boundary plus the definite unsupported

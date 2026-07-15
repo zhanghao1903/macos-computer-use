@@ -3,20 +3,17 @@
 ## Current Status
 
 The implementation and deterministic verification are complete through F5
-head `916ac1d`. The replacement review of synchronized F6 head `d5204dd`
-resolved `PRR-022`, `PRR-023`, and `PRR-024` and returned `APPROVE` with no
-blocking findings. The review is recorded in
-[`pr-review-macos-computer-use-3-d5204dd.md`](https://github.com/zhanghao1903/macos-computer-use/blob/bf20423eaad97958980a467350d37bc4885fb5b6/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-d5204dd.md)
-and published at `bf20423`.
+head `d85703a`. The replacement review resolved `PRR-025` and `PRR-026`,
+revalidated `PRR-022` through `PRR-024`, and returned `APPROVE` with no blocking
+findings. The review is recorded in
+[`pr-review-macos-computer-use-3-d85703a.md`](https://github.com/zhanghao1903/macos-computer-use/blob/376401e8685c0f1c28705e8772f9f2e5b08c78ce/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-d85703a.md)
+and published at `376401e`.
 
 GitHub Actions run
-[`29396951638`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29396951638),
-job `87292520782`, passed against exact F5 head `916ac1d`.
-
-GitHub Actions run
-[`29418761726`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29418761726),
-job `87363517193`, passed against exact reviewed F6 head `d5204dd` after the
-tracked and GitHub PR descriptions were synchronized.
+[`29428052131`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29428052131)
+passed against exact implementation head `0b78eff`. Run
+[`29429104699`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29429104699)
+passed against exact F5/review head `d85703a`.
 
 ## Problem
 
@@ -25,8 +22,9 @@ broad scans. The selector-engine work added fast, bounded, identity-checked AX
 queries and actions, but a no-replay remediation later collapsed Apple's
 definite unsupported errors into the same class as uncertain attempted
 actions. Rows that safely rejected `AXPress` could therefore lose their one
-configured fallback. At the same time, F6 and platform descriptions continued
-to publish obsolete review SHAs and decisions.
+configured fallback. Later review found that the new failure was absent from
+the stable routing tuple and malformed or contradictory proof could still
+trigger a fallback.
 
 ## Solution
 
@@ -58,10 +56,17 @@ The latest remediation adds precise native action effect evidence:
 - all other native errors, including `-25204`, publish
   `actionEffect=unknown` and remain fail-closed.
 
+`computer-use-macos` now declares
+`errors.ACCESSIBILITY_ACTION_UNSUPPORTED` and includes it in
+`COMPUTER_USE_FAILURE_KINDS`. Malformed action-effect values remain nested
+diagnostics and are not promoted as trusted metadata.
+
 The WeChat adapter permits exactly one existing fallback only when the new
-definite unsupported failure kind has complete, non-contradictory `none`
-effect evidence. It does not replay EOF, timeout, malformed, missing,
-contradictory, generic attempted, or unknown-dispatch outcomes.
+failure kind, action, attempted state, effect, and native code form the exact
+`AXPress/-25206` or `AXSetFocus/-25205` no-effect proof. Every public,
+metadata, alias, and nested occurrence must have the expected type and agree.
+It does not replay EOF, timeout, malformed, missing, contradictory, wrong-code,
+generic attempted, or unknown-dispatch outcomes.
 
 No public `resolve_selector` or `extract_collection` protocol operation is
 introduced. No command or schema version changes in the remediation.
@@ -81,6 +86,9 @@ Consumers continue using the existing semantic methods:
 
 Direct `accessibility_action` observations now add `actionEffect` and, for
 native failures, `nativeErrorCode`. Existing fields remain compatible.
+Applications routing failures through `COMPUTER_USE_FAILURE_KINDS` now receive
+the emitted `accessibility_action_unsupported` value as a declared package
+failure.
 
 ## Safety
 
@@ -88,8 +96,9 @@ native failures, `nativeErrorCode`. Existing fields remain compatible.
   preconditions are checked before native actions.
 - A definite unsupported/no-effect result may use only one already configured,
   policy-gated fallback.
-- `-25204`, transport loss, malformed response, missing or contradictory
-  effect data, and unknown dispatch remain non-replayable.
+- `-25204`, transport loss, malformed response, missing proof, wrong
+  action/code pairing, malformed values, contradictory duplicates, and unknown
+  dispatch remain non-replayable.
 - A failed fallback is final.
 - Contact identity is verified before reads, drafts, or sends continue.
 - Private UI content and raw observations are excluded from release proof.
@@ -100,15 +109,15 @@ Clean-clone deterministic verification:
 
 - root: 127 passed;
 - `app-control-protocol`: 55 passed;
-- `computer-use-macos`: 142 passed, 1 skipped;
-- `wechat-desktop-tool`: 137 passed;
-- seven unsafe cross-package result modes repeated ten times: 70 executions,
+- `computer-use-macos`: 143 passed, 1 skipped;
+- `wechat-desktop-tool`: 138 passed;
+- fifteen unsafe cross-package result modes repeated ten times: 150 executions,
   zero second mutation;
 - native `AXPress/-25206` and `AXSetFocus/-25205`: exactly one configured
   fallback each;
 - compile, release preflight, wheel build/install/import/API smoke, dependency
   rejection, whitespace, and clean-tree checks: passed;
-- exact F5 head GitHub Actions: passed.
+- exact implementation and F5/review head GitHub Actions: passed.
 
 No fresh real WeChat mutation was needed for this error-classification fix.
 Historical authorized live evidence remains recorded separately and is not
@@ -122,12 +131,16 @@ represented as post-remediation proof.
 - `PRR-023`: resolved; tracked F6 records and the GitHub PR body were
   synchronized and verified by the replacement review.
 - `PRR-024`: resolved; both stable API documents publish one precedence rule.
+- `PRR-025`: resolved; the emitted failure is declared in the stable public
+  routing tuple.
+- `PRR-026`: resolved; malformed, incomplete, or contradictory proof cannot
+  trigger a second mutation.
 
 ## Release Record
 
-The existing Unreleased changelog records the selector engine, bounded warm AX
-execution, no-replay behavior, and fallback for WeChat rows that omit or reject
-`AXPress`. The final release note should explicitly mention both
+The existing Unreleased changelog records the selector engine and fallback for
+WeChat rows that omit or reject `AXPress`. The final release note should
+explicitly mention both
 dispatch/attempt-aware no-replay and the definite unsupported/no-effect single
 fallback exception.
 
