@@ -3,14 +3,20 @@
 ## Current Status
 
 The implementation and deterministic verification are complete through F5
-head `916ac1d`. The latest completed review at `d2dadd0` requested changes for
-`PRR-022` and `PRR-023`; both have now been remediated, and `PRR-024` has been
-clarified. A replacement review is still required, so this draft PR is not yet
-represented as approved or ready to merge.
+head `916ac1d`. The replacement review of synchronized F6 head `d5204dd`
+resolved `PRR-022`, `PRR-023`, and `PRR-024` and returned `APPROVE` with no
+blocking findings. The review is recorded in
+[`pr-review-macos-computer-use-3-d5204dd.md`](https://github.com/zhanghao1903/macos-computer-use/blob/bf20423eaad97958980a467350d37bc4885fb5b6/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-d5204dd.md)
+and published at `bf20423`.
 
 GitHub Actions run
 [`29396951638`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29396951638),
 job `87292520782`, passed against exact F5 head `916ac1d`.
+
+GitHub Actions run
+[`29418761726`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29418761726),
+job `87363517193`, passed against exact reviewed F6 head `d5204dd` after the
+tracked and GitHub PR descriptions were synchronized.
 
 ## Problem
 
@@ -111,10 +117,11 @@ represented as post-remediation proof.
 ## Finding State
 
 - `PRR-001` through `PRR-021`: resolved.
-- `PRR-022`: remediated and deterministically verified.
-- `PRR-023`: remediated by synchronizing tracked F6 records and this GitHub PR
-  body; replacement review pending.
-- `PRR-024`: remediated in both stable API documents.
+- `PRR-022`: resolved; definite unsupported/no-effect recovery and uncertain
+  outcome no-replay are implemented and deterministically verified.
+- `PRR-023`: resolved; tracked F6 records and the GitHub PR body were
+  synchronized and verified by the replacement review.
+- `PRR-024`: resolved; both stable API documents publish one precedence rule.
 
 ## Release Record
 
@@ -126,6 +133,8 @@ fallback exception.
 
 ## Merge Decision
 
-Keep this PR in draft until the replacement review evaluates the resulting F6
-snapshot and exact-head CI is green. Marking ready, merging, signed-helper
-proof, and publication are separate owner/release actions.
+The replacement review approved the synchronized F6 snapshot and its
+exact-head CI is green. This final description update does not change the PR
+from draft automatically; marking ready and merging remain repository-owner
+actions. Signed-helper proof and publication remain separate F7 release
+actions.
