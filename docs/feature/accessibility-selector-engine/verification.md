@@ -2041,3 +2041,58 @@ This verification used only synthetic worker processes. No real Accessibility
 action, WeChat contact switch, or message send was executed. A fresh review of
 the resulting documentation head and exact-head GitHub CI remain required
 before merge readiness can be restored.
+
+## F5 Deterministic Closure For PRR-022
+
+Date: 2026-07-15.
+
+Tested implementation head:
+`3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8`.
+
+Validation ran from a clean local clone of that exact commit. Unrelated changes
+and private smoke artifacts in the primary worktree could not affect source,
+tests, documentation, or wheel inputs. The clone remained clean after every
+check, and `git diff --check` passed.
+
+### Unsupported/no-effect counterexamples
+
+The cross-package tests use the real `ComputerUseClient`, the real warm action
+worker protocol, and a recording outer WeChat adapter. They distinguish a
+native call being attempted from the requested UI effect being performed.
+
+| Native or transport result | Required downstream behavior | Result |
+| --- | --- | --- |
+| `AXPress` returns `kAXErrorActionUnsupported` (`-25206`). | Publish `accessibility_action_unsupported`, `actionAttempted=true`, `actionEffect=none`, and execute exactly one configured selector fallback. | Passed; one action request and one click. |
+| `AXSetFocus` returns `kAXErrorAttributeUnsupported` (`-25205`). | Publish the same definite no-effect contract and execute exactly one selector-focus fallback. | Passed; one action request, one click, and one focus verification query. |
+| Native action returns `kAXErrorCannotComplete` (`-25204`). | Publish `actionEffect=unknown` and execute zero downstream mutations. | Passed. |
+| Worker exits, times out, or returns malformed JSON after dispatch. | Preserve unknown-outcome no-replay behavior. | Passed. |
+| Unsupported failure kind conflicts with `actionEffect=unknown`. | Treat the evidence as contradictory and execute zero fallback. | Passed. |
+| Definite-unsupported failure kind omits `actionEffect`. | Fail closed because no-effect was not proven. | Passed. |
+| Legacy `unsupported_accessibility_action` claims a native attempt. | Do not apply the new precedence exception to the legacy result. | Passed. |
+| Request expires before dispatch, or backend reports unsupported without an attempt. | Preserve the existing single safe fallback. | Passed. |
+
+The seven unsafe worker modes were executed together ten consecutive times
+with `ResourceWarning` promoted to an error. All ten runs passed, covering 70
+dispatch/outcome executions without a second mutation. Mapped navigation,
+public actionRef recovery, search focus, and both native unsupported error codes
+also have path-specific regressions.
+
+### Exact commands and results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s tests` | 127 passed in 44.070 s, including wheel and release integration checks. |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests` | 55 passed in 0.013 s. |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 142 passed in 1.563 s, 1 skipped. |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests` | 137 passed in 0.963 s. |
+| Unsafe cross-package stress | Core dispatched no-replay test repeated ten times with `ResourceWarning` as error. | 10 of 10 passed in 3.835 s; each run covered seven unsafe result shapes. |
+| Compile | `PYTHONPYCACHEPREFIX=<temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed without dirtying the clone. |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only the expected sandbox socket and seven unavailable external-proof warnings remained. |
+| Wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py` | All three 0.2.0 wheels built, installed in isolation, imported, passed API smoke, and rejected the incompatible local 0.1.1 dependency set. |
+| Whitespace and clean tree | `git diff --check`, `git status --short`, and `git rev-parse HEAD` | Passed; clone remained clean at the tested SHA. |
+
+Ruff and mypy remain unavailable in the workspace virtual environment and are
+not configured CI gates. No real Accessibility action, WeChat contact switch,
+or message send was executed; the SDK constants and synthetic native results
+exercise this classification boundary deterministically. Exact-head GitHub CI
+and a replacement review remain required after the F5 evidence commit.
