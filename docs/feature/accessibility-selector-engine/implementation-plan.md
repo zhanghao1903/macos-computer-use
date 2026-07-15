@@ -305,3 +305,39 @@ Add or update an `Unreleased` changelog entry when implementation changes
 behavior, APIs, docs, tests, examples, packaging, or repository workflow. During
 F6 merge readiness, confirm the changelog summarizes the package-consumer
 scenario solved by each slice rather than only listing files changed.
+
+## Review Remediation Slice: Strict Unsupported Action Proof
+
+### Contract And Files
+
+- `computer_use_macos/errors.py`: declare
+  `ACCESSIBILITY_ACTION_UNSUPPORTED` and include it in
+  `COMPUTER_USE_FAILURE_KINDS`.
+- `computer-use-macos/tests/test_package.py`: prove real `AXPress/-25206` and
+  `AXSetFocus/-25205` observations route through the public tuple, and cover
+  generated `fail("...")` literals in the exhaustiveness check.
+- `wechat_desktop_tool/tool.py`: accept the one-fallback exception only after
+  strict validation of failure kind, action, attempted state, effect, native
+  error code, and every duplicate proof field.
+- `wechat-desktop-tool/tests/test_tool.py`: preserve the two valid native
+  fallback paths and add zero-fallback cases for `-25204`, wrong action/code
+  pairing, missing proof, malformed values, empty values, and contradictions.
+- Stable API and WeChat docs plus `implementation-notes.md`: publish the exact
+  proof contract and compatibility behavior.
+
+### Verification
+
+1. Run focused computer-use and WeChat regression tests with
+   `ResourceWarning` promoted to errors.
+2. Run complete package and root suites from an exact clean commit.
+3. Repeat all unsafe cross-package shapes ten times and require zero fallback.
+4. Run compile, release preflight, wheel/install/API smoke, dependency
+   rejection, whitespace, clean-tree, and exact-head GitHub CI checks.
+5. Produce a replacement review before restoring merge readiness.
+
+### Rollback
+
+Revert this remediation slice as one unit. No persisted data or configuration
+migration exists. A rollback restores the previous tuple and permissive proof
+parser, so it must also restore the prior `REQUEST_CHANGES` merge state rather
+than representing that behavior as safe to merge.

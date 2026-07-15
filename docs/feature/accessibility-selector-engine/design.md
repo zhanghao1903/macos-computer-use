@@ -1288,3 +1288,34 @@ should not be the only correctness proof.
   and actionRef precondition rejection.
 - No generated raw AX captures, local smoke outputs, build artifacts, or
   private message/contact dumps are committed as release proof.
+
+## Review Amendment: Definite Unsupported Action Proof
+
+The direct macOS backend owns one additional stable package failure kind:
+`ACCESSIBILITY_ACTION_UNSUPPORTED = "accessibility_action_unsupported"`.
+Its value is part of `COMPUTER_USE_FAILURE_KINDS`. This differs from the
+pre-call `UNSUPPORTED_ACCESSIBILITY_ACTION` failure: the native AX call was
+attempted, but macOS definitively rejected the requested operation without
+performing it.
+
+Higher-level adapters may issue one configured mutating fallback only when the
+failed `accessibility_action` carries a complete, internally consistent proof:
+
+| Requested action | Required native error | Attempted | Effect |
+| --- | ---: | --- | --- |
+| `AXPress` | `kAXErrorActionUnsupported` (`-25206`) | `true` | `none` |
+| `AXSetFocus` | `kAXErrorAttributeUnsupported` (`-25205`) | `true` | `none` |
+
+The failure kind, action, attempt state, effect, and native error code are all
+proof fields. Every occurrence in public observation, metadata, or nested
+action payloads must have the expected type and value. Missing required proof,
+an action/error mismatch, `-25204`, an empty value, a non-string effect, a
+non-integer error code, or any contradictory duplicate fails closed. Unknown
+or malformed outcomes must not be followed by a click, keypress, focus change,
+or another mutating strategy.
+
+This amendment is additive for direct `computer-use-macos` callers: the
+failure kind was already emitted and is now declared in the stable routing
+tuple. It intentionally narrows malformed/version-skewed WeChat recovery; no
+command, schema version, configuration key, package dependency, or semantic
+API shape changes.
