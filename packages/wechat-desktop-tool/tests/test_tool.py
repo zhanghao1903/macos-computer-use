@@ -145,6 +145,13 @@ class CrossPackageActionAppControl:
         self.commands.append(tool_command)
         if tool_command.operation == "accessibility_action":
             return self.client.run_command(tool_command)
+        phase = tool_command.metadata.get("phase") if tool_command.metadata else None
+        if (
+            tool_command.operation == "accessibility_query"
+            and isinstance(phase, str)
+            and phase.startswith("verify_search_focus")
+        ):
+            return _default_search_focus_query_response(tool_command)
         return ToolObservation.ok(
             command_id=tool_command.command_id,
             tool=tool_command.tool,
@@ -209,30 +216,63 @@ for line in sys.stdin:
     elif MODE == "malformed":
         print("{not-json", flush=True)
     else:
-        attempted = MODE == "native_failure"
-        failure_kind = (
-            "accessibility_action_failed"
-            if attempted
-            else "unsupported_accessibility_action"
-        )
+        action = request["action"]
+        attempted = MODE in {
+            "native_failure",
+            "native_unsupported",
+            "native_unsupported_contradictory",
+            "native_unsupported_missing_effect",
+            "legacy_unsupported_attempted",
+        }
+        if MODE == "native_failure":
+            failure_kind = "accessibility_action_failed"
+            action_effect = "unknown"
+            native_error_code = -25204
+        elif MODE in {
+            "native_unsupported",
+            "native_unsupported_contradictory",
+            "native_unsupported_missing_effect",
+        }:
+            failure_kind = "accessibility_action_unsupported"
+            action_effect = (
+                "unknown"
+                if MODE == "native_unsupported_contradictory"
+                else (
+                    None
+                    if MODE == "native_unsupported_missing_effect"
+                    else "none"
+                )
+            )
+            native_error_code = -25205 if action == "AXSetFocus" else -25206
+        elif MODE == "legacy_unsupported_attempted":
+            failure_kind = "unsupported_accessibility_action"
+            action_effect = "none"
+            native_error_code = -25206
+        else:
+            failure_kind = "unsupported_accessibility_action"
+            action_effect = None
+            native_error_code = None
+        payload = {
+            "schema": "macos.accessibility.action.result.v1",
+            "available": False,
+            "status": "failed",
+            "failureKind": failure_kind,
+            "message": failure_kind,
+            "action": action,
+            "actionAttempted": attempted,
+            "target": {
+                "axPath": request["target"]["axPath"],
+                "role": "AXTextArea" if action == "AXSetFocus" else "AXRow",
+                "label": "Search" if action == "AXSetFocus" else "File Transfer",
+                "actions": [] if action == "AXSetFocus" else ["AXPress"],
+            },
+        }
+        if action_effect is not None:
+            payload["actionEffect"] = action_effect
+        if native_error_code is not None:
+            payload["nativeErrorCode"] = native_error_code
         print(
-            json.dumps(
-                {
-                    "schema": "macos.accessibility.action.result.v1",
-                    "available": False,
-                    "status": "failed",
-                    "failureKind": failure_kind,
-                    "message": failure_kind,
-                    "action": request["action"],
-                    "actionAttempted": attempted,
-                    "target": {
-                        "axPath": request["target"]["axPath"],
-                        "role": "AXRow",
-                        "label": "File Transfer",
-                        "actions": ["AXPress"],
-                    },
-                }
-            ),
+            json.dumps(payload),
             flush=True,
         )
 '''
@@ -288,6 +328,27 @@ def _cross_package_click_node(
         phase="open_visible_contact",
         evidence={},
         snapshot_id="frontmost:WeChat:微信 (聊天)",
+    )
+
+
+def _cross_package_focus_search(
+    tool: WeChatDesktopTool,
+) -> ToolObservation:
+    search_element = argparse.Namespace(
+        role="AXTextArea",
+        label="Search",
+        actions=(),
+        element_ref=argparse.Namespace(
+            ax_path="0/11/0",
+            snapshot_id="frontmost:WeChat:微信 (聊天)",
+        ),
+        frame=None,
+    )
+    return tool._focus_search_box_phase(
+        wechat_command("open_contact", {"contact": "File Transfer"}),
+        contact="File Transfer",
+        search_box=argparse.Namespace(elements=[search_element]),
+        evidence={},
     )
 
 
@@ -938,23 +999,97 @@ def _failed_accessibility_action_response() -> ToolObservation:
         status=ToolStatus.FAILED,
         error=ToolError(
             failure_kind="accessibility_action_failed",
-            message="AXUIElementPerformAction returned error: -25206",
+            message="AXUIElementPerformAction returned error: -25204",
             retryable=False,
         ),
-        summary="AXUIElementPerformAction returned error: -25206",
+        summary="AXUIElementPerformAction returned error: -25204",
         observation={
             "actionAttempted": True,
+            "actionEffect": "unknown",
+            "nativeErrorCode": -25204,
             "metadata": {
                 "action_attempted": True,
+                "action_effect": "unknown",
+                "native_error_code": -25204,
                 "accessibility_action_transport": transport,
             },
             "accessibilityAction": {
                 "failureKind": "accessibility_action_failed",
-                "message": "AXUIElementPerformAction returned error: -25206",
+                "message": "AXUIElementPerformAction returned error: -25204",
                 "actionAttempted": True,
+                "actionEffect": "unknown",
+                "nativeErrorCode": -25204,
                 "diagnostics": {"transport": transport},
             }
         },
+    )
+
+
+def _definite_unsupported_accessibility_action_response(
+    *,
+    action: str = "AXPress",
+) -> ToolObservation:
+    native_error_code = -25205 if action == "AXSetFocus" else -25206
+    method = (
+        "AXUIElementSetAttributeValue"
+        if action == "AXSetFocus"
+        else "AXUIElementPerformAction"
+    )
+    transport = {
+        "mode": "worker",
+        "fallback": False,
+        "requestDispatched": True,
+    }
+    return ToolObservation.failure(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        error=ToolError(
+            failure_kind="accessibility_action_unsupported",
+            message=f"{method} returned unsupported error: {native_error_code}",
+            retryable=False,
+        ),
+        summary=f"{method} returned unsupported error: {native_error_code}",
+        observation={
+            "actionAttempted": True,
+            "actionEffect": "none",
+            "nativeErrorCode": native_error_code,
+            "metadata": {
+                "action_attempted": True,
+                "action_effect": "none",
+                "native_error_code": native_error_code,
+                "accessibility_action_transport": transport,
+            },
+            "accessibilityAction": {
+                "failureKind": "accessibility_action_unsupported",
+                "message": (
+                    f"{method} returned unsupported error: {native_error_code}"
+                ),
+                "action": action,
+                "actionAttempted": True,
+                "actionEffect": "none",
+                "nativeErrorCode": native_error_code,
+                "diagnostics": {"transport": transport},
+            },
+        },
+    )
+
+
+def _contradictory_unsupported_accessibility_action_response() -> ToolObservation:
+    result = _definite_unsupported_accessibility_action_response()
+    observation = dict(result.observation)
+    nested = dict(observation["accessibilityAction"])
+    nested["actionEffect"] = "unknown"
+    observation["accessibilityAction"] = nested
+    return ToolObservation.failure(
+        command_id=result.command_id,
+        tool=result.tool,
+        operation=result.operation,
+        status=result.status,
+        error=result.error,
+        summary=result.summary,
+        observation=observation,
     )
 
 
@@ -1903,6 +2038,52 @@ class WeChatDesktopToolTests(unittest.TestCase):
         self.assertEqual(app_control.commands[2].timeout_ms, 800)
         self.assertEqual(app_control.commands[3].timeout_ms, 2_000)
 
+    def test_list_contacts_falls_back_once_for_definite_unsupported_action(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _mapped_navigation_frame_response(
+                    ax_path="0/2",
+                    label="通讯录",
+                ),
+                _definite_unsupported_accessibility_action_response(),
+                {},
+                _mapped_navigation_frame_response(
+                    ax_path="0/2",
+                    label="通讯录",
+                    selected=True,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/12/2/0/0/0/1",
+                            "AXStaticText",
+                            value="Ada",
+                        )
+                    ]
+                ),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).list_contacts(limit=1)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["items"][0]["displayName"], "Ada")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            [
+                "open_app",
+                "observe",
+                "accessibility_query",
+                "accessibility_action",
+                "click",
+                "accessibility_query",
+                "accessibility_query",
+            ],
+        )
+
     def test_list_contacts_preserves_selector_permission_failure(self) -> None:
         permission_failure = _failed_accessibility_query_response(
             "missing_accessibility",
@@ -2475,6 +2656,94 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertIn("execute_action:selector_fallback", result.evidence)
 
+    def test_execute_action_uses_one_fallback_for_definite_native_unsupported(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                _definite_unsupported_accessibility_action_response(),
+                {},
+            ]
+        )
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+            "fallbacks": [
+                {
+                    "method": "selector_click",
+                    "selector": {
+                        "role": "radio_button",
+                        "name": "通讯录",
+                    },
+                }
+            ],
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.observation["method"], "selector_click")
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action", "click"],
+        )
+
+    def test_execute_action_blocks_contradictory_unsupported_effect(self) -> None:
+        app_control = FakeAppControl(
+            [_contradictory_unsupported_accessibility_action_response()]
+        )
+        tool = WeChatDesktopTool(app_control)
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "nav.contacts.press",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": "通讯录",
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": ["通讯录"],
+                "actionIn": ["AXPress"],
+            },
+            "fallbacks": [
+                {
+                    "method": "selector_click",
+                    "selector": {
+                        "role": "radio_button",
+                        "name": "通讯录",
+                    },
+                }
+            ],
+        }
+
+        result = tool.execute_action(action_ref)
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            [command.operation for command in app_control.commands],
+            ["accessibility_action"],
+        )
+
     def test_execute_action_precondition_failure_does_not_use_selector_fallback(
         self,
     ) -> None:
@@ -2768,7 +3037,15 @@ class WeChatDesktopToolTests(unittest.TestCase):
     def test_cross_package_dispatched_action_failures_do_not_mutate_again(
         self,
     ) -> None:
-        for mode in ("eof", "timeout", "malformed", "native_failure"):
+        for mode in (
+            "eof",
+            "timeout",
+            "malformed",
+            "native_failure",
+            "native_unsupported_contradictory",
+            "native_unsupported_missing_effect",
+            "legacy_unsupported_attempted",
+        ):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:
                 log_path = Path(temp_dir) / "requests.jsonl"
                 client, worker, app_control, runner, tool = (
@@ -2856,6 +3133,72 @@ class WeChatDesktopToolTests(unittest.TestCase):
             self.assertEqual(
                 [command.operation for command in app_control.commands],
                 ["accessibility_action", "click"],
+            )
+            self.assertEqual(runner.calls, [])
+
+    def test_cross_package_native_unsupported_press_allows_one_fallback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "requests.jsonl"
+            client, worker, app_control, runner, tool = (
+                _cross_package_action_fixture(
+                    "native_unsupported",
+                    log_path,
+                    timeout_ms=200,
+                )
+            )
+
+            try:
+                worker.start()
+                client._accessibility_action_worker = worker
+                result = _cross_package_click_node(tool)
+            finally:
+                worker.stop()
+
+            requests = [
+                json.loads(line)
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(result.success)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["action"], "AXPress")
+            self.assertEqual(
+                [command.operation for command in app_control.commands],
+                ["accessibility_action", "click"],
+            )
+            self.assertEqual(runner.calls, [])
+
+    def test_cross_package_native_unsupported_focus_allows_one_fallback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "requests.jsonl"
+            client, worker, app_control, runner, tool = (
+                _cross_package_action_fixture(
+                    "native_unsupported",
+                    log_path,
+                    timeout_ms=200,
+                )
+            )
+
+            try:
+                worker.start()
+                client._accessibility_action_worker = worker
+                result = _cross_package_focus_search(tool)
+            finally:
+                worker.stop()
+
+            requests = [
+                json.loads(line)
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(result.success)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["action"], "AXSetFocus")
+            self.assertEqual(
+                [command.operation for command in app_control.commands],
+                ["accessibility_action", "click", "accessibility_query"],
             )
             self.assertEqual(runner.calls, [])
 

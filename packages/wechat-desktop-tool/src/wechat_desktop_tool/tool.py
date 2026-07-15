@@ -4133,9 +4133,11 @@ def _stable_id(label: str, fallback_index: int) -> str:
 def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
     if result.success or result.operation != "accessibility_action":
         return False
+    failure_kind = _accessibility_action_failure_kind(result)
+    if failure_kind == "accessibility_action_unsupported":
+        return _accessibility_action_has_definite_no_effect(result)
     if _accessibility_action_attempted(result) is True:
         return False
-    failure_kind = _accessibility_action_failure_kind(result)
     unsupported = failure_kind in {
         "unsupported_operation",
         "unsupported_accessibility_action",
@@ -4201,6 +4203,36 @@ def _accessibility_action_attempted(result: ToolObservation) -> bool | None:
     if False in values:
         return False
     return None
+
+
+def _accessibility_action_has_definite_no_effect(
+    result: ToolObservation,
+) -> bool:
+    effects: list[str] = []
+    observation = result.observation
+    for payload in (result.metadata, observation):
+        if not isinstance(payload, Mapping):
+            continue
+        for key in ("actionEffect", "action_effect"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                effects.append(value.strip().casefold())
+    if isinstance(observation, Mapping):
+        metadata = observation.get("metadata")
+        if isinstance(metadata, Mapping):
+            for key in ("actionEffect", "action_effect"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    effects.append(value.strip().casefold())
+        for key in ("accessibilityAction", "accessibility_action"):
+            nested = observation.get(key)
+            if not isinstance(nested, Mapping):
+                continue
+            for effect_key in ("actionEffect", "action_effect"):
+                value = nested.get(effect_key)
+                if isinstance(value, str) and value.strip():
+                    effects.append(value.strip().casefold())
+    return bool(effects) and all(effect == "none" for effect in effects)
 
 
 def _accessibility_action_request_dispatched(

@@ -4079,3 +4079,47 @@ OK (skipped=1)
 This remediation changes recovery behavior but adds no command, schema,
 configuration key, dependency, package version, or live desktop proof. No real
 Accessibility action or WeChat message was executed.
+
+## F4 Review Remediation: Definite Unsupported Action Semantics
+
+Status: implementation and focused package verification complete; exact-head
+repository verification pending.
+
+`PRR-022` identified that the no-replay remediation treated Apple's definite
+unsupported errors as uncertain native outcomes. In particular, a WeChat
+`AXRow` may pass identity and frame checks but return
+`kAXErrorActionUnsupported` (`-25206`) when `AXPress` is invoked. The call is
+unsuccessful and has no UI effect, so suppressing the existing selector or
+current-frame fallback regressed the compatibility behavior introduced for
+those rows.
+
+The native action result now separates three effect states:
+
+| Native result | Normalized evidence | Recovery |
+| --- | --- | --- |
+| success | `actionEffect=performed` | no fallback |
+| `AXPress/-25206` or `AXSetFocus/-25205` | `failureKind=accessibility_action_unsupported`, `actionAttempted=true`, `actionEffect=none`, `nativeErrorCode` | one configured fallback |
+| any other native error, including `-25204` | `failureKind=accessibility_action_failed`, `actionAttempted=true`, `actionEffect=unknown`, `nativeErrorCode` | blocked |
+
+The WeChat recovery predicate gives the definite unsupported/no-effect tuple a
+narrow precedence exception. It requires at least one `actionEffect` value and
+requires every direct, metadata, and nested value to be `none`; missing or
+contradictory effect evidence remains blocked. Legacy backend-level
+`unsupported_operation` and pre-call `unsupported_accessibility_action`
+results continue to allow one fallback only when no positive attempt evidence
+exists.
+
+Cross-package regressions use the real `ComputerUseClient` and warm worker
+protocol to prove one selector fallback for native `AXPress/-25206`, one search
+focus fallback for `AXSetFocus/-25205`, and zero downstream mutations for
+`-25204`, EOF, timeout, malformed response, and contradictory unsupported
+effect evidence. Path tests also cover mapped navigation and public actionRef
+recovery. No real Accessibility action or WeChat message is required for this
+classification fix.
+
+Focused verification after implementation:
+
+```text
+computer-use-macos: 142 tests passed, 1 skipped
+wechat-desktop-tool: 137 tests passed
+```

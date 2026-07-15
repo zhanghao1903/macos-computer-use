@@ -2257,6 +2257,87 @@ for line in sys.stdin:
         self.assertEqual(request["preconditions"]["actionIn"], ["AXSetFocus"])
         self.assertEqual(action["method"], "AXUIElementSetAttributeValue")
 
+    def test_package_local_client_exposes_definite_unsupported_action_effect(
+        self,
+    ) -> None:
+        cases = (
+            ("AXPress", -25206, "AXUIElementPerformAction"),
+            ("AXSetFocus", -25205, "AXUIElementSetAttributeValue"),
+        )
+        for action, native_error_code, method in cases:
+            with self.subTest(action=action):
+                runner = FakeRunner()
+                runner.queue(
+                    stdout=json.dumps(
+                        {
+                            "schema": "macos.accessibility.action.result.v1",
+                            "available": False,
+                            "status": "failed",
+                            "failureKind": "accessibility_action_unsupported",
+                            "message": (
+                                f"{method} returned unsupported error: "
+                                f"{native_error_code}"
+                            ),
+                            "action": action,
+                            "actionAttempted": True,
+                            "actionEffect": "none",
+                            "nativeErrorCode": native_error_code,
+                            "target": {
+                                "axPath": "0/1",
+                                "role": (
+                                    "AXTextArea"
+                                    if action == "AXSetFocus"
+                                    else "AXRow"
+                                ),
+                                "label": "Target",
+                                "actions": (
+                                    [] if action == "AXSetFocus" else ["AXPress"]
+                                ),
+                            },
+                        }
+                    )
+                )
+                client = ComputerUseClient.from_config(
+                    {
+                        "computer_use": {
+                            "backend": "direct",
+                            "allowed_apps": ["WeChat"],
+                            "allowed_app_bundle_ids": {
+                                "WeChat": "com.tencent.xinWeChat"
+                            },
+                        }
+                    },
+                    probe=FakeProbe(),
+                    runner=runner,
+                )
+
+                observation = client.run_command(
+                    accessibility_action_command(
+                        target_app="WeChat",
+                        bundle_id="com.tencent.xinWeChat",
+                        snapshot_id="frontmost:WeChat:Current",
+                        ax_path="0/1",
+                        action=action,
+                        command_id=f"cmd_unsupported_{action}",
+                    )
+                )
+
+                self.assertFalse(observation.success)
+                self.assertEqual(
+                    observation.failure_kind,
+                    "accessibility_action_unsupported",
+                )
+                self.assertEqual(observation.retryable, False)
+                self.assertEqual(observation.observation["actionAttempted"], True)
+                self.assertEqual(observation.observation["actionEffect"], "none")
+                self.assertEqual(
+                    observation.observation["nativeErrorCode"],
+                    native_error_code,
+                )
+                nested = observation.observation["accessibilityAction"]
+                self.assertEqual(nested["actionEffect"], "none")
+                self.assertEqual(nested["nativeErrorCode"], native_error_code)
+
     def test_package_accessibility_query_script_is_scoped_and_filtered(
         self,
     ) -> None:
@@ -2371,6 +2452,12 @@ for line in sys.stdin:
         self.assertIn("action_attempted: bool = False", source)
         self.assertIn('"actionAttempted": action_attempted', source)
         self.assertIn("action_attempted=True", source)
+        self.assertIn("kAXErrorActionUnsupported", source)
+        self.assertIn("kAXErrorAttributeUnsupported", source)
+        self.assertIn('"accessibility_action_unsupported"', source)
+        self.assertIn('action_effect="none"', source)
+        self.assertIn('action_effect="unknown"', source)
+        self.assertIn('"actionEffect": "performed"', source)
 
     def test_package_accessibility_action_worker_script_wraps_action_script(
         self,

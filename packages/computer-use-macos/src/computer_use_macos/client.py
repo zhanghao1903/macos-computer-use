@@ -129,6 +129,22 @@ def _attach_accessibility_transport(
     diagnostics["transport"] = dict(transport)
 
 
+def _accessibility_action_payload_metadata(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "accessibility_action": dict(payload),
+        "action_attempted": bool(payload.get("actionAttempted")),
+    }
+    action_effect = payload.get("actionEffect")
+    if action_effect in {"none", "unknown", "performed"}:
+        metadata["action_effect"] = action_effect
+    native_error_code = payload.get("nativeErrorCode")
+    if isinstance(native_error_code, int) and not isinstance(native_error_code, bool):
+        metadata["native_error_code"] = native_error_code
+    return metadata
+
+
 _KEY_CODES = {
     "return": 36,
     "enter": 36,
@@ -1553,8 +1569,7 @@ class MacOSComputerUseClient:
                         if isinstance(failure_kind, str) and failure_kind
                         else "accessibility_action_failed"
                     ),
-                    "accessibility_action": payload,
-                    "action_attempted": bool(payload.get("actionAttempted")),
+                    **_accessibility_action_payload_metadata(payload),
                 },
             )
 
@@ -1565,8 +1580,7 @@ class MacOSComputerUseClient:
             snapshot_id=snapshot if isinstance(snapshot, str) else None,
             metadata={
                 **_target_identity_metadata(target_app, bundle_id),
-                "accessibility_action": payload,
-                "action_attempted": bool(payload.get("actionAttempted")),
+                **_accessibility_action_payload_metadata(payload),
             },
         )
 
@@ -4062,6 +4076,8 @@ def fail(
     *,
     target: dict[str, Any] | None = None,
     action_attempted: bool = False,
+    action_effect: str | None = None,
+    native_error_code: int | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         "schema": "macos.accessibility.action.result.v1",
@@ -4074,6 +4090,10 @@ def fail(
             "durationMs": int(round((time.monotonic() - STARTED_AT) * 1000)),
         },
     }
+    if action_effect is not None:
+        payload["actionEffect"] = action_effect
+    if native_error_code is not None:
+        payload["nativeErrorCode"] = native_error_code
     if target is not None:
         payload["target"] = target
     finish(payload)
@@ -4093,6 +4113,8 @@ try:
         AXUIElementCreateApplication,
         AXUIElementPerformAction,
         AXUIElementSetAttributeValue,
+        kAXErrorActionUnsupported,
+        kAXErrorAttributeUnsupported,
         kAXFocusedWindowAttribute,
     )
 except Exception as exc:
@@ -4377,11 +4399,27 @@ if action == "AXSetFocus":
 else:
     err = ax_perform_action(element, action)
 if err != 0:
+    unsupported_error = (
+        action == "AXSetFocus" and err == int(kAXErrorAttributeUnsupported)
+    ) or (
+        action == "AXPress" and err == int(kAXErrorActionUnsupported)
+    )
+    if unsupported_error:
+        fail(
+            "accessibility_action_unsupported",
+            f"{method} returned unsupported error: {err}",
+            target=facts,
+            action_attempted=True,
+            action_effect="none",
+            native_error_code=err,
+        )
     fail(
         "accessibility_action_failed",
         f"{method} returned error: {err}",
         target=facts,
         action_attempted=True,
+        action_effect="unknown",
+        native_error_code=err,
     )
 
 finish(
@@ -4394,6 +4432,7 @@ finish(
         "snapshotId": snapshot_id,
         "action": action,
         "actionAttempted": True,
+        "actionEffect": "performed",
         "target": facts,
         "app": {
             "name": app_name,
@@ -5140,6 +5179,8 @@ _PUBLIC_METADATA_FIELDS = {
     "submitted": "submitted",
     "input_method": "inputMethod",
     "action_attempted": "actionAttempted",
+    "action_effect": "actionEffect",
+    "native_error_code": "nativeErrorCode",
     "key": "key",
     "keys": "keys",
     "modifiers": "modifiers",

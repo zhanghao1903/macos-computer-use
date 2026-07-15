@@ -252,10 +252,22 @@ Higher-level adapters must preserve this no-replay boundary. The packaged
 WeChat adapter permits one alternative mutation only when the result explicitly
 proves `requestDispatched=false` and `retryable=true`, or when the backend
 explicitly reports an unsupported Accessibility action without reporting that
-the action was attempted. `actionAttempted=true`, `requestDispatched=true`,
-`retryable=false`, contradictory evidence, and missing dispatch evidence all
-stop recovery before any coordinate click, selector click, Return keypress, or
-next mutating strategy.
+the action was attempted. The direct backend additionally normalizes Apple's
+definite no-effect results as `failureKind=accessibility_action_unsupported`:
+`AXPress` with `kAXErrorActionUnsupported` (`-25206`) and `AXSetFocus` with
+`kAXErrorAttributeUnsupported` (`-25205`). These results carry
+`actionAttempted=true`, `actionEffect=none`, and `nativeErrorCode`; the native
+call was issued, but the requested action or attribute was not supported and
+was not performed. That explicit no-effect result may override dispatched and
+non-retryable transport evidence for exactly one policy-gated fallback.
+
+All other attempted native failures carry `actionEffect=unknown`, including
+`kAXErrorCannotComplete` (`-25204`), and remain fail-closed.
+`actionAttempted=true`, `requestDispatched=true`, `retryable=false`,
+contradictory effect evidence, and missing dispatch evidence stop recovery
+unless the complete result is the definite unsupported/no-effect case above.
+They cannot be followed by a coordinate click, selector click, Return
+keypress, or next mutating strategy.
 
 ```python
 from computer_use_macos import accessibility_action_command

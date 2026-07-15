@@ -462,11 +462,19 @@ opening, search focus, and search-result selection. A failed
 `accessibility_action` can use one configured fallback only when the lower
 result explicitly proves that no worker request was dispatched and marks the
 result retryable, or explicitly reports that the action is unsupported without
-reporting an attempted action. Dispatched, attempted, non-retryable, and
-unknown outcomes return immediately; the tool does not follow them with a
-coordinate click, selector click, Return keypress, or another open strategy.
-If an allowed fallback itself fails, that failure is final for the semantic
-operation.
+reporting an attempted action. It can also use one fallback for
+`accessibility_action_unsupported` when every reported `actionEffect` is
+`none`. This is the direct backend's definite no-effect result for native
+`AXPress/-25206` and `AXSetFocus/-25205`; it intentionally takes precedence
+over `actionAttempted=true`, `requestDispatched=true`, and `retryable=false`
+because the native operation was rejected as unsupported rather than applied.
+
+All other dispatched, attempted, non-retryable, contradictory, or unknown
+outcomes return immediately. In particular, `actionEffect=unknown` and
+`-25204` never permit another mutation. The tool does not follow those results
+with a coordinate click, selector click, Return keypress, or another open
+strategy. If an allowed fallback itself fails, that failure is final for the
+semantic operation.
 
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event
