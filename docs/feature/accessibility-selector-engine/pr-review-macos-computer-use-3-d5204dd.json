@@ -1,0 +1,435 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "d5204dd7c859937fad07f84a69f3774a4f208855",
+    "reviewed_at": "2026-07-15T13:26:32Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "Current PR metadata, body, complete main-to-head diff, exact base and head SHAs, draft and merge state, and exact-head GitHub CI",
+      "Focused d2dadd0-to-d5204dd four-commit remediation delta across twelve files",
+      "Native AX result generation, client protocol propagation, and every WeChat mutating fallback consumer",
+      "AXPress -25206, AXSetFocus -25205, -25204, EOF, timeout, malformed, contradictory, missing, legacy attempted, pre-dispatch, and pre-call unsupported outcomes",
+      "Stable API docs, implementation and verification notes, merge-readiness, tracked PR description, existing changelog contract, and GitHub PR body",
+      "Clean-clone root and package suites, ten-iteration stress, compile, release preflight, wheel checks, whitespace, and clean-tree evidence"
+    ],
+    "excluded_scope": [
+      "Fresh real WeChat action or message submission",
+      "Post-submit delivery read-back and repeated live latency percentiles",
+      "Signed or notarized helper execution and real TestPyPI or PyPI publication",
+      "Private raw smoke artifacts and unrelated dirty worktree files",
+      "Ruff and mypy because they are unavailable and are not configured CI gates"
+    ]
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "PRR-022 through PRR-024 are resolved. Definite unsupported native actions receive one policy-gated fallback only with complete no-effect evidence; every uncertain or contradictory result remains fail-closed. Clean-clone tests, stress, package and release gates, synchronized F6 surfaces, and exact-head CI pass.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The remediation distinguishes attempted native calls from their UI effect, restores the documented AXRow and focus compatibility fallbacks, preserves downstream no-replay for uncertain outcomes, and synchronizes tracked and GitHub F6 state. No blocking finding remains for the reviewed snapshot.",
+  "change_map": [
+    {
+      "area": "Native result semantics",
+      "change": "Accessibility actions publish performed, definite no-effect, or unknown effect evidence and native failure codes.",
+      "external_behavior": "Callers can distinguish unsupported rejection from an uncertain attempted result.",
+      "risk": "Low",
+      "validation": "Both native unsupported codes and -25204 mapping pass package tests."
+    },
+    {
+      "area": "WeChat recovery",
+      "change": "A narrow exception requires accessibility_action_unsupported plus complete and consistent actionEffect=none evidence.",
+      "external_behavior": "One existing fallback is permitted without weakening unknown-outcome no-replay.",
+      "risk": "Low",
+      "validation": "Two safe cross-package outcomes and seven unsafe modes pass."
+    },
+    {
+      "area": "F6 lifecycle",
+      "change": "Tracked merge records and GitHub PR body now describe one pending-review snapshot.",
+      "external_behavior": "Maintainers no longer receive obsolete SHAs, findings, counts, or decisions.",
+      "risk": "Low",
+      "validation": "GitHub REST metadata and body match the tracked F6 description."
+    },
+    {
+      "area": "Compatibility and release",
+      "change": "No package version, dependency, command, configuration key, or schema version changed.",
+      "external_behavior": "Observation fields are additive and existing semantic APIs remain stable.",
+      "risk": "Low",
+      "validation": "Preflight, wheels, isolated API smoke, dependency rejection, and CI pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-022",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Definite unsupported AX actions were treated as unknown mutations",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 4401,
+        "line_end": 4435,
+        "symbol": "native Accessibility action result normalization",
+        "side": "RIGHT",
+        "commit_sha": "d5204dd7c859937fad07f84a69f3774a4f208855"
+      },
+      "observation": "The native script now maps only AXPress kAXErrorActionUnsupported and AXSetFocus kAXErrorAttributeUnsupported to a specific no-effect result. Other native errors retain unknown effect, and WeChat requires the specific kind plus consistent none effect evidence before fallback.",
+      "trigger": "A verified WeChat row rejects AXPress with -25206 or a verified search element rejects the focused attribute with -25205.",
+      "impact": "Both compatibility paths retain exactly one configured fallback without allowing replay after uncertain native or transport outcomes.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Native error-code mapping and action effect fields are explicit in the generated action script and client metadata propagation.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:132-145,1560-1584,4073-4121,4401-4435@d5204dd"
+        },
+        {
+          "kind": "code",
+          "description": "WeChat grants the exception only for the new failure kind with complete and consistent none effect evidence.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:4133-4235@d5204dd"
+        },
+        {
+          "kind": "test",
+          "description": "Real warm-worker cross-package tests prove one fallback for -25206 and -25205 and zero fallback for seven unsafe result shapes.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py:3037-3203@d5204dd"
+        },
+        {
+          "kind": "test",
+          "description": "Seven unsafe modes passed ten consecutive iterations, covering 70 dispatch and outcome executions without replay.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-022"
+        }
+      ],
+      "remediation": "Completed: publish definite unsupported and no-effect evidence for the two Apple error contracts, keep all uncertain effects fail-closed, and permit one existing WeChat fallback only for the complete tuple.",
+      "verification": "Completed: safe native unsupported, uncertain native, transport, malformed, contradictory, missing, legacy, pre-dispatch, package, root, wheel, preflight, and CI gates pass.",
+      "status": "resolved",
+      "fingerprint": "definite-unsupported-ax-actions-treated-as-unknown"
+    },
+    {
+      "id": "PRR-023",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "documentation",
+      "title": "F6 merge records published obsolete review state",
+      "location": {
+        "path": "docs/feature/accessibility-selector-engine/merge-readiness.md",
+        "line_start": 1,
+        "line_end": 132,
+        "symbol": "F6 merge readiness and PR description",
+        "side": "RIGHT",
+        "commit_sha": "d5204dd7c859937fad07f84a69f3774a4f208855"
+      },
+      "observation": "Tracked merge-readiness and PR description now identify the verified F5 head, preserve the prior request-changes decision until replacement review, and publish current remediation and test state. The GitHub PR body was replaced from the tracked description.",
+      "trigger": "A maintainer reads repository or platform merge status before changing the draft state.",
+      "impact": "Repository and platform surfaces now present one auditable pre-review state instead of incompatible decisions and evidence.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Both tracked F6 files contain the same current remediation state, verification counts, and pending-review decision.",
+          "reference": "docs/feature/accessibility-selector-engine/merge-readiness.md and pr-description.md@d5204dd"
+        },
+        {
+          "kind": "analysis",
+          "description": "GitHub REST returned head d5204dd, open draft clean state, and the same PR body as the tracked description.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/pull/3"
+        },
+        {
+          "kind": "ci",
+          "description": "Exact-head GitHub Actions passed after tracked and platform synchronization.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29418761726/job/87363517193"
+        }
+      ],
+      "remediation": "Completed: synchronize tracked merge-readiness, tracked PR description, and GitHub body before replacement review.",
+      "verification": "Completed for the reviewed snapshot; final docs-only approval linking is non-behavioral follow-up before changing draft state.",
+      "status": "resolved",
+      "fingerprint": "selector-engine-f6-records-obsolete"
+    },
+    {
+      "id": "PRR-024",
+      "severity": "S3",
+      "blocking": false,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Unsupported-action recovery documentation had contradictory precedence",
+      "location": {
+        "path": "docs/api.md",
+        "line_start": 252,
+        "line_end": 270,
+        "symbol": "Accessibility action recovery contract",
+        "side": "RIGHT",
+        "commit_sha": "d5204dd7c859937fad07f84a69f3774a4f208855"
+      },
+      "observation": "Both stable documents now state that definite unsupported and no-effect evidence is the sole attempted or dispatched exception, while uncertain, missing, and contradictory results remain blocked.",
+      "trigger": "A developer implements or diagnoses higher-level Accessibility action recovery.",
+      "impact": "The documented precedence now matches runtime behavior and regression tests.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Stable API and WeChat docs publish the same three-state recovery contract.",
+          "reference": "docs/api.md:252-270 and docs/wechat-desktop-tool.md:462-480@d5204dd"
+        },
+        {
+          "kind": "test",
+          "description": "Release preflight validated both documents and cross-package tests enforce the same precedence.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-022"
+        }
+      ],
+      "remediation": "Completed: document definite no-effect precedence and the uncertain-outcome no-replay boundary consistently.",
+      "verification": "Completed through preflight and cross-package tests.",
+      "status": "resolved",
+      "fingerprint": "unsupported-action-doc-precedence-contradiction"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-022",
+      "action": "Distinguish definite unsupported and no-effect native results from uncertain attempted outcomes and add cross-package fallback and no-replay regressions.",
+      "status": "completed"
+    },
+    {
+      "finding_id": "PRR-023",
+      "action": "Synchronize tracked F6 records and the GitHub PR body, then observe exact-head CI.",
+      "status": "completed"
+    },
+    {
+      "finding_id": "PRR-024",
+      "action": "Publish one unsupported-result precedence rule in both stable documents.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Desktop diagnostics can contain transient UI text.",
+      "mitigation": "Keep raw artifacts untracked and publish bounded semantic evidence only.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "A dispatched action can still have an unknown desktop outcome.",
+      "mitigation": "Execute no downstream mutation unless no effect is explicitly and consistently proven.",
+      "owner": "computer-use-macos and wechat-desktop-tool"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Worker EOF, timeout, or malformed responses remain possible.",
+      "mitigation": "Preserve dispatch evidence and fail-closed downstream recovery.",
+      "owner": "computer-use-macos and wechat-desktop-tool"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "Consumers may not recognize additive effect fields or the more specific failure kind.",
+      "mitigation": "Existing fields remain and unknown consumers still receive a normal failed action observation.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "One warm worker serializes Accessibility actions.",
+      "mitigation": "Keep bounded deadlines and timing diagnostics.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Low",
+      "description": "Recovery semantics changed across WeChat action paths.",
+      "mitigation": "Revert 3fd41ce; no migration or persisted state conversion exists.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "maintainability",
+      "level": "Low",
+      "description": "Effect evidence can appear in direct, metadata, and nested protocol locations.",
+      "mitigation": "Keep one extraction predicate and cross-package contract tests.",
+      "owner": "wechat-desktop-tool"
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s tests",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 tests passed in 44.070 seconds, including wheel and release integration checks.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-022"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed in 0.013 seconds.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "142 tests passed in 1.563 seconds; one sandbox skip.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "137 tests passed in 0.963 seconds.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "Run the seven-mode cross-package no-replay test ten times with ResourceWarning as error",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Ten of ten iterations passed in 3.835 seconds; 70 unsafe dispatch and outcome executions produced no replay.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#unsupportedno-effect-counterexamples"
+      },
+      {
+        "command": "PYTHONPYCACHEPREFIX=<temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Compilation passed without dirtying the clone.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Mandatory gates passed; expected socket and seven external-proof warnings remained.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "/opt/anaconda3/bin/python scripts/wheel_check.py",
+        "environment": "Clean isolated 3fd41ce implementation clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "3fd41ce2459e6ebf79eeb9aa2ac65a68d56fd5a8",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Three 0.2.0 wheels built and installed; API smoke and incompatible dependency rejection passed.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#exact-commands-and-results"
+      },
+      {
+        "command": "git diff --check origin/main...HEAD and git status --short",
+        "environment": "Exact local review head d5204dd and clean implementation clone",
+        "head_sha": "d5204dd7c859937fad07f84a69f3774a4f208855",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors; isolated implementation clone remained clean.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-022"
+      },
+      {
+        "command": "GitHub REST GET /repos/zhanghao1903/macos-computer-use/pulls/3",
+        "environment": "GitHub public repository",
+        "head_sha": "d5204dd7c859937fad07f84a69f3774a4f208855",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Observed exact base and head, open draft clean state, synchronized body, 127 commits, and 112 changed files.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/pull/3"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test - F5 evidence head",
+        "observed_at": "2026-07-15T13:18:00Z",
+        "status": "PASS",
+        "summary": "Exact head 916ac1d passed every configured test, preflight, package, wheel, sdist, and content check.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29396951638/job/87292520782"
+      },
+      {
+        "name": "CI / test - exact review head",
+        "observed_at": "2026-07-15T13:26:32Z",
+        "status": "PASS",
+        "summary": "Exact head d5204dd passed every configured test, preflight, package, wheel, sdist, and content check in 1 minute 47 seconds.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29418761726/job/87363517193"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Fresh real WeChat action or send",
+        "reason": "Deterministic SDK and native-error semantics plus real worker protocol tests cover the classification boundary without risking a desktop mutation."
+      },
+      {
+        "check": "Post-submit delivery read-back",
+        "reason": "Outside this remediation review."
+      },
+      {
+        "check": "Signed helper and real release publication",
+        "reason": "These are later F7 external gates."
+      },
+      {
+        "check": "Ruff and mypy",
+        "reason": "Neither module is available in the workspace environment and neither is a configured CI gate."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is authoritative only for head d5204dd7c859937fad07f84a69f3774a4f208855; later runtime behavior changes require re-review.",
+    "Local implementation verification ran at 3fd41ce; later commits add only F5 evidence and F6 records, and exact-head CI reran all configured checks.",
+    "No fresh real desktop mutation, signed helper, or publication was performed.",
+    "Private raw observations and unrelated dirty worktree files were excluded.",
+    "The GitHub PR remains draft by design."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "Apple kAXErrorActionUnsupported and kAXErrorAttributeUnsupported mean the requested operation was rejected without applying its UI effect.",
+    "kAXErrorCannotComplete, transport loss, and missing or contradictory effect evidence leave the outcome unknown and prohibit another mutation.",
+    "Additive observation fields and a more specific failure kind are compatible with existing consumers that already handle Accessibility action failure.",
+    "A final docs-only approval-link synchronization does not alter reviewed runtime behavior."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-019",
+      "category": "documentation",
+      "recommendation": "Link this approval and the latest exact-head CI from merge-readiness, the tracked PR description, and the GitHub body before changing draft state.",
+      "value": "Keeps every F6 surface discoverable and current without changing runtime behavior."
+    },
+    {
+      "id": "NOTE-020",
+      "category": "reliability",
+      "recommendation": "Consider treating any present non-string or empty duplicate actionEffect value as contradictory even when another location reports none.",
+      "value": "Hardens fail-closed parsing for unsupported third-party backend payloads; supported backend output is already consistent."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group or remove it as an unavailable documented gate.",
+      "value": "Makes the repository quality gate reproducible."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live percentiles if the three-second target becomes an operational SLO.",
+      "value": "Separates representative proof from sustained latency guarantees."
+    },
+    {
+      "id": "NOTE-016",
+      "category": "documentation",
+      "recommendation": "Keep the final release note explicit about warm workers, dispatch-aware no-replay, and definite unsupported fallback.",
+      "value": "Makes the release record traceable to the completed recovery contract."
+    }
+  ]
+}
