@@ -217,33 +217,51 @@ for line in sys.stdin:
         print("{not-json", flush=True)
     else:
         action = request["action"]
-        attempted = MODE in {
-            "native_failure",
+        native_unsupported_modes = {
             "native_unsupported",
             "native_unsupported_contradictory",
             "native_unsupported_missing_effect",
-            "legacy_unsupported_attempted",
+            "native_unsupported_cannot_complete",
+            "native_unsupported_wrong_code",
+            "native_unsupported_missing_code",
+            "native_unsupported_missing_action",
+            "native_unsupported_attempted_false",
+            "native_unsupported_invalid_effect",
+            "native_unsupported_empty_effect",
+            "native_unsupported_non_int_code",
         }
+        attempted = (
+            MODE in {"native_failure", "legacy_unsupported_attempted"}
+            or (
+                MODE in native_unsupported_modes
+                and MODE != "native_unsupported_attempted_false"
+            )
+        )
         if MODE == "native_failure":
             failure_kind = "accessibility_action_failed"
             action_effect = "unknown"
             native_error_code = -25204
-        elif MODE in {
-            "native_unsupported",
-            "native_unsupported_contradictory",
-            "native_unsupported_missing_effect",
-        }:
+        elif MODE in native_unsupported_modes:
             failure_kind = "accessibility_action_unsupported"
-            action_effect = (
-                "unknown"
-                if MODE == "native_unsupported_contradictory"
-                else (
-                    None
-                    if MODE == "native_unsupported_missing_effect"
-                    else "none"
-                )
-            )
+            if MODE == "native_unsupported_contradictory":
+                action_effect = "unknown"
+            elif MODE == "native_unsupported_missing_effect":
+                action_effect = None
+            elif MODE == "native_unsupported_invalid_effect":
+                action_effect = {"value": "none"}
+            elif MODE == "native_unsupported_empty_effect":
+                action_effect = ""
+            else:
+                action_effect = "none"
             native_error_code = -25205 if action == "AXSetFocus" else -25206
+            if MODE == "native_unsupported_cannot_complete":
+                native_error_code = -25204
+            elif MODE == "native_unsupported_wrong_code":
+                native_error_code = -25206 if action == "AXSetFocus" else -25205
+            elif MODE == "native_unsupported_missing_code":
+                native_error_code = None
+            elif MODE == "native_unsupported_non_int_code":
+                native_error_code = str(native_error_code)
         elif MODE == "legacy_unsupported_attempted":
             failure_kind = "unsupported_accessibility_action"
             action_effect = "none"
@@ -258,7 +276,6 @@ for line in sys.stdin:
             "status": "failed",
             "failureKind": failure_kind,
             "message": failure_kind,
-            "action": action,
             "actionAttempted": attempted,
             "target": {
                 "axPath": request["target"]["axPath"],
@@ -267,6 +284,8 @@ for line in sys.stdin:
                 "actions": [] if action == "AXSetFocus" else ["AXPress"],
             },
         }
+        if MODE != "native_unsupported_missing_action":
+            payload["action"] = action
         if action_effect is not None:
             payload["actionEffect"] = action_effect
         if native_error_code is not None:
@@ -1077,10 +1096,37 @@ def _definite_unsupported_accessibility_action_response(
 
 
 def _contradictory_unsupported_accessibility_action_response() -> ToolObservation:
-    result = _definite_unsupported_accessibility_action_response()
+    return _mutated_unsupported_accessibility_action_response(
+        nested_updates={"actionEffect": "unknown"},
+    )
+
+
+def _mutated_unsupported_accessibility_action_response(
+    *,
+    action: str = "AXPress",
+    top_updates: Mapping[str, Any] | None = None,
+    metadata_updates: Mapping[str, Any] | None = None,
+    nested_updates: Mapping[str, Any] | None = None,
+    remove_top: tuple[str, ...] = (),
+    remove_metadata: tuple[str, ...] = (),
+    remove_nested: tuple[str, ...] = (),
+) -> ToolObservation:
+    result = _definite_unsupported_accessibility_action_response(action=action)
     observation = dict(result.observation)
+    metadata = dict(observation["metadata"])
     nested = dict(observation["accessibilityAction"])
-    nested["actionEffect"] = "unknown"
+
+    observation.update(top_updates or {})
+    metadata.update(metadata_updates or {})
+    nested.update(nested_updates or {})
+    for key in remove_top:
+        observation.pop(key, None)
+    for key in remove_metadata:
+        metadata.pop(key, None)
+    for key in remove_nested:
+        nested.pop(key, None)
+
+    observation["metadata"] = metadata
     observation["accessibilityAction"] = nested
     return ToolObservation.failure(
         command_id=result.command_id,
@@ -2744,6 +2790,107 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["accessibility_action"],
         )
 
+    def test_click_node_blocks_every_invalid_unsupported_action_proof(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "cannot_complete_code",
+                _mutated_unsupported_accessibility_action_response(
+                    top_updates={"nativeErrorCode": -25204},
+                    metadata_updates={"native_error_code": -25204},
+                    nested_updates={"nativeErrorCode": -25204},
+                ),
+            ),
+            (
+                "wrong_action_code_pair",
+                _mutated_unsupported_accessibility_action_response(
+                    top_updates={"nativeErrorCode": -25205},
+                    metadata_updates={"native_error_code": -25205},
+                    nested_updates={"nativeErrorCode": -25205},
+                ),
+            ),
+            (
+                "missing_native_code",
+                _mutated_unsupported_accessibility_action_response(
+                    remove_top=("nativeErrorCode",),
+                    remove_metadata=("native_error_code",),
+                    remove_nested=("nativeErrorCode",),
+                ),
+            ),
+            (
+                "missing_action",
+                _mutated_unsupported_accessibility_action_response(
+                    remove_nested=("action",),
+                ),
+            ),
+            (
+                "missing_attempted",
+                _mutated_unsupported_accessibility_action_response(
+                    remove_top=("actionAttempted",),
+                    remove_metadata=("action_attempted",),
+                    remove_nested=("actionAttempted",),
+                ),
+            ),
+            (
+                "non_string_effect_duplicate",
+                _mutated_unsupported_accessibility_action_response(
+                    nested_updates={"actionEffect": {"value": "none"}},
+                ),
+            ),
+            (
+                "empty_effect_duplicate",
+                _mutated_unsupported_accessibility_action_response(
+                    nested_updates={"actionEffect": ""},
+                ),
+            ),
+            (
+                "contradictory_attempted_duplicate",
+                _mutated_unsupported_accessibility_action_response(
+                    nested_updates={"actionAttempted": False},
+                ),
+            ),
+            (
+                "non_integer_code_duplicate",
+                _mutated_unsupported_accessibility_action_response(
+                    nested_updates={"nativeErrorCode": "-25206"},
+                ),
+            ),
+            (
+                "contradictory_failure_kind",
+                _mutated_unsupported_accessibility_action_response(
+                    nested_updates={
+                        "failureKind": "accessibility_action_failed",
+                    },
+                ),
+            ),
+            (
+                "contradictory_action_duplicate",
+                _mutated_unsupported_accessibility_action_response(
+                    top_updates={"action": "AXSetFocus"},
+                ),
+            ),
+        )
+
+        for label, response in cases:
+            with self.subTest(label=label):
+                app_control = FakeAppControl([response])
+                tool = WeChatDesktopTool(app_control)
+
+                result = tool._click_node_phase(
+                    wechat_command("open_contact", {"contact": "Ada"}),
+                    _normalized_row("0/11/1/0/0", "Ada"),
+                    phase="open_visible_contact",
+                    evidence={},
+                    snapshot_id="frontmost:WeChat:微信 (聊天)",
+                )
+
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    [command.operation for command in app_control.commands],
+                    ["accessibility_action"],
+                )
+
     def test_execute_action_precondition_failure_does_not_use_selector_fallback(
         self,
     ) -> None:
@@ -3044,6 +3191,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
             "native_failure",
             "native_unsupported_contradictory",
             "native_unsupported_missing_effect",
+            "native_unsupported_cannot_complete",
+            "native_unsupported_wrong_code",
+            "native_unsupported_missing_code",
+            "native_unsupported_missing_action",
+            "native_unsupported_attempted_false",
+            "native_unsupported_invalid_effect",
+            "native_unsupported_empty_effect",
+            "native_unsupported_non_int_code",
             "legacy_unsupported_attempted",
         ):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp_dir:

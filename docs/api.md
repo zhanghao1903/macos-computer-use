@@ -259,15 +259,21 @@ definite no-effect results as `failureKind=accessibility_action_unsupported`:
 `actionAttempted=true`, `actionEffect=none`, and `nativeErrorCode`; the native
 call was issued, but the requested action or attribute was not supported and
 was not performed. That explicit no-effect result may override dispatched and
-non-retryable transport evidence for exactly one policy-gated fallback.
+non-retryable transport evidence for exactly one policy-gated fallback only
+when the proof is complete. The failure kind must be
+`accessibility_action_unsupported`, the action must be `AXPress` with `-25206`
+or `AXSetFocus` with `-25205`, `actionAttempted` must be `true`, and
+`actionEffect` must be `none`. Every present public, metadata, snake-case, and
+nested copy must have the expected type and agree with the others.
 
 All other attempted native failures carry `actionEffect=unknown`, including
 `kAXErrorCannotComplete` (`-25204`), and remain fail-closed.
 `actionAttempted=true`, `requestDispatched=true`, `retryable=false`,
-contradictory effect evidence, and missing dispatch evidence stop recovery
-unless the complete result is the definite unsupported/no-effect case above.
-They cannot be followed by a coordinate click, selector click, Return
-keypress, or next mutating strategy.
+missing action/effect/native-code proof, malformed or empty values,
+contradictory duplicates, and missing dispatch evidence stop recovery unless
+the complete result is the definite unsupported/no-effect case above. They
+cannot be followed by a coordinate click, selector click, Return keypress, or
+next mutating strategy.
 
 ```python
 from computer_use_macos import accessibility_action_command
@@ -787,8 +793,10 @@ from wechat_desktop_tool import WECHAT_FAILURE_KINDS
 
 These constants cover package-owned failures such as `invalid_input`,
 `coordinate_click_disabled`, `app_not_allowlisted`, `contact_not_found`,
-`wechat_action_ref_expired`, `draft_failed`, and `submit_unknown`. A tool may
-still propagate a lower-level `failureKind` from another compatible app-control
+`accessibility_action_unsupported`, `wechat_action_ref_expired`,
+`draft_failed`, and `submit_unknown`. The named macOS constant is available as
+`computer_use_macos.errors.ACCESSIBILITY_ACTION_UNSUPPORTED`. A tool may still
+propagate a lower-level `failureKind` from another compatible app-control
 client in nested evidence.
 
 The caller must own:

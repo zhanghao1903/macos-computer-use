@@ -4123,3 +4123,50 @@ Focused verification after implementation:
 computer-use-macos: 142 tests passed, 1 skipped
 wechat-desktop-tool: 137 tests passed
 ```
+
+## F4 Review Remediation: Strict Unsupported Action Proof
+
+Status: implementation and focused package verification complete; exact-head
+repository verification and replacement review remain pending.
+
+`PRR-025` found that `computer-use-macos` emitted
+`accessibility_action_unsupported` without including it in the stable public
+failure tuple. The package now declares
+`errors.ACCESSIBILITY_ACTION_UNSUPPORTED`, includes its value in
+`COMPUTER_USE_FAILURE_KINDS`, and verifies both real normalized native cases
+against that routing contract.
+
+`PRR-026` found that WeChat recovery accepted any collected string
+`actionEffect=none` while ignoring malformed duplicates or contradictory
+native codes. The recovery boundary now requires one complete, internally
+consistent proof:
+
+| Proof field | Accepted value |
+| --- | --- |
+| failure kind | `accessibility_action_unsupported` |
+| action and code | `AXPress/-25206` or `AXSetFocus/-25205` |
+| attempted state | `true` |
+| effect | `none` |
+
+Every present camel-case, snake-case, metadata, and nested occurrence must have
+the expected type and value. Missing action, attempted state, effect, or native
+code; `-25204`; wrong action/code pairing; empty or non-string effects;
+non-integer codes; malformed proof containers; and contradictory duplicates
+all stop recovery before a second mutation.
+
+The macOS result metadata parser also checks the type of `actionEffect` before
+normalizing it. A malformed object is retained in the nested raw result for
+diagnosis without raising or being promoted into trusted top-level proof.
+
+Focused verification after implementation:
+
+```text
+computer-use-macos: 143 tests passed, 1 skipped
+wechat-desktop-tool: 138 tests passed
+```
+
+The two valid native unsupported cases still execute exactly one configured
+fallback. Synthetic package and cross-package tests cover missing,
+contradictory, empty, non-string, non-integer, wrong-code, `-25204`, timeout,
+EOF, malformed-response, and legacy-attempted outcomes with zero downstream
+mutation. No live Accessibility action or WeChat message was executed.

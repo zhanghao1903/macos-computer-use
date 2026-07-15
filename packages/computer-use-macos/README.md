@@ -163,7 +163,9 @@ The package provides:
 - developer-facing module entrypoints: `commands`, `observations`, `errors`,
   `readiness`, and `transport`
 - stable `COMPUTER_USE_FAILURE_KINDS` constants for package-owned failure
-  routing
+  routing, including
+  `errors.ACCESSIBILITY_ACTION_UNSUPPORTED` for a definite native no-effect
+  result
 
 It does not provide WeChat semantics, product authorization, UI, LLM decision
 loops, or caller task state.

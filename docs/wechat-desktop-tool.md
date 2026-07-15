@@ -463,18 +463,22 @@ opening, search focus, and search-result selection. A failed
 result explicitly proves that no worker request was dispatched and marks the
 result retryable, or explicitly reports that the action is unsupported without
 reporting an attempted action. It can also use one fallback for
-`accessibility_action_unsupported` when every reported `actionEffect` is
-`none`. This is the direct backend's definite no-effect result for native
-`AXPress/-25206` and `AXSetFocus/-25205`; it intentionally takes precedence
-over `actionAttempted=true`, `requestDispatched=true`, and `retryable=false`
-because the native operation was rejected as unsupported rather than applied.
+`accessibility_action_unsupported` only when the complete proof reports
+`AXPress/-25206` or `AXSetFocus/-25205`, `actionAttempted=true`, and
+`actionEffect=none`. Every public, metadata, alias, and nested occurrence of
+the failure kind, action, attempted state, effect, and native error code must
+have the expected type and agree. This direct-backend definite no-effect result
+intentionally takes precedence over `requestDispatched=true` and
+`retryable=false` because the native operation was rejected as unsupported
+rather than applied.
 
 All other dispatched, attempted, non-retryable, contradictory, or unknown
-outcomes return immediately. In particular, `actionEffect=unknown` and
-`-25204` never permit another mutation. The tool does not follow those results
-with a coordinate click, selector click, Return keypress, or another open
-strategy. If an allowed fallback itself fails, that failure is final for the
-semantic operation.
+outcomes return immediately. Missing proof, wrong action/code pairing,
+non-string or empty effects, non-integer codes, contradictory duplicates,
+`actionEffect=unknown`, and `-25204` never permit another mutation. The tool
+does not follow those results with a coordinate click, selector click, Return
+keypress, or another open strategy. If an allowed fallback itself fails, that
+failure is final for the semantic operation.
 
 When callers use `run_stream(...)` or pass an observer to `run_command(...)`,
 each app-control step is also emitted as a `progress` `ToolEvent`. The event

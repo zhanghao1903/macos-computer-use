@@ -137,7 +137,11 @@ def _accessibility_action_payload_metadata(
         "action_attempted": bool(payload.get("actionAttempted")),
     }
     action_effect = payload.get("actionEffect")
-    if action_effect in {"none", "unknown", "performed"}:
+    if isinstance(action_effect, str) and action_effect in {
+        "none",
+        "unknown",
+        "performed",
+    }:
         metadata["action_effect"] = action_effect
     native_error_code = payload.get("nativeErrorCode")
     if isinstance(native_error_code, int) and not isinstance(native_error_code, bool):

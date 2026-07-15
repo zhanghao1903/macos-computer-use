@@ -57,6 +57,10 @@ _MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
 _MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS = 1.0
 _MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS = 450
 _SEARCH_FOCUS_QUERY_TIMEOUT_MS = 500
+_DEFINITE_UNSUPPORTED_NATIVE_ERRORS = {
+    "AXPress": -25206,
+    "AXSetFocus": -25205,
+}
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -4208,31 +4212,118 @@ def _accessibility_action_attempted(result: ToolObservation) -> bool | None:
 def _accessibility_action_has_definite_no_effect(
     result: ToolObservation,
 ) -> bool:
-    effects: list[str] = []
+    if result.failure_kind != "accessibility_action_unsupported":
+        return False
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    failure_kind = _required_consistent_string_evidence(
+        payloads,
+        ("failureKind", "failure_kind"),
+    )
+    action = _required_consistent_string_evidence(payloads, ("action",))
+    attempted = _required_consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
+    effect = _required_consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _required_consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    expected_native_error = _DEFINITE_UNSUPPORTED_NATIVE_ERRORS.get(action or "")
+    return (
+        failure_kind == "accessibility_action_unsupported"
+        and expected_native_error is not None
+        and attempted is True
+        and effect == "none"
+        and native_error_code == expected_native_error
+    )
+
+
+def _accessibility_action_proof_payloads(
+    result: ToolObservation,
+) -> tuple[Mapping[str, Any], ...] | None:
+    if not isinstance(result.metadata, Mapping):
+        return None
     observation = result.observation
-    for payload in (result.metadata, observation):
-        if not isinstance(payload, Mapping):
-            continue
-        for key in ("actionEffect", "action_effect"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                effects.append(value.strip().casefold())
-    if isinstance(observation, Mapping):
+    if not isinstance(observation, Mapping):
+        return None
+
+    roots: list[Mapping[str, Any]] = [result.metadata, observation]
+    if "metadata" in observation:
         metadata = observation.get("metadata")
-        if isinstance(metadata, Mapping):
-            for key in ("actionEffect", "action_effect"):
-                value = metadata.get(key)
-                if isinstance(value, str) and value.strip():
-                    effects.append(value.strip().casefold())
+        if not isinstance(metadata, Mapping):
+            return None
+        roots.append(metadata)
+
+    payloads = list(roots)
+    for payload in tuple(roots):
         for key in ("accessibilityAction", "accessibility_action"):
-            nested = observation.get(key)
-            if not isinstance(nested, Mapping):
+            if key not in payload:
                 continue
-            for effect_key in ("actionEffect", "action_effect"):
-                value = nested.get(effect_key)
-                if isinstance(value, str) and value.strip():
-                    effects.append(value.strip().casefold())
-    return bool(effects) and all(effect == "none" for effect in effects)
+            nested = payload.get(key)
+            if not isinstance(nested, Mapping):
+                return None
+            payloads.append(nested)
+    return tuple(payloads)
+
+
+def _required_consistent_string_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> str | None:
+    values: list[str] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, str) or not value:
+                return None
+            values.append(value)
+    if not values or any(value != values[0] for value in values[1:]):
+        return None
+    return values[0]
+
+
+def _required_consistent_bool_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> bool | None:
+    values: list[bool] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, bool):
+                return None
+            values.append(value)
+    if not values or any(value is not values[0] for value in values[1:]):
+        return None
+    return values[0]
+
+
+def _required_consistent_int_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> int | None:
+    values: list[int] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, int) or isinstance(value, bool):
+                return None
+            values.append(value)
+    if not values or any(value != values[0] for value in values[1:]):
+        return None
+    return values[0]
 
 
 def _accessibility_action_request_dispatched(

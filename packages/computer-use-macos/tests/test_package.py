@@ -66,6 +66,7 @@ from computer_use_macos.client import _accessibility_query_worker_script
 from computer_use_macos.client import _accessibility_tree_snapshot_script
 from computer_use_macos.client import _normalize_accessibility_selector
 from computer_use_macos.client import _normalize_accessibility_query_request
+from computer_use_macos.errors import ACCESSIBILITY_ACTION_UNSUPPORTED
 from computer_use_macos.helper import (
     HelperManifest,
     HelperManifestIdentityError,
@@ -2325,7 +2326,11 @@ for line in sys.stdin:
                 self.assertFalse(observation.success)
                 self.assertEqual(
                     observation.failure_kind,
-                    "accessibility_action_unsupported",
+                    ACCESSIBILITY_ACTION_UNSUPPORTED,
+                )
+                self.assertIn(
+                    observation.failure_kind,
+                    COMPUTER_USE_FAILURE_KINDS,
                 )
                 self.assertEqual(observation.retryable, False)
                 self.assertEqual(observation.observation["actionAttempted"], True)
@@ -2337,6 +2342,68 @@ for line in sys.stdin:
                 nested = observation.observation["accessibilityAction"]
                 self.assertEqual(nested["actionEffect"], "none")
                 self.assertEqual(nested["nativeErrorCode"], native_error_code)
+
+    def test_package_local_client_preserves_malformed_action_effect_safely(
+        self,
+    ) -> None:
+        runner = FakeRunner()
+        runner.queue(
+            stdout=json.dumps(
+                {
+                    "schema": "macos.accessibility.action.result.v1",
+                    "available": False,
+                    "status": "failed",
+                    "failureKind": ACCESSIBILITY_ACTION_UNSUPPORTED,
+                    "message": "Malformed synthetic unsupported result.",
+                    "action": "AXPress",
+                    "actionAttempted": True,
+                    "actionEffect": {"value": "none"},
+                    "nativeErrorCode": -25206,
+                    "target": {
+                        "axPath": "0/1",
+                        "role": "AXRow",
+                        "label": "Target",
+                        "actions": ["AXPress"],
+                    },
+                }
+            )
+        )
+        client = ComputerUseClient.from_config(
+            {
+                "computer_use": {
+                    "backend": "direct",
+                    "allowed_apps": ["WeChat"],
+                    "allowed_app_bundle_ids": {
+                        "WeChat": "com.tencent.xinWeChat"
+                    },
+                }
+            },
+            probe=FakeProbe(),
+            runner=runner,
+        )
+
+        observation = client.run_command(
+            accessibility_action_command(
+                target_app="WeChat",
+                bundle_id="com.tencent.xinWeChat",
+                snapshot_id="frontmost:WeChat:Current",
+                ax_path="0/1",
+                action="AXPress",
+                command_id="cmd_malformed_effect",
+            )
+        )
+
+        self.assertFalse(observation.success)
+        self.assertEqual(
+            observation.failure_kind,
+            ACCESSIBILITY_ACTION_UNSUPPORTED,
+        )
+        self.assertIn(observation.failure_kind, COMPUTER_USE_FAILURE_KINDS)
+        self.assertNotIn("actionEffect", observation.observation)
+        self.assertEqual(
+            observation.observation["accessibilityAction"]["actionEffect"],
+            {"value": "none"},
+        )
 
     def test_package_accessibility_query_script_is_scoped_and_filtered(
         self,
@@ -2542,6 +2609,14 @@ for line in sys.stdin:
         self.assertIs(ComputerUseError, computer_use_macos.ComputerUseError)
         self.assertIn("invalid_input", COMPUTER_USE_FAILURE_KINDS)
         self.assertIn("app_not_allowlisted", COMPUTER_USE_FAILURE_KINDS)
+        self.assertEqual(
+            ACCESSIBILITY_ACTION_UNSUPPORTED,
+            "accessibility_action_unsupported",
+        )
+        self.assertIn(
+            ACCESSIBILITY_ACTION_UNSUPPORTED,
+            COMPUTER_USE_FAILURE_KINDS,
+        )
         self.assertIs(AppControlConfig, computer_use_macos.AppControlConfig)
         self.assertIs(
             accessibility_action_command,
