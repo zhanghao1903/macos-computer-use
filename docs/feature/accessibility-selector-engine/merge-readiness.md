@@ -1,186 +1,115 @@
 # Accessibility Selector Engine Merge Readiness
 
-- Review date: 2026-07-14
+- Updated: 2026-07-15
 - Branch: `codex/accessibility-selector-engine`
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
-- Reviewed head:
-  `ba733dc622f794b7e49bba17b96f64a0ac4c2e0a`
-- Status: `APPROVE`; implementation is merge-ready under the current Review Contract
-- Current review:
-  [`pr-review-macos-computer-use-3-ba733dc.md`](./pr-review-macos-computer-use-3-ba733dc.md)
+- Verified implementation/evidence head:
+  `916ac1d`
+- Current review input:
+  [`pr-review-macos-computer-use-3-d2dadd0.md`](./pr-review-macos-computer-use-3-d2dadd0.md)
+- Current decision: `PENDING_REVIEW`; do not merge until a replacement review
+  evaluates this remediation and the synchronized F6 surfaces
 
-## Decision
+## Remediation Status
 
-`PRR-001` through `PRR-020` are resolved. No open blocking finding remains for
-the reviewed implementation head.
+The `d2dadd0` review requested changes for `PRR-022` and `PRR-023` and recorded
+`PRR-024` as a documentation contradiction.
 
-The final gates now have direct evidence:
+- `PRR-022` is remediated at `3fd41ce`. Native Accessibility results now
+  distinguish a definite unsupported/no-effect result from an uncertain
+  attempted outcome.
+- F5 evidence is recorded at `916ac1d`; clean-clone package, root, stress,
+  preflight, compile, and wheel checks passed.
+- `PRR-023` is being remediated by this merge-readiness update, the matching
+  tracked PR description, and the GitHub PR body synchronization performed
+  after this commit is pushed.
+- `PRR-024` is remediated in `docs/api.md` and
+  `docs/wechat-desktop-tool.md`; both now define the same recovery precedence.
 
-1. historical live integration on `5a010da`: one authorized public
-   `send_message` to `文件传输助手` returned
-   `success=true`, `submitted=true` in `2461 ms`, below the `<=3000 ms`
-   contract;
-2. post-`PRR-018` protocol proof: real subprocess tests passed coalesced
-   framing, failed readiness, 100 immediate query responses, 100 immediate
-   action responses, fresh-worker 0.2-second stress, and unknown-action
-   no-replay;
-3. post-`PRR-019` deadline proof: lock contention and delayed startup/readiness
-   each return timeout with zero worker writes, preserve the healthy worker,
-   and allow a follow-up request through the same process;
-4. post-`PRR-020` recovery proof: a zero-write action timeout exposes
-   `requestDispatched=false` and is retryable, while one recorded `AXPress`
-   followed by response timeout exposes `requestDispatched=true` and is not
-   retryable; both paths make zero fallback calls and keep top-level/nested
-   recovery fields consistent;
-5. GitHub Actions run `29342939601`, job `87119164572`, passed all tests,
-   preflight, package, wheel, and distribution checks against exact reviewed
-   head `ba733dc`.
+These items remain `remediated, pending re-review` until a replacement review
+binds its finding ledger to the resulting F6 snapshot.
 
-The public send began with Chats already selected. A separate non-submit probe
-started in Contacts and measured `open_contact("文件传输助手")` at `1272 ms`.
-Its Chats `AXPress` took `58 ms` wall time with
-`diagnostics.transport.mode=worker`, `fallback=false`, and verified
-preconditions, compared with `1042 ms` before remediation. These are two
-separate live measurements and are not represented as one run.
+## Corrected Recovery Contract
 
-Post-send read-back was not requested, so the evidence proves API submission
-rather than delivery confirmation. That limitation does not block this
-feature's approved contract.
+The direct backend reports three native action effect states:
 
-No fresh desktop mutation was run after `PRR-018`, `PRR-019`, or `PRR-020`.
-These fixes change only parent subprocess framing, deadline, and public recovery
-classification; the prior live proof establishes AppKit worker integration,
-while post-fix real subprocess tests directly exercise framing, queue/startup
-expiration, worker preservation, dispatch evidence, and no-replay behavior.
-The current review accepts that composite evidence for these transport-only
-remediations.
+| Result | Public evidence | Higher-level recovery |
+| --- | --- | --- |
+| Native success | `actionAttempted=true`, `actionEffect=performed` | Continue without fallback. |
+| `AXPress/-25206` or `AXSetFocus/-25205` | `failureKind=accessibility_action_unsupported`, `actionAttempted=true`, `actionEffect=none`, `nativeErrorCode` | Permit exactly one existing policy-gated fallback. |
+| Any other native error, including `-25204` | `failureKind=accessibility_action_failed`, `actionAttempted=true`, `actionEffect=unknown`, `nativeErrorCode` | Stop; do not mutate again. |
 
-## Completed Scope
-
-The implementation provides:
-
-- internal selector profile models, validation, matching, confidence,
-  relations, bounded fallbacks, cache, and collection extraction;
-- bounded Accessibility queries with indexed/attribute root resolution, safe
-  attributes, budgets, timing diagnostics, and a warm query worker;
-- verified AX actions with a separate warm action worker and no replay after
-  uncertain action dispatch;
-- policy-gated current-frame coordinate fallback and semantic postconditions;
-- packaged WeChat selector/control maps for navigation, contacts,
-  conversations, chat panels, search, and visible messages;
-- semantic inspect, list, open, focus, read, actionRef, draft, and send paths;
-- application-injected `wechat.selector_profile_path` with packaged fallback;
-- coordinated package version/dependency floor `0.2.0`;
-- privacy-safe, source-bound selector release proof v2 and strict preflight.
-
-No public `resolve_selector` or `extract_collection` protocol command was
-added. Helper-side selector parity and cursor/scroll pagination remain future
-features.
-
-## Finding Ledger
-
-| Finding | Status | Closure |
-|---|---|---|
-| `PRR-001` | Resolved | Whitelist-only public proof v2 and recursive privacy rejection. |
-| `PRR-002` | Resolved | Unknown search focus stops before text or Return. |
-| `PRR-003` | Resolved | Current in-window frame only, with semantic postcondition. |
-| `PRR-004` | Resolved | Two-candidate ambiguity checked before action. |
-| `PRR-005` | Resolved | Unsupported selector-backed helper mode fails at construction. |
-| `PRR-006` | Resolved | Full cache predicate and signature revalidation. |
-| `PRR-007` | Resolved | Backend query causes remain failures, not not-found. |
-| `PRR-008` | Resolved | Shared maximum query depth and bounded batch plan. |
-| `PRR-009` | Resolved | N+1 lookahead separated from truncation. |
-| `PRR-010` | Resolved | Coordinated `0.2.0` dependencies and clean wheel proof. |
-| `PRR-011` | Resolved | Correct release source paths protected by preflight. |
-| `PRR-012` | Resolved | Exact-head, non-zero, consistent, private-safe proof requirements. |
-| `PRR-013` | Resolved | Public focus/send delegates to verified `open_contact`; live target title proved. |
-| `PRR-014` | Resolved | Explicit AX targets are allowlisted and bundle/name identity is proven. |
-| `PRR-015` | Resolved | Row refs carry exact labels; unlabeled rows emit no action or coordinate click. |
-| `PRR-016` | Resolved | Visible-window lists return null continuation and reject non-null tokens. |
-| `PRR-017` | Resolved | Public send `2461 ms`; warm Chats action `58 ms`; real Contacts-origin open `1272 ms`. |
-| `PRR-018` | Resolved | Explicit readiness handshake, fd-level framing, 100 query/action responses each, unknown-outcome no-replay, and exact-head CI. |
-| `PRR-019` | Resolved | Bounded lock wait and post-readiness deadline gate, zero-write expiration, same-process recovery, and exact-head CI. |
-| `PRR-020` | Resolved | Dispatch-aware action timeout recovery, consistent retryability fields, unknown-outcome fail-closed behavior, and exact-head CI. |
-
-Historical reports remain immutable. The authoritative current review is the
-`ba733dc` report linked above.
+The WeChat adapter requires the new failure kind and consistent `none` effect
+evidence before applying the exception. Missing or contradictory effect data,
+legacy unsupported results with positive attempt evidence, EOF, timeout,
+malformed responses, and unknown dispatch outcomes remain fail-closed. Once an
+allowed fallback is issued, its result is final.
 
 ## Verification
 
-Post-fix deterministic checks:
+Clean-clone verification of implementation head `3fd41ce`:
 
-- implementation head `74d5890` (code-identical to reviewed documentation head
-  `ba733dc`): root 127, `app-control-protocol` 55,
-  `computer-use-macos` 141 plus 1 skip with `ResourceWarning` treated as an
-  error, and `wechat-desktop-tool` 123 passed;
-- lock-contention and delayed-startup regressions each proved zero expired
-  writes, no healthy-worker termination, and same-process follow-up success;
-- action-timeout regressions proved zero-write safe retry, one recorded
-  post-dispatch action with non-retryable unknown outcome, conservative unknown
-  worker/subprocess handling, and identical top-level/nested recovery guidance;
-- fresh-worker query 100/100 and action 100/100, coalesced framing, failed
-  readiness, and post-dispatch action timeout/no-replay regressions passed;
-- compile, wheel/build/install compatibility, release preflight, and diff
-  checks passed;
-- exact reviewed head `ba733dc` passed GitHub CI.
+- root repository: 127 passed in 44.070 seconds;
+- `app-control-protocol`: 55 passed;
+- `computer-use-macos`: 142 passed, 1 skipped, with `ResourceWarning` treated
+  as an error;
+- `wechat-desktop-tool`: 137 passed with `ResourceWarning` treated as an
+  error;
+- seven unsafe cross-package modes repeated ten times: 10/10 passes, 70
+  dispatch/outcome executions, zero second mutation;
+- compile, release preflight, whitespace, clean-tree, three-wheel build,
+  isolated install/import/API smoke, and old dependency rejection: passed.
 
-Historical live macOS and WeChat proof on `5a010da`:
+GitHub Actions run
+[`29396951638`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29396951638),
+job `87292520782`, passed in 2 minutes 23 seconds against exact F5 head
+`916ac1d`.
 
-- one authorized public send ran exactly once and returned in `2461 ms`;
-- exact target title, clipboard draft, and Return submission succeeded;
-- a separate no-submit Contacts-origin `open_contact` returned in `1272 ms`;
-- warm Chats `AXPress` returned in `58 ms`, worker transport `44 ms`, with no
-  fallback and verified preconditions;
-- no private raw payload is included in tracked proof.
+No real Accessibility action or WeChat message was executed for this
+classification remediation. Historical authorized live evidence remains
+performance and integration context; deterministic SDK/error and real worker
+protocol tests cover the corrected boundary.
 
-Remote proof:
+## Finding Ledger
 
-- repository visibility is public;
-- PR #3 is open, draft, and GitHub reports it mergeable;
-- run `29342939601` passed against exact reviewed head `ba733dc...`.
+| Finding | State for this F6 snapshot |
+| --- | --- |
+| `PRR-001` through `PRR-021` | Resolved and revalidated by the prior review/test ledger. |
+| `PRR-022` | Remediated; exact native unsupported/no-effect semantics and regressions are implemented and verified. |
+| `PRR-023` | Remediated by tracked/platform F6 synchronization; replacement review still required. |
+| `PRR-024` | Remediated; both stable documents publish one precedence rule. |
 
-Ruff remains unavailable. The recorded strict-mypy run reports 29 existing
-errors across imported modules, none on a remediation line, and is not a
-configured passing gate for this feature.
+Historical review reports remain immutable. The `d2dadd0` report remains the
+latest completed review decision until the replacement report is committed;
+this document does not reinterpret its `REQUEST_CHANGES` decision as approval.
 
-## Public Contract
+## Release Record
 
-- `focus_contact` is a compatibility wrapper over verified `open_contact`;
-  `send_message` uses that target switch before drafting;
-- target-app-only AX query/action requests fail closed unless process identity
-  is proven;
-- executable AXRow actionRefs require exact identity in
-  `preconditions.labelIn`;
-- contact and conversation lists are visible-window-only, return
-  `nextPageToken=null`, and reject non-null continuation input;
-- action worker timeout is retryable only with explicit zero-write
-  `requestDispatched=false` evidence; dispatched or unknown outcomes are
-  non-retryable, with identical top-level and nested guidance;
-- warm workers validate readiness before dispatch and consume fd-level framed
-  responses without mixing kernel and text-wrapper buffers;
-- the worker queue, startup, and readiness consume one request deadline;
-  expiration before dispatch writes nothing and preserves a healthy worker;
-- message submission remains explicit, with unknown submit outcomes marked
-  non-retryable until manual inspection.
+The committed `CHANGELOG.md` already records the selector engine, warm bounded
+AX execution, no-replay behavior, and the compatibility requirement for
+WeChat rows that omit or reject `AXPress`. No package version, dependency,
+command, configuration key, or schema version changes in this remediation.
 
-## Remaining Non-Blocking Work
-
-- The PR is still draft; changing it to ready and merging are repository-owner
-  actions, not part of this read-only review decision.
-- Signed-helper proof and actual release publication remain F7 work.
-- Delivery read-back was not requested for the one-shot send.
-- A fresh post-framing/deadline/retryability live desktop mutation was not
-  required by the current transport-only review contract; the evidence boundary
-  remains explicit.
-- A future performance suite may collect repeated samples and percentiles; the
-  approved feature gate uses bounded representative live samples.
+The release note should retain the existing selector-engine summary and name
+the dispatch/attempt-aware no-replay boundary plus the definite unsupported
+single-fallback exception.
 
 ## Repository Hygiene
 
-- The committed `CHANGELOG.md` already contains the selector-engine feature and
-  performance entries; unrelated local changelog edits are not part of this
-  phase.
-- Private smoke JSON, tokens, raw data, distribution output, package-local lock
-  files, and unrelated dirty skill/docs/example changes remain excluded.
-- Review artifacts contain bounded semantic evidence only.
+- Private smoke JSON, tokens, raw AX observations, distribution directories,
+  and package-local lock files are excluded.
+- Unrelated dirty skill, README, changelog, and example changes in the primary
+  worktree are not part of this phase.
+- F5 validation used a clean clone and left it clean.
+
+## Remaining Gates
+
+1. Push this F6 tracked-document update.
+2. Synchronize the GitHub PR body from `pr-description.md`.
+3. Observe exact-head GitHub CI.
+4. Produce a replacement review for the resulting snapshot.
+5. If approved, make a final docs-only status synchronization before changing
+   the PR from draft to ready.
+
+Signed-helper proof and actual package publication remain F7 work.
