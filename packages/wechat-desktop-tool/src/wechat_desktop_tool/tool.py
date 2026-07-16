@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import math
@@ -61,6 +62,13 @@ _DEFINITE_UNSUPPORTED_NATIVE_ERRORS = {
     "AXPress": -25206,
     "AXSetFocus": -25205,
 }
+
+
+@dataclass(frozen=True)
+class _BooleanEvidence:
+    present: bool
+    valid: bool
+    value: bool | None = None
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -975,7 +983,11 @@ class WeChatDesktopTool:
                             phase_events=phase_events,
                         )
                     if not _should_try_coordinate_click_after_accessibility_action(
-                        action_result
+                        action_result,
+                        expected_action=(
+                            _optional_string_from_mapping(action_ref, "action")
+                            or control.action
+                        ),
                     ):
                         return action_result
 
@@ -1370,7 +1382,8 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
             if not selected.success and _should_press_return_for_search_result(
-                selected
+                selected,
+                expected_action="AXPress",
             ):
                 return_selected = self._app_control_command(
                     command,
@@ -1461,7 +1474,11 @@ class WeChatDesktopTool:
         if not _node_frame_within_query_window(element, visible_rows):
             return None
         action_ref = candidates[0].get("actionRef")
+        expected_action = "AXPress"
         if isinstance(action_ref, Mapping):
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
             opened = self._execute_action_ref(
                 command,
                 action_ref,
@@ -1479,7 +1496,10 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         if not opened.success:
-            if _should_fallback_from_accessibility_action(opened):
+            if _should_fallback_from_accessibility_action(
+                opened,
+                expected_action=expected_action,
+            ):
                 return None
             if opened.tool == WECHAT_TOOL:
                 return opened
@@ -1546,7 +1566,11 @@ class WeChatDesktopTool:
         if not _node_frame_within_query_window(element, query_result):
             return None
         action_ref = candidates[0].get("actionRef")
+        expected_action = "AXPress"
         if isinstance(action_ref, Mapping):
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
             opened = self._execute_action_ref(
                 command,
                 action_ref,
@@ -1564,7 +1588,10 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         if not opened.success:
-            if _should_fallback_from_accessibility_action(opened):
+            if _should_fallback_from_accessibility_action(
+                opened,
+                expected_action=expected_action,
+            ):
                 return None
             if opened.tool == WECHAT_TOOL:
                 return opened
@@ -1821,7 +1848,10 @@ class WeChatDesktopTool:
             _safe_app_control_observation(focused)
         )
         if not focused.success:
-            if _should_fallback_from_accessibility_action(focused):
+            if _should_fallback_from_accessibility_action(
+                focused,
+                expected_action="AXSetFocus",
+            ):
                 return None
             return _from_app_control_failure(
                 command,
@@ -3037,6 +3067,9 @@ class WeChatDesktopTool:
                     return coordinate_result
         action_ref = _action_ref_from_node(node, snapshot_id=snapshot_id)
         if action_ref is not None:
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
             result = self._execute_action_ref(
                 command,
                 action_ref,
@@ -3046,7 +3079,10 @@ class WeChatDesktopTool:
             )
             if result.success:
                 return result
-            if _should_try_coordinate_click_after_accessibility_action(result):
+            if _should_try_coordinate_click_after_accessibility_action(
+                result,
+                expected_action=expected_action,
+            ):
                 coordinates = _node_center_coordinates(node)
                 if coordinates is not None:
                     coordinate_phase = f"{phase}:coordinate_fallback"
@@ -3067,7 +3103,10 @@ class WeChatDesktopTool:
                         return coordinate_result
                     if not _coordinate_click_disabled(coordinate_result):
                         return coordinate_result
-            if not _should_fallback_from_accessibility_action(result):
+            if not _should_fallback_from_accessibility_action(
+                result,
+                expected_action=expected_action,
+            ):
                 return result
 
         input_payload = self._target_app_input()
@@ -3117,6 +3156,7 @@ class WeChatDesktopTool:
             }
             return identity_failure
         input_payload = self._accessibility_action_input(action_ref)
+        expected_action = str(input_payload["action"])
         result = self._app_control_command(
             command,
             phase=phase,
@@ -3126,7 +3166,10 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         evidence[phase] = _safe_app_control_observation(result)
-        if result.success or not _should_fallback_from_accessibility_action(result):
+        if result.success or not _should_fallback_from_accessibility_action(
+            result,
+            expected_action=expected_action,
+        ):
             return result
         selector = _selector_fallback_from_action_ref(action_ref)
         if selector is None:
@@ -4134,13 +4177,24 @@ def _stable_id(label: str, fallback_index: int) -> str:
     return normalized or f"item-{fallback_index}"
 
 
-def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
+def _should_fallback_from_accessibility_action(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
     if result.success or result.operation != "accessibility_action":
+        return False
+    attempted = _accessibility_action_attempted(result)
+    dispatched = _accessibility_action_request_dispatched(result)
+    if not attempted.valid or not dispatched.valid:
         return False
     failure_kind = _accessibility_action_failure_kind(result)
     if failure_kind == "accessibility_action_unsupported":
-        return _accessibility_action_has_definite_no_effect(result)
-    if _accessibility_action_attempted(result) is True:
+        return _accessibility_action_has_definite_no_effect(
+            result,
+            expected_action=expected_action,
+        )
+    if attempted.value is True:
         return False
     unsupported = failure_kind in {
         "unsupported_operation",
@@ -4165,52 +4219,45 @@ def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
         return True
     if result.retryable is not True:
         return False
-    return _accessibility_action_request_dispatched(result) is False
+    return dispatched.present and dispatched.value is False
 
 
 def _should_try_coordinate_click_after_accessibility_action(
     result: ToolObservation,
+    *,
+    expected_action: str,
 ) -> bool:
-    return _should_fallback_from_accessibility_action(result)
+    return _should_fallback_from_accessibility_action(
+        result,
+        expected_action=expected_action,
+    )
 
 
-def _should_press_return_for_search_result(result: ToolObservation) -> bool:
-    return _should_fallback_from_accessibility_action(result)
+def _should_press_return_for_search_result(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    return _should_fallback_from_accessibility_action(
+        result,
+        expected_action=expected_action,
+    )
 
 
-def _accessibility_action_attempted(result: ToolObservation) -> bool | None:
-    values: list[bool] = []
-    observation = result.observation
-    for payload in (result.metadata, observation):
-        if not isinstance(payload, Mapping):
-            continue
-        for key in ("actionAttempted", "action_attempted"):
-            value = payload.get(key)
-            if isinstance(value, bool):
-                values.append(value)
-    if isinstance(observation, Mapping):
-        metadata = observation.get("metadata")
-        if isinstance(metadata, Mapping):
-            value = metadata.get("action_attempted")
-            if isinstance(value, bool):
-                values.append(value)
-        for key in ("accessibilityAction", "accessibility_action"):
-            nested = observation.get(key)
-            if not isinstance(nested, Mapping):
-                continue
-            for attempted_key in ("actionAttempted", "action_attempted"):
-                value = nested.get(attempted_key)
-                if isinstance(value, bool):
-                    values.append(value)
-    if True in values:
-        return True
-    if False in values:
-        return False
-    return None
+def _accessibility_action_attempted(result: ToolObservation) -> _BooleanEvidence:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return _BooleanEvidence(present=True, valid=False)
+    return _consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
 
 
 def _accessibility_action_has_definite_no_effect(
     result: ToolObservation,
+    *,
+    expected_action: str,
 ) -> bool:
     if result.failure_kind != "accessibility_action_unsupported":
         return False
@@ -4237,6 +4284,7 @@ def _accessibility_action_has_definite_no_effect(
     expected_native_error = _DEFINITE_UNSUPPORTED_NATIVE_ERRORS.get(action or "")
     return (
         failure_kind == "accessibility_action_unsupported"
+        and action == expected_action
         and expected_native_error is not None
         and attempted is True
         and effect == "none"
@@ -4294,6 +4342,16 @@ def _required_consistent_bool_evidence(
     payloads: tuple[Mapping[str, Any], ...],
     keys: tuple[str, ...],
 ) -> bool | None:
+    evidence = _consistent_bool_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_bool_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _BooleanEvidence:
     values: list[bool] = []
     for payload in payloads:
         for key in keys:
@@ -4301,11 +4359,13 @@ def _required_consistent_bool_evidence(
                 continue
             value = payload.get(key)
             if not isinstance(value, bool):
-                return None
+                return _BooleanEvidence(present=True, valid=False)
             values.append(value)
-    if not values or any(value is not values[0] for value in values[1:]):
-        return None
-    return values[0]
+    if not values:
+        return _BooleanEvidence(present=False, valid=True)
+    if any(value is not values[0] for value in values[1:]):
+        return _BooleanEvidence(present=True, valid=False)
+    return _BooleanEvidence(present=True, valid=True, value=values[0])
 
 
 def _required_consistent_int_evidence(
@@ -4328,46 +4388,36 @@ def _required_consistent_int_evidence(
 
 def _accessibility_action_request_dispatched(
     result: ToolObservation,
-) -> bool | None:
-    values: list[bool] = []
-    observation = result.observation
+) -> _BooleanEvidence:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return _BooleanEvidence(present=True, valid=False)
     transport_candidates: list[Mapping[str, Any]] = []
-    for payload in (result.metadata, observation):
-        if not isinstance(payload, Mapping):
-            continue
+    for payload in payloads:
         for key in (
             "accessibility_action_transport",
             "accessibilityActionTransport",
         ):
-            transport = payload.get(key)
-            if isinstance(transport, Mapping):
-                transport_candidates.append(transport)
-    if isinstance(observation, Mapping):
-        metadata = observation.get("metadata")
-        if isinstance(metadata, Mapping):
-            transport = metadata.get("accessibility_action_transport")
-            if isinstance(transport, Mapping):
-                transport_candidates.append(transport)
-        for key in ("accessibilityAction", "accessibility_action"):
-            nested = observation.get(key)
-            if not isinstance(nested, Mapping):
+            if key not in payload:
                 continue
-            diagnostics = nested.get("diagnostics")
+            transport = payload.get(key)
+            if not isinstance(transport, Mapping):
+                return _BooleanEvidence(present=True, valid=False)
+            transport_candidates.append(transport)
+        if "diagnostics" in payload:
+            diagnostics = payload.get("diagnostics")
             if not isinstance(diagnostics, Mapping):
+                return _BooleanEvidence(present=True, valid=False)
+            if "transport" not in diagnostics:
                 continue
             transport = diagnostics.get("transport")
-            if isinstance(transport, Mapping):
-                transport_candidates.append(transport)
-    for transport in transport_candidates:
-        for key in ("requestDispatched", "request_dispatched"):
-            value = transport.get(key)
-            if isinstance(value, bool):
-                values.append(value)
-    if True in values:
-        return True
-    if False in values:
-        return False
-    return None
+            if not isinstance(transport, Mapping):
+                return _BooleanEvidence(present=True, valid=False)
+            transport_candidates.append(transport)
+    return _consistent_bool_evidence(
+        tuple(transport_candidates),
+        ("requestDispatched", "request_dispatched"),
+    )
 
 
 def _execute_action_failure_kind(result: ToolObservation) -> str:

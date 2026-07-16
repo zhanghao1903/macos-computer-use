@@ -4170,3 +4170,58 @@ fallback. Synthetic package and cross-package tests cover missing,
 contradictory, empty, non-string, non-integer, wrong-code, `-25204`, timeout,
 EOF, malformed-response, and legacy-attempted outcomes with zero downstream
 mutation. No live Accessibility action or WeChat message was executed.
+
+## F4 Review Remediation: End-To-End Action And Boolean Evidence
+
+Status: implementation and focused package verification complete; exact-head
+repository verification and replacement review remain pending.
+
+The current-head review reopened `PRR-021`, `PRR-022`, and `PRR-026` after
+reproducing three gaps in the mutation recovery boundary:
+
+- the generated native failure producer omitted `action`, while WeChat required
+  it for definite-no-effect recovery;
+- the strict response proof was internally checked but not compared with the
+  action sent in the request;
+- malformed attempted or dispatch values were ignored, and the direct client
+  coerced raw `actionAttempted` with `bool(...)`.
+
+The native generated `fail()` path now includes the validated requested action
+on both unsupported and uncertain post-call failures. `ComputerUseClient`
+promotes attempted evidence only when the source is an actual Boolean and keeps
+the unmodified raw action result available in `accessibilityAction`.
+
+The WeChat recovery policy now receives `expected_action` from each exact
+outbound command. A definite unsupported proof is accepted only when all action
+copies agree with each other and with that expected action, in addition to the
+existing failure-kind, attempt, effect, and native-code checks. Both mismatch
+directions therefore stop after the one `accessibility_action` operation.
+
+Attempt and dispatch parsing now produces an internal immutable evidence object
+with `present`, `valid`, and `value`. This distinguishes absent evidence from a
+valid Boolean and from invalid evidence. Relevant metadata, nested action,
+diagnostics, transport, camel-case, and snake-case containers are checked
+presence-sensitively. Non-Boolean truthy or falsey values, malformed containers,
+and conflicting duplicates invalidate the shared fallback policy before any
+coordinate click, selector click, Return keypress, focus fallback, or next open
+strategy.
+
+The cross-package native compatibility tests now execute the production
+`_accessibility_action_worker_script()` against temporary fake macOS framework
+modules. They no longer synthesize the previously missing action field. The
+real generated `AXPress/-25206` and `AXSetFocus/-25205` payloads pass through
+`ComputerUseClient`, bind to their matching WeChat request, and each authorize
+exactly one configured fallback. Adversarial tests cover both action mismatch
+directions, truthy and falsey malformed attempted strings, malformed and
+conflicting dispatch aliases, malformed action/metadata containers, and the
+existing uncertain native outcomes with operation-count assertions.
+
+Focused verification after implementation:
+
+```text
+computer-use-macos: 144 tests passed, 1 skipped
+wechat-desktop-tool: 140 tests passed
+```
+
+No real Accessibility action or WeChat message was executed. The change adds
+no command, schema version, configuration key, dependency, or semantic API.

@@ -132,10 +132,10 @@ def _attach_accessibility_transport(
 def _accessibility_action_payload_metadata(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "accessibility_action": dict(payload),
-        "action_attempted": bool(payload.get("actionAttempted")),
-    }
+    metadata: dict[str, Any] = {"accessibility_action": dict(payload)}
+    action_attempted = payload.get("actionAttempted")
+    if isinstance(action_attempted, bool):
+        metadata["action_attempted"] = action_attempted
     action_effect = payload.get("actionEffect")
     if isinstance(action_effect, str) and action_effect in {
         "none",
@@ -4079,6 +4079,7 @@ def fail(
     message: str,
     *,
     target: dict[str, Any] | None = None,
+    action: str | None = None,
     action_attempted: bool = False,
     action_effect: str | None = None,
     native_error_code: int | None = None,
@@ -4096,6 +4097,8 @@ def fail(
     }
     if action_effect is not None:
         payload["actionEffect"] = action_effect
+    if action is not None:
+        payload["action"] = action
     if native_error_code is not None:
         payload["nativeErrorCode"] = native_error_code
     if target is not None:
@@ -4413,6 +4416,7 @@ if err != 0:
             "accessibility_action_unsupported",
             f"{method} returned unsupported error: {err}",
             target=facts,
+            action=action,
             action_attempted=True,
             action_effect="none",
             native_error_code=err,
@@ -4421,6 +4425,7 @@ if err != 0:
         "accessibility_action_failed",
         f"{method} returned error: {err}",
         target=facts,
+        action=action,
         action_attempted=True,
         action_effect="unknown",
         native_error_code=err,

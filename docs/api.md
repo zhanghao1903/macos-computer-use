@@ -255,16 +255,26 @@ explicitly reports an unsupported Accessibility action without reporting that
 the action was attempted. The direct backend additionally normalizes Apple's
 definite no-effect results as `failureKind=accessibility_action_unsupported`:
 `AXPress` with `kAXErrorActionUnsupported` (`-25206`) and `AXSetFocus` with
-`kAXErrorAttributeUnsupported` (`-25205`). These results carry
-`actionAttempted=true`, `actionEffect=none`, and `nativeErrorCode`; the native
-call was issued, but the requested action or attribute was not supported and
-was not performed. That explicit no-effect result may override dispatched and
-non-retryable transport evidence for exactly one policy-gated fallback only
-when the proof is complete. The failure kind must be
+`kAXErrorAttributeUnsupported` (`-25205`). These results carry the exact
+requested `action`, `actionAttempted=true`, `actionEffect=none`, and
+`nativeErrorCode`; the native call was issued, but the requested action or
+attribute was not supported and was not performed. That explicit no-effect
+result may override dispatched and non-retryable transport evidence for
+exactly one policy-gated fallback only when the proof is complete. The failure
+kind must be
 `accessibility_action_unsupported`, the action must be `AXPress` with `-25206`
 or `AXSetFocus` with `-25205`, `actionAttempted` must be `true`, and
 `actionEffect` must be `none`. Every present public, metadata, snake-case, and
-nested copy must have the expected type and agree with the others.
+nested copy must have the expected type and agree with the others. The proof
+action must also equal the action in the outbound request; an internally valid
+proof for a different action is rejected.
+
+Attempt and dispatch evidence is parsed without truthiness coercion. A field is
+either absent, a consistent Boolean `true`, a consistent Boolean `false`, or
+invalid. Any present non-Boolean value, malformed metadata/action/diagnostics/
+transport container, or contradictory alias invalidates recovery. The client
+promotes `actionAttempted` to normalized metadata only when the raw value is an
+actual Boolean and retains the raw action payload for downstream validation.
 
 All other attempted native failures carry `actionEffect=unknown`, including
 `kAXErrorCannotComplete` (`-25204`), and remain fail-closed.

@@ -467,15 +467,24 @@ reporting an attempted action. It can also use one fallback for
 `AXPress/-25206` or `AXSetFocus/-25205`, `actionAttempted=true`, and
 `actionEffect=none`. Every public, metadata, alias, and nested occurrence of
 the failure kind, action, attempted state, effect, and native error code must
-have the expected type and agree. This direct-backend definite no-effect result
-intentionally takes precedence over `requestDispatched=true` and
-`retryable=false` because the native operation was rejected as unsupported
-rather than applied.
+have the expected type and agree. The proof action must equal the action in the
+exact outbound request; a valid `AXSetFocus/-25205` response cannot authorize a
+fallback for `AXPress`, or vice versa. This direct-backend definite no-effect
+result intentionally takes precedence over valid `requestDispatched=true` and
+`retryable=false` evidence because the native operation was rejected as
+unsupported rather than applied.
+
+Attempt and dispatch evidence is presence-sensitive and never uses truthiness
+coercion. Absent, consistent Boolean `true`, and consistent Boolean `false` are
+distinct states. A non-Boolean value, malformed metadata/action/diagnostics/
+transport container, or contradictory alias is invalid and stops recovery,
+including on legacy explicit-unsupported and pre-dispatch paths.
 
 All other dispatched, attempted, non-retryable, contradictory, or unknown
 outcomes return immediately. Missing proof, wrong action/code pairing,
-non-string or empty effects, non-integer codes, contradictory duplicates,
-`actionEffect=unknown`, and `-25204` never permit another mutation. The tool
+request/response action mismatch, non-string or empty effects, non-integer
+codes, contradictory duplicates, `actionEffect=unknown`, and `-25204` never
+permit another mutation. The tool
 does not follow those results with a coordinate click, selector click, Return
 keypress, or another open strategy. If an allowed fallback itself fails, that
 failure is final for the semantic operation.

@@ -2340,6 +2340,7 @@ for line in sys.stdin:
                     native_error_code,
                 )
                 nested = observation.observation["accessibilityAction"]
+                self.assertEqual(nested["action"], action)
                 self.assertEqual(nested["actionEffect"], "none")
                 self.assertEqual(nested["nativeErrorCode"], native_error_code)
 
@@ -2404,6 +2405,67 @@ for line in sys.stdin:
             observation.observation["accessibilityAction"]["actionEffect"],
             {"value": "none"},
         )
+
+    def test_package_local_client_does_not_coerce_malformed_action_attempted(
+        self,
+    ) -> None:
+        for label, malformed_value in (
+            ("truthy_string", "true"),
+            ("falsey_string", ""),
+        ):
+            with self.subTest(label=label):
+                runner = FakeRunner()
+                runner.queue(
+                    stdout=json.dumps(
+                        {
+                            "schema": "macos.accessibility.action.result.v1",
+                            "available": False,
+                            "status": "failed",
+                            "failureKind": ACCESSIBILITY_ACTION_UNSUPPORTED,
+                            "message": "Malformed attempted evidence.",
+                            "action": "AXPress",
+                            "actionAttempted": malformed_value,
+                            "actionEffect": "none",
+                            "nativeErrorCode": -25206,
+                        }
+                    )
+                )
+                client = ComputerUseClient.from_config(
+                    {
+                        "computer_use": {
+                            "backend": "direct",
+                            "allowed_apps": ["WeChat"],
+                            "allowed_app_bundle_ids": {
+                                "WeChat": "com.tencent.xinWeChat"
+                            },
+                        }
+                    },
+                    probe=FakeProbe(),
+                    runner=runner,
+                )
+
+                observation = client.run_command(
+                    accessibility_action_command(
+                        target_app="WeChat",
+                        bundle_id="com.tencent.xinWeChat",
+                        ax_path="0/1",
+                        action="AXPress",
+                        command_id=f"cmd_malformed_attempted_{label}",
+                    )
+                )
+
+                self.assertFalse(observation.success)
+                self.assertNotIn("actionAttempted", observation.observation)
+                self.assertNotIn(
+                    "action_attempted",
+                    observation.observation["metadata"],
+                )
+                self.assertEqual(
+                    observation.observation["accessibilityAction"][
+                        "actionAttempted"
+                    ],
+                    malformed_value,
+                )
 
     def test_package_accessibility_query_script_is_scoped_and_filtered(
         self,
@@ -2516,8 +2578,11 @@ for line in sys.stdin:
         self.assertIn('"target_app_not_frontmost"', source)
         self.assertIn("bool(candidate.isActive())", source)
         self.assertIn("return None", source)
+        self.assertIn("action: str | None = None", source)
         self.assertIn("action_attempted: bool = False", source)
+        self.assertIn('payload["action"] = action', source)
         self.assertIn('"actionAttempted": action_attempted', source)
+        self.assertIn("action=action", source)
         self.assertIn("action_attempted=True", source)
         self.assertIn("kAXErrorActionUnsupported", source)
         self.assertIn("kAXErrorAttributeUnsupported", source)
