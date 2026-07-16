@@ -1368,3 +1368,169 @@ API shape changes.
   configured fallback.
 - Tests assert the operation count and order so a second desktop mutation
   cannot be hidden by a successful fallback result.
+
+## Review Remediation 2026-07-17: Bounded Decisions And Trusted Evidence
+
+This amendment addresses `PRR-021`, `PRR-026`, and `PRR-028` through
+`PRR-036` from review head `59c6fb5`. It does not add a new semantic WeChat
+command. It tightens selector execution, collection extraction, target-app
+identity, profile activation, failure routing, and evidence publication.
+
+### Ownership And Contract Matrix
+
+| Finding | Owner | Contract |
+| --- | --- | --- |
+| `PRR-021`, `PRR-026` | `wechat-desktop-tool` recovery policy | Every known action-proof container is parsed through one allowlisted, presence-sensitive collector and bound to the requested action. Malformed, missing-required, or contradictory proof authorizes no fallback. |
+| `PRR-028` | selector resolver | A decision query that reaches a node, depth, or time budget cannot select or cache a candidate. Only the exact-self cache-validation probe may accept its backend's one-node limit signal. |
+| `PRR-029` | profile parser and validator | Collection item and field selectors support one executable step only. Unsupported roots, extra steps, relation traversal, fallback, confidence, cache, or pick semantics are rejected before native querying. |
+| `PRR-030` | WeChat profile loader | Selector profile and control map are parsed and validated as one immutable bundle. An override activates both or neither. |
+| `PRR-031` | collection extractor | Page limits count accepted semantic records, not raw AX candidates. `hasMore` is derived from one accepted lookahead item. |
+| `PRR-032` | generated native workers | Query, action, and tree operations require the requested app to be the current usable frontmost application. No background-app enumeration fallback is permitted. |
+| `PRR-033` | WeChat observation sanitizer | Default evidence, events, and logs publish allowlisted diagnostics only. Raw AX nodes and user content remain available solely through the explicit `includeRaw` semantic result path. |
+| `PRR-034` | collection field batching | Every generated accessibility query has `limit <= 500`; missing batch entries use bounded per-item extraction. |
+| `PRR-035` | WeChat failure mapper | Structured backend cause and truncation take precedence over message text. Keyword heuristics run only when no recognized structured cause exists. |
+| `PRR-036` | `computer-use-macos` error registry | Query/action worker failed and empty-response failures are stable, unique, publicly importable package failure kinds. |
+| `PRR-027` | feature evidence chain | The historical review artifact is repaired against the current validator without claiming tests ran at a commit where they did not run; downstream hashes and merge-readiness records are refreshed. |
+
+### Decision Query Truncation
+
+The resolver treats native query completeness as part of selector correctness.
+For a normal selector step, any `truncated=true` result produces
+`selector_query_truncated` before candidate ranking, fallback, or cache write.
+This remains true when the returned candidates appear unique: an unseen higher
+ranked or duplicate candidate can change both `pick` and confidence.
+
+Cache validation uses a separately identifiable exact-self probe with
+`root=self`, `maxDepth=0`, and `limit=1`. That probe may accept a node-limit
+signal only when the backend returned exactly the requested cached node and did
+not report time or depth truncation. It cannot discover a different candidate,
+populate a new cache entry, or authorize a fallback.
+
+### Executable Collection Selector Subset
+
+Embedded collection selectors are not a declarative hint. Validation guarantees
+that every accepted field is executed. The supported subset is:
+
+- item selector: one step rooted at the collection root selector, `pick=all`,
+  cache disabled, no relation, no fallback, and default confidence;
+- descendant field selector: one contextual step, `pick=first`, cache disabled,
+  no relation, no fallback, and default confidence;
+- step constraints, match mode, depth, result limit, and field transforms remain
+  executable and bounded.
+
+Explicit unsupported behavior is a profile error. The runtime must never read
+only `steps[0]` from a profile that validation represented as supporting more.
+
+### Semantic Pagination And Query Bounds
+
+Collection extraction scans a bounded raw candidate window and applies field
+requirements before incrementing the semantic page count. It stops after
+`requested_limit + 1` accepted records. The extra accepted record determines
+`hasMore`; it is not returned in `items`.
+
+The raw scan limit is the validated item-step limit, capped by the public native
+query maximum of 500. If the scan is exhausted without native truncation, the
+visible collection is complete. If a budget is reached before semantic
+lookahead is established, the extractor returns `selector_query_truncated`
+rather than a misleading successful page.
+
+Batch field extraction also caps its query to 500. Any item missing from the
+bounded batch is resolved through the existing bounded per-item path. This
+preserves semantic coverage without generating an invalid native request.
+
+### Atomic Profile Activation
+
+`WeChatSelectorAssets` is an immutable pair containing one validated generic
+selector profile and one validated WeChat control map from the same TOML
+source. The loader reads an override once and activates the pair only after both
+parts validate. If either part is absent or invalid, the entire override is
+discarded and both packaged defaults are loaded. A command cannot combine an
+override control map with a packaged selector profile, or the reverse.
+
+The tool instance stores this pair at construction. Resolver creation consumes
+the stored profile object and does not reopen the configuration path during a
+command.
+
+### Frontmost Target Invariant
+
+Generated accessibility query, action, and tree workers obtain the current
+`NSWorkspace.frontmostApplication()` and require its bundle identifier (or the
+explicit fallback name when no bundle identifier was requested) to match the
+request. A missing, terminated, hidden, or mismatched application fails before
+creating an AX application element. The workers never recover by enumerating a
+background process with the requested bundle identifier.
+
+Stable mismatch failures remain operation-specific so callers can distinguish
+query, mutation, and legacy tree failures. No AX query or action occurs after a
+frontmost mismatch.
+
+### Trusted Action Evidence Graph
+
+The recovery policy traverses only named proof containers:
+
+```text
+result
+|- metadata
+|- observation
+|  `- metadata
+|- evidence
+|- error.evidence
+|- diagnostics
+`- transport
+```
+
+Within each container it recognizes the documented camel-case and snake-case
+aliases plus nested `accessibilityAction` and accessibility-action transport
+records. The same collected records drive action, attempted, effect, native
+code, and dispatch validation. Arbitrary recursive dictionaries are not proof.
+A present known container with the wrong type, conflicting aliases, or a value
+that does not exactly match the outbound action invalidates the complete proof.
+
+```mermaid
+flowchart LR
+    R["Native action result"] --> N["ComputerUseClient normalization"]
+    N --> C["Allowlisted proof collector"]
+    C --> V{"All copies typed, consistent, and request-bound?"}
+    V -->|No| X["Fail closed: no fallback"]
+    V -->|Yes| P{"Definite no-effect or proven pre-dispatch?"}
+    P -->|No| X
+    P -->|Yes| F["At most one configured fallback"]
+```
+
+### Evidence Privacy Boundary
+
+Semantic API results intentionally contain contact names or message text. Those
+fields are not copied into generic tool evidence, phase events, or logs.
+`_safe_app_control_observation` uses operation-specific allowlists:
+
+- query: status, stable failure data, timing, availability, counts, truncation,
+  and cause diagnostics; no nodes, AX attributes, paths, titles, or values;
+- action: only the typed proof fields needed for mutation audit; no target
+  labels, values, raw nodes, or window content;
+- observe/tree: availability and stable identity/failure data only;
+- unrelated operations retain existing input-text redaction.
+
+`inspect_window(includeRaw=true)` may return raw query data in its explicit
+semantic response field. Even then, duplicated evidence and observer events
+remain sanitized.
+
+### Structured Failure Routing
+
+WeChat failure mapping first evaluates the exact generic failure kind and
+`causeFailureKind`. Recognized permission, timeout, transport, and truncation
+causes map deterministically to their documented WeChat status, failure kind,
+retryability, and remediation hint. Human-readable messages cannot override a
+recognized structured cause. Message keyword fallback is retained only for
+legacy responses with no recognized structured cause.
+
+### Compatibility And Rollback
+
+The four worker failure constants expand the documented public error registry;
+existing values and command schemas remain unchanged. Stricter validation may
+reject profiles whose behavior was previously ignored, which is an intentional
+fail-fast compatibility break for invalid profiles. Packaged profiles remain
+valid.
+
+Each owner slice can be reverted independently except profile/control-map
+loading, whose pair must roll back together. Reverting any safety slice restores
+`REQUEST_CHANGES`; it cannot retain merge-ready documentation.

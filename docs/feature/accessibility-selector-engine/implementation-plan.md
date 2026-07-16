@@ -401,3 +401,114 @@ Revert producer, normalizer, recovery parser, tests, and stable documentation as
 one unit. The change has no persisted state or configuration migration. A
 rollback reopens all three safety/compatibility findings and must restore
 `REQUEST_CHANGES` rather than retaining merge readiness.
+
+## Review Remediation Plan 2026-07-17
+
+This plan implements the `59c6fb5` review blockers in independently verifiable
+commits. Every phase updates its lifecycle evidence before it is committed and
+pushed.
+
+### Phase R1: Design And Plan Baseline
+
+- Record the bounded decision, semantic pagination, atomic profile, frontmost
+  target, evidence privacy, structured failure, and historical evidence
+  contracts in `design.md` and this plan.
+- Preserve the latest schema-valid `REQUEST_CHANGES` report as the starting
+  review baseline.
+- Gate: documentation names every open finding and assigns one owner and test
+  strategy.
+
+### Phase R2: `computer-use-macos` Safety And Bounds
+
+Implementation:
+
+- resolver: reject decision-critical truncation before pick, fallback, or cache
+  write; isolate the exact-self cache validation exception;
+- profile validation: enforce the executable one-step collection-selector
+  subset and context-specific pick/cache defaults;
+- collection extraction: count accepted records, use accepted lookahead for
+  `hasMore`, surface incomplete scans as truncation, and cap batch queries;
+- native workers: require an exact usable frontmost target for query, action,
+  and tree operations;
+- errors: register and publicly export all query/action worker process failure
+  kinds.
+
+Tests:
+
+- candidate-bearing truncated queries never resolve or cache;
+- unsupported embedded collection semantics fail validation before query;
+- required-field rejection does not consume page capacity and accepted
+  lookahead controls `hasMore`;
+- maximum packaged pages never generate a query above 500;
+- background/multiple/terminated app fixtures perform zero AX work;
+- producer literals, registry membership, uniqueness, and public imports agree.
+
+Gate: focused selector, collection, worker, package, and profile tests pass with
+no live desktop mutation.
+
+### Phase R3: WeChat Recovery, Configuration, Privacy, And Failures
+
+Implementation:
+
+- replace independent selector/control-map loading with one immutable validated
+  asset bundle and store it once per tool instance;
+- replace action-proof parsing with one allowlisted collector shared by action,
+  attempt, effect, native code, and dispatch decisions;
+- sanitize query/action/observe evidence and events with operation-specific
+  allowlists while retaining explicit semantic `includeRaw` behavior;
+- route structured permission, timeout, transport, and truncation causes before
+  legacy text heuristics.
+
+Tests:
+
+- every documented evidence container and alias is accepted only when complete,
+  typed, mutually consistent, and bound to the outbound action;
+- malformed or conflicting diagnostics/transport/evidence authorizes zero
+  fallback and operation counts prove no hidden second mutation;
+- half-valid overrides never produce mixed assets;
+- contact/message canaries remain in semantic items but never appear in generic
+  evidence, progress/final events, or redacted logs;
+- adversarial messages cannot override recognized structured causes.
+
+Gate: full WeChat package tests pass; mutation policy tests use fakes only.
+
+### Phase R4: Historical Evidence Repair
+
+- Validate the historical `f19cbd9` JSON with the current review validator.
+- Restore preserved finding fingerprints from the authoritative predecessor,
+  use two-dot commit ranges, cover every reviewed path in forward-risk surfaces,
+  and distinguish exact-head required runs from earlier supporting runs.
+- Recompute artifact hashes and update every downstream review-chain,
+  merge-readiness, status, and PR-description reference.
+- Do not relabel a supporting run as exact-head proof or alter the historical
+  review decision without evidence.
+
+Gate: every committed machine-readable review validates and all recorded SHA-256
+references match repository bytes.
+
+### Phase R5: Verification And Re-review
+
+Run from an exact clean implementation commit:
+
+1. focused tests for every finding;
+2. full `computer-use-macos`, `wechat-desktop-tool`, protocol, and root suites;
+3. compile, type/lint checks used by the repository, release preflight,
+   wheel/install/API smoke, dependency rejection, and whitespace checks;
+4. exact-head GitHub CI;
+5. replacement evidence-driven PR review.
+
+Update `verification.md`, `implementation-notes.md`, stable API/package docs,
+changelog/release records, merge-readiness, and PR description with the exact
+commands, head SHA, results, skipped live checks, and residual risks. Merge is
+blocked until the replacement review is schema-valid and no required finding
+remains open.
+
+### Phase Commit Boundaries
+
+| Commit | Contents | Push condition |
+| --- | --- | --- |
+| R1 | design and implementation-plan amendments | docs cross-reference all 12 blockers |
+| R2 | generic selector/native-worker implementation, tests, and notes | focused generic tests pass |
+| R3 | WeChat implementation, tests, and notes | full WeChat tests pass |
+| R4 | corrected review artifacts and downstream hashes/status | validators and hash checks pass |
+| R5 | exact-head verification and replacement review evidence | local and CI evidence is recorded |
