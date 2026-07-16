@@ -2157,3 +2157,75 @@ Ruff and mypy remain unavailable in the workspace virtual environment and are
 not configured CI gates. No real Accessibility action, WeChat contact switch,
 or message send was executed. Exact-head GitHub CI and a replacement review
 remain required after this F5 evidence commit.
+
+## F5 Deterministic Closure For Reopened PRR-021, PRR-022, And PRR-026
+
+Date: 2026-07-16.
+
+Tested implementation head:
+`65f8855767971f864154c6173f134c6d03fea37b`.
+
+Validation ran from the clean no-hardlink local clone
+`/private/tmp/macos-computer-use-selector-f5-65f8855` at that exact detached
+head. The clone used the workspace virtual environment only as its Python
+runtime; every source, test, documentation, package, and wheel input came from
+the clone. The primary worktree's unrelated modified and untracked files could
+not affect the result. The clone remained clean after all checks, and
+`git diff --check origin/main...HEAD` passed against base `fed6523`.
+
+### Producer-To-Consumer And No-Replay Proof
+
+The valid compatibility tests now execute the production-generated
+`_accessibility_action_worker_script()` rather than a hand-shaped action
+payload. Temporary test-only `objc` and `ApplicationServices` modules provide a
+deterministic focused window and return Apple's two unsupported error codes.
+The generated failure travels through the real warm-worker framing,
+`ComputerUseClient` normalization, protocol observation conversion, and the
+shared WeChat recovery policy.
+
+| Scenario | Required result | Result |
+| --- | --- | --- |
+| Requested `AXPress`; generated native code `-25206`. | Result carries `action=AXPress`; one action and one configured click fallback. | Passed. |
+| Requested `AXSetFocus`; generated native code `-25205`. | Result carries `action=AXSetFocus`; one action, one configured focus fallback, and one read-only verification query. | Passed. |
+| Requested `AXPress`; response is internally valid `AXSetFocus/-25205`. | Reject before any fallback. | Passed; only `accessibility_action`. |
+| Requested `AXSetFocus`; response is internally valid `AXPress/-25206`. | Reject before any fallback. | Passed; only `accessibility_action`. |
+| Attempt evidence is truthy string `"true"` or falsey string `""`. | Treat as invalid, not as Boolean. | Passed; zero fallback. |
+| Attempt aliases disagree or action/metadata containers are malformed. | Treat the complete evidence as invalid. | Passed; zero fallback. |
+| Dispatch aliases contain a malformed duplicate or conflicting Boolean. | Treat dispatch evidence as invalid. | Passed; zero fallback. |
+| Valid explicit unsupported or proven pre-dispatch result. | Preserve exactly one configured compatibility fallback. | Passed. |
+
+The direct-client normalization regression also proves that malformed truthy
+and falsey `actionAttempted` values remain only in the raw nested action result;
+they are not promoted into normalized `action_attempted` or top-level
+`actionAttempted` fields.
+
+### Stress And Operation Counts
+
+Six decision-focused test methods were repeated ten consecutive times with
+`ResourceWarning` promoted to an error. Each iteration covered 15 dispatched
+worker outcomes, 7 malformed attempt/dispatch shapes, 12 incomplete or
+contradictory strict proofs, both request/response mismatch directions, and the
+two valid production-generated native pairs. All 10 iterations passed in 7.3
+seconds: 350 unsafe subcases executed zero downstream mutation, while 20 valid
+native-pair executions each used exactly one configured fallback.
+
+### Exact Commands And Results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s tests` | 127 passed in 42.752 seconds, including wheel and release integration checks. |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests` | 55 passed in 0.013 seconds. |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests` | 144 passed in 1.544 seconds, 1 skipped for sandbox socket restrictions. |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests` | 140 passed in 1.135 seconds. |
+| Adversarial stress | Six named producer/recovery test methods repeated ten times with `ResourceWarning` as error. | 10/10 passed in 7.3 seconds; 350 unsafe subcases and zero downstream mutation. |
+| Compile | `PYTHONPYCACHEPREFIX=<external-temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed without writing bytecode into the clone. |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only the expected sandbox socket warning and seven unavailable external-proof warnings remained. |
+| Wheel build/install | `/opt/anaconda3/bin/python scripts/wheel_check.py` | All three 0.2.0 wheels built, passed content checks, installed in isolation, imported, passed API smoke, and rejected WeChat 0.2.0 with local 0.1.1 dependencies. |
+| Whitespace and clean tree | `git diff --check origin/main...HEAD`, `git status --short`, and `git rev-parse HEAD` | Passed; clone remained clean at `65f8855`. |
+
+Ruff remains unavailable and strict mypy still has no accepted repository
+baseline; neither is a configured CI gate. No real Accessibility action,
+WeChat contact switch, or message send was executed. The fake framework modules
+exist only inside temporary test directories and do not enter package artifacts.
+Exact-head GitHub CI and a replacement review remain required after this F5
+evidence commit.
