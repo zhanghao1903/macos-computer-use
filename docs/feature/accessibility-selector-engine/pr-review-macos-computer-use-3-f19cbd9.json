@@ -1,0 +1,606 @@
+{
+  "schema_version": "1.1",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+    "reviewed_at": "2026-07-16T01:17:53Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "Exact 1e56b00...f19cbd9 five-commit remediation delta and all 12 changed paths",
+      "PRR-021, PRR-022, PRR-025, and PRR-026 current-head revalidation",
+      "Generated producer through client normalization, protocol observation, and WeChat recovery",
+      "Every shared fallback caller and expected-action source",
+      "Malformed, missing, duplicate, contradictory, request-mismatched, unsupported, pre-dispatch, timeout, and transport-loss evidence",
+      "Root/package tests, stress, compile, release preflight, wheel/install/API smoke, dependency rejection, clean tree, and exact-head CI"
+    ],
+    "excluded_scope": [
+      "Fresh real WeChat or macOS Accessibility mutation",
+      "Signed or notarized helper execution and TestPyPI or PyPI publication",
+      "Unrelated dirty primary-worktree files and private desktop observations",
+      "Repository-wide strict-mypy cleanup outside this remediation"
+    ]
+  },
+  "review_context": {
+    "kind": "RE_REVIEW",
+    "previous_review": {
+      "report": "pr-review-macos-computer-use-3-1e56b00.md",
+      "result_path": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.json",
+      "result_sha256": "e5a26ab93c56e63a29b270ffbb2628789416503bda89c988a6c99e9d3c726218",
+      "repository": "zhanghao1903/macos-computer-use",
+      "pr_number": 3,
+      "reviewed_at": "2026-07-15T17:14:39Z",
+      "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "head_sha": "1e56b0086b2d996124d5c60db5723eb98ac29ec0",
+      "decision": "REQUEST_CHANGES",
+      "finding_ids": [
+        "PRR-021",
+        "PRR-022",
+        "PRR-025",
+        "PRR-026"
+      ],
+      "blocking_finding_ids": [
+        "PRR-021",
+        "PRR-022",
+        "PRR-026"
+      ]
+    },
+    "delta_review": {
+      "previous_base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "previous_head_sha": "1e56b0086b2d996124d5c60db5723eb98ac29ec0",
+      "current_base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "current_head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+      "triggers": [
+        "HEAD_CHANGED",
+        "EVIDENCE_CHANGED",
+        "REVIEW_CORRECTION"
+      ],
+      "commit_range": "1e56b0086b2d996124d5c60db5723eb98ac29ec0...f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+      "commits_reviewed": [
+        "cdcbd47f1780fd1d08fb8c371a1db0e1f035e4cc",
+        "b4026eef0b91944e51eebea1a1e2326e7b8dfadb",
+        "da4e011d760cb2121e9efa12f91408e1a30fd8c3",
+        "65f8855767971f864154c6173f134c6d03fea37b",
+        "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592"
+      ],
+      "changed_files": [
+        "docs/api.md",
+        "docs/feature/accessibility-selector-engine/design.md",
+        "docs/feature/accessibility-selector-engine/implementation-notes.md",
+        "docs/feature/accessibility-selector-engine/implementation-plan.md",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.json",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.md",
+        "docs/feature/accessibility-selector-engine/verification.md",
+        "docs/wechat-desktop-tool.md",
+        "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "packages/computer-use-macos/tests/test_package.py",
+        "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "packages/wechat-desktop-tool/tests/test_tool.py"
+      ],
+      "reviewed_files": [
+        "docs/api.md",
+        "docs/feature/accessibility-selector-engine/design.md",
+        "docs/feature/accessibility-selector-engine/implementation-notes.md",
+        "docs/feature/accessibility-selector-engine/implementation-plan.md",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.json",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.md",
+        "docs/feature/accessibility-selector-engine/verification.md",
+        "docs/wechat-desktop-tool.md",
+        "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "packages/computer-use-macos/tests/test_package.py",
+        "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "packages/wechat-desktop-tool/tests/test_tool.py"
+      ],
+      "excluded_files": [],
+      "unclassified_changes": [],
+      "full_pr_diff_reconciled": true,
+      "summary": "The delta records the request-changes review, amends the contract and plan, fixes producer/normalizer/consumer behavior, adds production-derived and adversarial tests, and publishes exact-implementation verification.",
+      "evidence": "git log, name-status diff, full affected-path audit, prior finding ledger, clean-clone tests, wheel checks, and exact-head GitHub CI"
+    },
+    "finding_revalidation": [
+      {
+        "finding_id": "PRR-021",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "Four-state attempted/dispatch evidence rejects malformed containers, non-Boolean values, and conflicting aliases; client normalization no longer coerces; operation-count tests execute zero unsafe fallback."
+      },
+      {
+        "finding_id": "PRR-022",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "The production-generated native failure carries the requested action through ComputerUseClient and both valid native pairs use exactly one configured WeChat fallback."
+      },
+      {
+        "finding_id": "PRR-025",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "ACCESSIBILITY_ACTION_UNSUPPORTED remains in COMPUTER_USE_FAILURE_KINDS and package/root/wheel checks pass."
+      },
+      {
+        "finding_id": "PRR-026",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "Every recovery caller passes its outbound expected action; both internally valid request/response mismatch directions stop after accessibility_action."
+      }
+    ],
+    "forward_risk_review": [
+      {
+        "surface": "Generated native producer and public observation propagation",
+        "risk_triggers": [
+          "public-contract",
+          "deployment-compatibility",
+          "test-adequacy"
+        ],
+        "reason": "Adding action to post-call failures must match the actual request and survive normalization and packaging.",
+        "affected_paths": [
+          "packages/computer-use-macos/src/computer_use_macos/client.py",
+          "packages/computer-use-macos/tests/test_package.py",
+          "packages/wechat-desktop-tool/tests/test_tool.py"
+        ],
+        "checks": [
+          "Production generated worker exercises AXPress/-25206 and AXSetFocus/-25205",
+          "ComputerUseClient and protocol observation preserve action",
+          "Wheel build, install, import, and API smoke pass"
+        ],
+        "finding_ids": [
+          "PRR-022"
+        ],
+        "result": "PASS"
+      },
+      {
+        "surface": "Attempted and dispatch evidence trust boundary",
+        "risk_triggers": [
+          "trust-boundary",
+          "data-integrity",
+          "mutation-recovery",
+          "test-adequacy"
+        ],
+        "reason": "Malformed or conflicting evidence must not be mistaken for safe absence or false.",
+        "affected_paths": [
+          "packages/computer-use-macos/src/computer_use_macos/client.py",
+          "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+          "packages/wechat-desktop-tool/tests/test_tool.py"
+        ],
+        "checks": [
+          "Truthy and falsey non-Boolean attempted values",
+          "Malformed action, metadata, diagnostics, and transport containers",
+          "Matching and conflicting aliases",
+          "Operation count and order across shared callers"
+        ],
+        "finding_ids": [
+          "PRR-021"
+        ],
+        "result": "PASS"
+      },
+      {
+        "surface": "Expected-action propagation into mutating recovery",
+        "risk_triggers": [
+          "trust-boundary",
+          "mutation-recovery",
+          "test-adequacy"
+        ],
+        "reason": "An internally valid proof for another action must not authorize fallback for the requested action.",
+        "affected_paths": [
+          "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+          "packages/wechat-desktop-tool/tests/test_tool.py"
+        ],
+        "checks": [
+          "Audit every shared fallback call site",
+          "AXPress request with AXSetFocus proof",
+          "AXSetFocus request with AXPress proof",
+          "Matching valid pair compatibility"
+        ],
+        "finding_ids": [
+          "PRR-026"
+        ],
+        "result": "PASS"
+      },
+      {
+        "surface": "Temporary framework test harness and package contents",
+        "risk_triggers": [
+          "test-adequacy",
+          "deployment-compatibility"
+        ],
+        "reason": "Test stubs must execute production code without leaking into distributable artifacts.",
+        "affected_paths": [
+          "packages/wechat-desktop-tool/tests/test_tool.py",
+          "scripts/wheel_check.py"
+        ],
+        "checks": [
+          "Temporary-directory-only modules",
+          "Clean clone after tests",
+          "Wheel content and no-bytecode checks"
+        ],
+        "finding_ids": [],
+        "result": "PASS"
+      }
+    ],
+    "approval_renewal": {
+      "old_decision_invalidated": true,
+      "previous_findings_revalidated": true,
+      "forward_risk_review_completed": true,
+      "all_delta_changes_classified": true,
+      "current_head_validation_complete": true,
+      "decision_blocking_limitations": [],
+      "result": "GRANTED",
+      "independent_pass": {
+        "status": "PASS",
+        "reviewer": "Codex separate second pass",
+        "summary": "Independent agents were unavailable; a separate source/caller audit and clean-clone exact-head run rechecked producer propagation, malformed evidence, both mismatch directions, operation counts, and induced test-harness risk without finding a blocker."
+      }
+    }
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "PRR-021, PRR-022, PRR-025, and PRR-026 are resolved at f19cbd9. Production-generated valid native pairs retain one fallback, malformed or mismatched evidence authorizes none, every delta change is classified, broad local validation passes, and exact-head GitHub CI is green.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The remediation closes all prior blockers by carrying the real requested action from the generated native producer, avoiding Boolean coercion, parsing attempted and dispatch evidence presence-sensitively, and binding strict proof to the outbound action. No new blocker was found.",
+  "change_map": [
+    {
+      "area": "Native action producer",
+      "change": "Post-call failures include the validated requested action.",
+      "external_behavior": "Real unsupported results satisfy the documented proof shape.",
+      "risk": "Medium",
+      "validation": "Production worker tests cover both native pairs."
+    },
+    {
+      "area": "Client normalization",
+      "change": "Attempted evidence is promoted only when it is Boolean.",
+      "external_behavior": "Malformed values remain raw and cannot become trusted false or true.",
+      "risk": "High",
+      "validation": "Truthy and falsey malformed normalization tests pass."
+    },
+    {
+      "area": "WeChat recovery",
+      "change": "Use four-state evidence and require response action to equal expected action.",
+      "external_behavior": "Unsafe outcomes stop while matching definite-no-effect results retain one fallback.",
+      "risk": "High",
+      "validation": "Adversarial stress and production pair tests assert operation counts."
+    },
+    {
+      "area": "Documentation and proof",
+      "change": "Design, plan, stable docs, implementation notes, and F5 evidence now agree.",
+      "external_behavior": "Integrators receive one consistent recovery contract.",
+      "risk": "Low",
+      "validation": "Release preflight and full diff audit pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-021",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Malformed attempt or dispatch evidence could replay an action",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 4180,
+        "line_end": 4420,
+        "symbol": "_should_fallback_from_accessibility_action",
+        "side": "RIGHT",
+        "commit_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592"
+      },
+      "observation": "Attempted and dispatch evidence now has explicit presence, validity, and Boolean value; malformed or contradictory evidence fails closed, and client normalization does not coerce it.",
+      "trigger": "A compatible or malformed backend publishes a non-Boolean attempted value, malformed relevant container, or conflicting dispatch alias.",
+      "impact": "The shared recovery gate no longer authorizes a second desktop mutation when the first action outcome is uncertain.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Malformed attempted and dispatch cases assert exactly one accessibility_action and zero fallback.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py:3075"
+        },
+        {
+          "kind": "test",
+          "description": "Client normalization preserves malformed raw attempt values without trusted promotion.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:2409"
+        }
+      ],
+      "remediation": "Completed: use presence-sensitive evidence objects, validate all relevant containers and aliases, and remove truthiness coercion.",
+      "verification": "Package suites, ten-iteration stress, and exact-head focused tests pass with operation-count assertions.",
+      "status": "resolved",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "wechat-action-recovery-malformed-boolean-evidence"
+    },
+    {
+      "id": "PRR-022",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "The real native unsupported producer omitted action",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 4077,
+        "line_end": 4432,
+        "symbol": "_accessibility_action_script",
+        "side": "RIGHT",
+        "commit_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592"
+      },
+      "observation": "Generated post-call failures now include the validated requested action and retain it through ComputerUseClient normalization.",
+      "trigger": "AXPress returns -25206 or AXSetFocus returns -25205 on the real direct backend.",
+      "impact": "Both legitimate native unsupported cases can use exactly one configured compatibility fallback.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Production warm-worker script tests exercise both native pairs through ComputerUseClient and WeChat.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py:3571"
+        }
+      ],
+      "remediation": "Completed: pass action into generated unsupported and uncertain post-call failure payloads and preserve the raw result.",
+      "verification": "Both production-generated pairs carry the matching action and execute one fallback; wheel/API smoke passes.",
+      "status": "resolved",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "native-action-producer-missing-action"
+    },
+    {
+      "id": "PRR-026",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Proof action was not compared with the requested action",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 4180,
+        "line_end": 4292,
+        "symbol": "_accessibility_action_has_definite_no_effect",
+        "side": "RIGHT",
+        "commit_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592"
+      },
+      "observation": "The recovery predicate receives the exact outbound expected action and requires every response action copy to equal it.",
+      "trigger": "A stale, custom, or malformed backend returns an internally valid proof for a different action.",
+      "impact": "A mismatched proof can no longer authorize a second mutation after an unknown requested-action outcome.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Both AXPress-to-AXSetFocus and AXSetFocus-to-AXPress mismatch directions execute zero fallback.",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py:2968"
+        }
+      ],
+      "remediation": "Completed: require expected_action at every shared recovery call and compare it in the strict proof.",
+      "verification": "Both mismatch directions stop after accessibility_action; matching production pairs retain one fallback.",
+      "status": "resolved",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "wechat-proof-request-action-binding"
+    },
+    {
+      "id": "PRR-025",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Stable failure registry propagation",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/errors.py",
+        "line_start": 52,
+        "line_end": 96,
+        "symbol": "COMPUTER_USE_FAILURE_KINDS",
+        "side": "RIGHT",
+        "commit_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592"
+      },
+      "observation": "ACCESSIBILITY_ACTION_UNSUPPORTED remains declared and included in the stable routing tuple.",
+      "trigger": "A tuple-based consumer routes a native unsupported result.",
+      "impact": "The public result remains classifiable through the package contract.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Computer-use package, root, release preflight, wheel, and CI checks pass.",
+          "reference": "docs/feature/accessibility-selector-engine/verification.md"
+        }
+      ],
+      "remediation": "Previously completed and revalidated without regression.",
+      "verification": "Current-head package and exact-head CI checks pass.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "computer-use-native-unsupported-registry"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-021",
+      "action": "Reject malformed or contradictory attempted and dispatch evidence without Boolean coercion and prove zero replay.",
+      "status": "completed"
+    },
+    {
+      "finding_id": "PRR-022",
+      "action": "Align the real generated producer, normalization, and strict consumer action contract for both valid native pairs.",
+      "status": "completed"
+    },
+    {
+      "finding_id": "PRR-026",
+      "action": "Bind proof action to request action and cover both mismatch directions.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Mutation recovery is fail-closed for malformed, unknown, or mismatched evidence.",
+      "mitigation": "Keep operation-count and adversarial recovery regressions in CI.",
+      "owner": "computer-use and WeChat package owners"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "The additive action field reflects the existing requested action and does not change schema version.",
+      "mitigation": "Preserve raw payloads and typed normalization tests.",
+      "owner": "computer-use package owner"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Medium",
+      "description": "No fresh live desktop mutation was run for this deterministic classification remediation.",
+      "mitigation": "Retain the existing real WeChat selector-engine smoke as an F7 release proof.",
+      "owner": "release owner"
+    }
+  ],
+  "validation": {
+    "overall_status": "PASSED",
+    "reviewer_runs": [
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s tests",
+        "environment": "clean no-hardlink Darwin arm64 clone; CPython 3.12.7",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 root tests passed in 42.752 seconds, including wheel and release integration.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "same clean implementation clone",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 protocol tests passed.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "same clean implementation clone",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "144 tests passed; one sandbox socket test skipped.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "same clean implementation clone",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "140 WeChat tests passed.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      },
+      {
+        "command": "six decision-focused producer/recovery tests",
+        "environment": "clean no-hardlink exact-head f19cbd9 clone",
+        "head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Production pairs, malformed evidence, dispatched failures, strict proof, and both mismatch directions passed.",
+        "required_for_approval": true,
+        "evidence_ref": "local exact-head review run"
+      },
+      {
+        "command": "decision-focused producer/recovery set repeated ten times",
+        "environment": "clean implementation clone with ResourceWarning as error",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "10 of 10 passed; 350 unsafe subcases executed zero fallback and 20 valid native pairs each used one fallback.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      },
+      {
+        "command": "compileall, release_preflight.py, and wheel_check.py",
+        "environment": "clean implementation clone; external pycache; Anaconda wheel build driver",
+        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Compile, preflight, all wheel contents, isolated installs, API smoke, and incompatible dependency rejection passed.",
+        "required_for_approval": true,
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "GitHub Actions CI / test",
+        "observed_at": "2026-07-16T01:15:42Z",
+        "head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+        "status": "PASS",
+        "summary": "Exact-head CI completed successfully.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29463591047/job/87511953080"
+      },
+      {
+        "name": "GitHub PR merge state",
+        "observed_at": "2026-07-16T01:16:00Z",
+        "head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+        "status": "PASS",
+        "summary": "PR is open, draft, mechanically mergeable, and merge state is clean.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/pull/3"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Fresh real WeChat or macOS Accessibility mutation",
+        "reason": "It would modify the user's desktop and is unnecessary for the deterministic result-classification change."
+      },
+      {
+        "check": "Signed helper, TestPyPI, PyPI, and trusted-publisher proof",
+        "reason": "These are separate F7 release gates."
+      },
+      {
+        "check": "Ruff and repository-wide strict mypy",
+        "reason": "Ruff is unavailable and strict mypy has no accepted clean repository baseline; neither is configured CI."
+      }
+    ]
+  },
+  "limitations": [
+    "Decision is authoritative only for base fed652343ec73734247955d44dc8e60293a7b373 and head f19cbd9118c30ced9a3812d9829a3b7e6fbd3592.",
+    "Independent agents were unavailable; a separate second-pass audit and clean-clone exact-head run were used.",
+    "No live desktop mutation, signed helper execution, or package publication occurred.",
+    "Any base or head change invalidates this approval and requires renewal."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    {
+      "id": "ASM-001",
+      "statement": "Fallback is safe only for the same requested action with definite no effect.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Source propagation audit plus bidirectional mismatch and valid-pair tests",
+      "evidence": "Every caller supplies expected_action; mismatch operations stop after accessibility_action.",
+      "impact_if_false": "A response for another action could authorize a duplicate mutation."
+    },
+    {
+      "id": "ASM-002",
+      "statement": "Present malformed attempt or dispatch evidence cannot be treated as absence.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Four-state parser audit and adversarial operation-count tests",
+      "evidence": "Truthy, falsey, malformed-container, alias-conflict, and dispatch-conflict cases execute zero fallback.",
+      "impact_if_false": "An unknown first action outcome could be followed by a second mutation."
+    },
+    {
+      "id": "ASM-003",
+      "statement": "Temporary fake framework modules exercise production generation without entering distributable packages.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Test harness inspection, clean-tree check, and wheel-content verification",
+      "evidence": "Modules are written only to TemporaryDirectory and all three wheel content checks pass.",
+      "impact_if_false": "Tests could pass against non-production behavior or contaminate package artifacts."
+    }
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-023",
+      "category": "testing",
+      "recommendation": "Keep production-derived fixtures for future generated action result fields.",
+      "value": "Prevents synthetic tests from proving fields the generated backend does not emit."
+    },
+    {
+      "id": "NOTE-016",
+      "category": "documentation",
+      "recommendation": "Retain dispatch-aware no-replay and narrow definite-no-effect wording in final release notes.",
+      "value": "Keeps integrator recovery behavior explicit and auditable."
+    }
+  ]
+}
