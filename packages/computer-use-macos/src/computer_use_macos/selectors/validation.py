@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from ..accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
+from ..accessibility_limits import (
+    MAX_ACCESSIBILITY_QUERY_DEPTH,
+    MAX_ACCESSIBILITY_QUERY_LIMIT,
+)
 from .models import (
     AccessibilitySelectorProfile,
     ActionDefinition,
@@ -198,6 +201,10 @@ def _validate_step(
         )
     if step.limit <= 0:
         raise SelectorProfileValidationError(f"{field_name}.limit must be > 0")
+    if step.limit > MAX_ACCESSIBILITY_QUERY_LIMIT:
+        raise SelectorProfileValidationError(
+            f"{field_name}.limit must be <= {MAX_ACCESSIBILITY_QUERY_LIMIT}"
+        )
     if step.time_budget_ms <= 0:
         raise SelectorProfileValidationError(
             f"{field_name}.time_budget_ms must be > 0"
@@ -359,6 +366,11 @@ def _validate_collection(
         locale_aliases,
         f"{field_name}.item_selector",
     )
+    _validate_collection_item_selector(
+        collection.item_selector,
+        collection.root_selector_id,
+        f"{field_name}.item_selector",
+    )
     if not collection.fields:
         raise SelectorProfileValidationError(f"{field_name}.fields must be non-empty")
     for name, field in collection.fields.items():
@@ -378,6 +390,10 @@ def _validate_field(
     if field.source == "descendant" and field.selector is None:
         raise SelectorProfileValidationError(
             f"{field_name}.selector is required for descendant fields"
+        )
+    if field.source != "descendant" and field.selector is not None:
+        raise SelectorProfileValidationError(
+            f"{field_name}.selector is only supported for descendant fields"
         )
     if field.source == "attribute" and field.attribute is None:
         raise SelectorProfileValidationError(
@@ -408,9 +424,84 @@ def _validate_field(
             locale_aliases,
             f"{field_name}.selector",
         )
+        _validate_collection_field_selector(
+            field.selector,
+            f"{field_name}.selector",
+        )
     if field.transform is not None and field.transform not in ALLOWED_TRANSFORMS:
         raise SelectorProfileValidationError(
             f"{field_name}.transform is not allowlisted: {field.transform!r}"
+        )
+
+
+def _validate_collection_item_selector(
+    selector: SelectorDefinition,
+    root_selector_id: str,
+    field_name: str,
+) -> None:
+    if len(selector.steps) != 1:
+        raise SelectorProfileValidationError(
+            f"{field_name}.steps must contain exactly one executable step"
+        )
+    if (
+        selector.root.kind != "selector"
+        or selector.root.selector_id != root_selector_id
+    ):
+        raise SelectorProfileValidationError(
+            f"{field_name}.root must reference collection root selector "
+            f"{root_selector_id!r}"
+        )
+    _validate_collection_selector_policy(
+        selector,
+        expected_pick="all",
+        field_name=field_name,
+    )
+
+
+def _validate_collection_field_selector(
+    selector: SelectorDefinition,
+    field_name: str,
+) -> None:
+    if len(selector.steps) != 1:
+        raise SelectorProfileValidationError(
+            f"{field_name}.steps must contain exactly one executable step"
+        )
+    if selector.root != SelectorRoot(kind="focusedWindow"):
+        raise SelectorProfileValidationError(
+            f"{field_name}.root must use the contextual focusedWindow root"
+        )
+    _validate_collection_selector_policy(
+        selector,
+        expected_pick="first",
+        field_name=field_name,
+    )
+
+
+def _validate_collection_selector_policy(
+    selector: SelectorDefinition,
+    *,
+    expected_pick: str,
+    field_name: str,
+) -> None:
+    if selector.pick != expected_pick:
+        raise SelectorProfileValidationError(
+            f"{field_name}.pick must be {expected_pick!r}"
+        )
+    if selector.cache.mode != "disabled":
+        raise SelectorProfileValidationError(
+            f"{field_name}.cache.mode must be 'disabled'"
+        )
+    if selector.fallbacks:
+        raise SelectorProfileValidationError(
+            f"{field_name}.fallbacks are not supported"
+        )
+    if selector.confidence != ConfidencePolicy():
+        raise SelectorProfileValidationError(
+            f"{field_name}.confidence customization is not supported"
+        )
+    if selector.steps[0].relation is not None:
+        raise SelectorProfileValidationError(
+            f"{field_name}.steps[0].relation is not supported"
         )
 
 

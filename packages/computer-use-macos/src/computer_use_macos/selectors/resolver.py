@@ -178,8 +178,6 @@ class SelectorResolver:
 
         all_candidates: list[ResolvedElement] = []
         current_roots: list[Mapping[str, JsonValue]] = [root_payload]
-        truncated = False
-        truncation_reason: str | None = None
         for step_index, step in enumerate(selector.steps):
             step_candidates: list[ResolvedElement] = []
             is_final_step = step_index == len(selector.steps) - 1
@@ -208,11 +206,13 @@ class SelectorResolver:
                 nodes = normalized.nodes
                 diagnostics = normalized.diagnostics
                 if bool(diagnostics.get("truncated", False)):
-                    truncated = True
-                    truncation_reason = str(
-                        diagnostics.get("truncationReason")
-                        or diagnostics.get("truncation_reason")
-                        or "query truncated"
+                    return self._truncated_query_result(
+                        selector,
+                        diagnostics,
+                        tried=stack + (selector_id,),
+                        query_count=query_count,
+                        node_count=node_count,
+                        cache_status=cache_status,
                     )
                 for node in nodes:
                     candidate = self._candidate_from_node(
@@ -261,10 +261,10 @@ class SelectorResolver:
                 )
                 if fallback_result.status == "resolved":
                     return fallback_result
-                if (
-                    fallback_result.diagnostics.failure_kind
-                    == "selector_query_failed"
-                ):
+                if fallback_result.diagnostics.failure_kind in {
+                    "selector_query_failed",
+                    "selector_query_truncated",
+                }:
                     return self._with_resolution_context(
                         fallback_result,
                         tried=stack + (selector_id, fallback),
@@ -276,21 +276,18 @@ class SelectorResolver:
                         ),
                         cache_status=fallback_result.diagnostics.cache_status,
                     )
-            failure_kind = "selector_query_truncated" if truncated else "selector_not_found"
             return SelectorResult(
                 selector_id=selector.selector_id,
                 profile_id=self.profile.profile_id,
                 profile_version=self.profile.profile_version,
-                status="failed" if truncated else "not_found",
+                status="not_found",
                 diagnostics=selector_diagnostics(
                     tried_selectors=stack + (selector_id,),
                     query_count=query_count,
                     node_count=node_count,
-                    truncated=truncated,
-                    truncation_reason=truncation_reason,
                     cache_status=cache_status,
-                    failure_kind=failure_kind,
-                    message="selector query truncated" if truncated else "selector not found",
+                    failure_kind="selector_not_found",
+                    message="selector not found",
                 ),
             )
         if picked == "ambiguous":
@@ -305,8 +302,6 @@ class SelectorResolver:
                     tried_selectors=stack + (selector_id,),
                     query_count=query_count,
                     node_count=node_count,
-                    truncated=truncated,
-                    truncation_reason=truncation_reason,
                     cache_status=cache_status,
                     failure_kind="selector_ambiguous",
                     message="selector matched multiple equivalent candidates",
@@ -327,8 +322,6 @@ class SelectorResolver:
                 tried_selectors=stack + (selector_id,),
                 query_count=query_count,
                 node_count=node_count,
-                truncated=truncated,
-                truncation_reason=truncation_reason,
                 cache_status=cache_status,
             ),
         )
@@ -474,6 +467,18 @@ class SelectorResolver:
                 cache_status="stale",
             )
         nodes = normalized.nodes
+        if bool(normalized.diagnostics.get("truncated", False)) and not (
+            len(nodes) == 1
+            and _normalized_truncation_reason(normalized.diagnostics) == "limit"
+        ):
+            return self._truncated_query_result(
+                selector,
+                normalized.diagnostics,
+                tried=(selector.selector_id,),
+                query_count=1,
+                node_count=len(nodes),
+                cache_status="stale",
+            )
         if not nodes:
             return self._failed(
                 selector.selector_id,
@@ -798,6 +803,34 @@ class SelectorResolver:
             ),
         )
 
+    def _truncated_query_result(
+        self,
+        selector: SelectorDefinition,
+        diagnostics: Mapping[str, Any],
+        *,
+        tried: tuple[str, ...],
+        query_count: int,
+        node_count: int,
+        cache_status: str,
+    ) -> SelectorResult:
+        reason = _normalized_truncation_reason(diagnostics)
+        return SelectorResult(
+            selector_id=selector.selector_id,
+            profile_id=self.profile.profile_id,
+            profile_version=self.profile.profile_version,
+            status="failed",
+            diagnostics=selector_diagnostics(
+                tried_selectors=tried,
+                query_count=query_count,
+                node_count=node_count,
+                truncated=True,
+                truncation_reason=reason,
+                cache_status=cache_status,
+                failure_kind="selector_query_truncated",
+                message=f"selector query truncated: {reason}",
+            ),
+        )
+
     def _with_resolution_context(
         self,
         result: SelectorResult,
@@ -952,6 +985,20 @@ def _bounded_message(value: str | None, *, limit: int = 500) -> str | None:
         return value
     marker = "...<truncated>"
     return f"{value[: limit - len(marker)]}{marker}"
+
+
+def _normalized_truncation_reason(diagnostics: Mapping[str, Any]) -> str:
+    raw_reason = diagnostics.get("truncationReason") or diagnostics.get(
+        "truncation_reason"
+    )
+    if not isinstance(raw_reason, str) or not raw_reason.strip():
+        return "query_truncated"
+    normalized = raw_reason.strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized.startswith("limit"):
+        return "limit"
+    if normalized in {"timebudget", "time_budget_exceeded"}:
+        return "time_budget"
+    return normalized
 
 
 def _area(element: ResolvedElement) -> float:

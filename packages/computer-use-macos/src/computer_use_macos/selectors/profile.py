@@ -95,6 +95,8 @@ def _parse_selector(
     data: Mapping[str, Any],
     *,
     default_root: SelectorRoot | None = None,
+    default_pick: str = "best",
+    default_cache_mode: str = "readWrite",
 ) -> SelectorDefinition:
     root_data = data.get("root")
     root = _parse_root(_mapping(root_data, f"{selector_id}.root")) if root_data else (
@@ -114,12 +116,15 @@ def _parse_selector(
                 _sequence(data.get("constraints", ()), "constraints")
             )
         ),
-        pick=_string(data.get("pick", "best"), "pick"),  # type: ignore[arg-type]
+        pick=_string(data.get("pick", default_pick), "pick"),  # type: ignore[arg-type]
         confidence=_parse_confidence(
             _mapping(data.get("confidence", {}), "confidence")
         ),
         fallbacks=_strings(data.get("fallbacks", ()), "fallbacks"),
-        cache=_parse_cache(_mapping(data.get("cache", {}), "cache")),
+        cache=_parse_cache(
+            _mapping(data.get("cache", {}), "cache"),
+            default_mode=default_cache_mode,
+        ),
     )
 
 
@@ -233,9 +238,13 @@ def _parse_confidence(data: Mapping[str, Any]) -> ConfidencePolicy:
     )
 
 
-def _parse_cache(data: Mapping[str, Any]) -> CachePolicy:
+def _parse_cache(
+    data: Mapping[str, Any],
+    *,
+    default_mode: str = "readWrite",
+) -> CachePolicy:
     return CachePolicy(
-        mode=_string(data.get("mode", "readWrite"), "cache.mode"),  # type: ignore[arg-type]
+        mode=_string(data.get("mode", default_mode), "cache.mode"),  # type: ignore[arg-type]
         ttl_seconds=(
             _integer(data["ttl_seconds"], "cache.ttl_seconds")
             if "ttl_seconds" in data
@@ -259,6 +268,8 @@ def _parse_collection(
         f"{collection_id}.item",
         item_data,
         default_root=SelectorRoot(kind="selector", selector_id=root_selector_id),
+        default_pick="all",
+        default_cache_mode="disabled",
     )
     fields = _mapping(data.get("fields", {}), "fields")
     return CollectionDefinition(
@@ -285,6 +296,8 @@ def _parse_field(data: Any, field_name: str) -> FieldDefinition:
         _parse_selector(
             f"{field_name}.selector",
             _mapping(selector_data, f"{field_name}.selector"),
+            default_pick="first",
+            default_cache_mode="disabled",
         )
         if selector_data is not None
         else None

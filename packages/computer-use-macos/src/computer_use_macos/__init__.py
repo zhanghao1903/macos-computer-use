@@ -19,7 +19,14 @@ from .commands import (
     type_text_command,
     wait_command,
 )
-from .errors import COMPUTER_USE_FAILURE_KINDS, ComputerUseError
+from .errors import (
+    ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_ACTION_WORKER_FAILED,
+    ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_QUERY_WORKER_FAILED,
+    COMPUTER_USE_FAILURE_KINDS,
+    ComputerUseError,
+)
 from .helper import (
     HelperDoctorReport,
     HelperManifest,
@@ -54,6 +61,10 @@ __version__ = "0.2.0"
 
 __all__ = [
     "AppControlConfig",
+    "ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE",
+    "ACCESSIBILITY_ACTION_WORKER_FAILED",
+    "ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE",
+    "ACCESSIBILITY_QUERY_WORKER_FAILED",
     "ComputerUseClient",
     "ComputerUseOperation",
     "ComputerUseReadiness",

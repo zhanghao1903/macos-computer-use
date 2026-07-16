@@ -6,7 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
+from ..accessibility_limits import (
+    MAX_ACCESSIBILITY_QUERY_DEPTH,
+    MAX_ACCESSIBILITY_QUERY_LIMIT,
+)
 from .diagnostics import selector_diagnostics
 from .matching import (
     constraints_match,
@@ -83,10 +86,14 @@ class CollectionExtractor:
         requested_limit = limit or collection.pagination.default_limit
         effective_limit = min(requested_limit, collection.pagination.max_limit)
         root_path = root.elements[0].element_ref.ax_path
+        item_scan_limit = min(
+            collection.item_selector.steps[0].limit,
+            MAX_ACCESSIBILITY_QUERY_LIMIT,
+        )
         item_nodes, item_diagnostics = self._query_items(
             collection,
             root_path,
-            effective_limit + 1,
+            item_scan_limit,
             debug=debug,
         )
         if item_diagnostics.failure_kind == "selector_query_failed":
@@ -95,7 +102,6 @@ class CollectionExtractor:
                 item_diagnostics,
                 root_diagnostics=root.diagnostics,
             )
-        has_more = len(item_nodes) > effective_limit
         field_cache, batch_field_diagnostics = self._batch_extract_fields(
             collection,
             root_path,
@@ -117,11 +123,11 @@ class CollectionExtractor:
         fallback_query_count = 0
         batch_node_count = batch_field_diagnostics.node_count
         fallback_node_count = 0
-        field_truncated = batch_field_diagnostics.truncated
-        field_truncation_reason = batch_field_diagnostics.truncation_reason
+        field_truncated = False
+        field_truncation_reason: str | None = None
         field_query_failure: SelectorDiagnostics | None = None
         for item_node in item_nodes:
-            if len(items) >= effective_limit:
+            if len(items) >= effective_limit + 1:
                 break
             item, field_diagnostics = self._extract_item(
                 collection,
@@ -159,11 +165,21 @@ class CollectionExtractor:
                 item_diagnostics=item_diagnostics,
             )
 
+        has_more = len(items) > effective_limit
+        semantic_lookahead_complete = has_more
+        items = items[:effective_limit]
         status = "resolved"
-        truncated = item_diagnostics.truncated or field_truncated
+        truncated = (
+            field_truncated
+            or (item_diagnostics.truncated and not semantic_lookahead_complete)
+        )
         truncation_reason = (
-            item_diagnostics.truncation_reason
-            or field_truncation_reason
+            field_truncation_reason
+            or (
+                item_diagnostics.truncation_reason
+                if item_diagnostics.truncated and not semantic_lookahead_complete
+                else None
+            )
         )
         if skipped or truncated:
             status = "partial" if items else "failed"
@@ -188,17 +204,17 @@ class CollectionExtractor:
             failure_kind=(
                 "selector_query_truncated"
                 if truncated
-                else (
-                    "selector_field_missing"
-                    if skipped
-                    else item_diagnostics.failure_kind
-                )
+                else "selector_field_missing" if skipped else None
             ),
             message=_collection_message(
                 collection,
                 skipped=skipped,
                 field_failures=field_failures,
-                fallback=item_diagnostics.message,
+                fallback=(
+                    None
+                    if item_diagnostics.truncated and semantic_lookahead_complete
+                    else item_diagnostics.message
+                ),
             ),
         )
         return CollectionResult(
@@ -264,21 +280,19 @@ class CollectionExtractor:
         diagnostics = normalized.diagnostics
         backend_truncated = bool(diagnostics.get("truncated", False))
         backend_truncation_reason = _normalized_truncation_reason(diagnostics)
-        completed_lookahead = (
-            backend_truncated
-            and backend_truncation_reason == "limit"
-            and len(nodes) >= limit
-        )
-        truncated = backend_truncated and not completed_lookahead
         return nodes, selector_diagnostics(
             query_count=1,
             node_count=len(normalized.nodes),
-            truncated=truncated,
-            truncation_reason=backend_truncation_reason if truncated else None,
-            failure_kind="selector_query_truncated" if truncated else None,
+            truncated=backend_truncated,
+            truncation_reason=(
+                backend_truncation_reason if backend_truncated else None
+            ),
+            failure_kind=(
+                "selector_query_truncated" if backend_truncated else None
+            ),
             message=(
                 f"collection item query truncated: {backend_truncation_reason}"
-                if truncated
+                if backend_truncated
                 else None
             ),
         )
@@ -451,7 +465,10 @@ class CollectionExtractor:
                         MAX_ACCESSIBILITY_QUERY_DEPTH,
                         item_step.max_depth + step.max_depth,
                     ),
-                    "limit": max(len(item_paths), len(item_paths) * step.limit),
+                    "limit": min(
+                        MAX_ACCESSIBILITY_QUERY_LIMIT,
+                        max(len(item_paths), len(item_paths) * step.limit),
+                    ),
                     "timeBudgetMs": step.time_budget_ms,
                     "attributes": _query_attributes(step, field.selector.constraints),
                     "actions": bool(step.match.actions_include),

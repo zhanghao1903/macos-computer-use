@@ -437,6 +437,93 @@ class SelectorProfileTests(unittest.TestCase):
 
         self.assertEqual(profile, original)
 
+    def test_collection_selectors_use_executable_context_defaults(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        collection = profile.collections["contacts"]
+        field_selector = collection.fields["displayName"].selector
+
+        self.assertEqual(collection.item_selector.pick, "all")
+        self.assertEqual(collection.item_selector.cache.mode, "disabled")
+        self.assertIsNotNone(field_selector)
+        assert field_selector is not None
+        self.assertEqual(field_selector.pick, "first")
+        self.assertEqual(field_selector.cache.mode, "disabled")
+
+    def test_collection_selector_rejects_ignored_semantics(self) -> None:
+        mutations = {
+            "item_steps": lambda profile: profile["collections"]["contacts"][
+                "item"
+            ]["steps"].append(
+                deepcopy(profile["collections"]["contacts"]["item"]["steps"][0])
+            ),
+            "field_steps": lambda profile: profile["collections"]["contacts"][
+                "fields"
+            ]["displayName"]["selector"]["steps"].append(
+                deepcopy(
+                    profile["collections"]["contacts"]["fields"]["displayName"]
+                    ["selector"]["steps"][0]
+                )
+            ),
+            "item_root": lambda profile: profile["collections"]["contacts"][
+                "item"
+            ].__setitem__("root", {"kind": "focusedWindow"}),
+            "field_root": lambda profile: profile["collections"]["contacts"][
+                "fields"
+            ]["displayName"]["selector"].__setitem__(
+                "root", {"kind": "selector", "selector_id": "fallback"}
+            ),
+            "item_pick": lambda profile: profile["collections"]["contacts"][
+                "item"
+            ].__setitem__("pick", "first"),
+            "field_pick": lambda profile: profile["collections"]["contacts"][
+                "fields"
+            ]["displayName"]["selector"].__setitem__("pick", "all"),
+            "item_cache": lambda profile: profile["collections"]["contacts"][
+                "item"
+            ].__setitem__("cache", {"mode": "readWrite"}),
+            "item_fallback": lambda profile: profile["collections"]["contacts"][
+                "item"
+            ].__setitem__("fallbacks", ["fallback"]),
+            "field_confidence": lambda profile: profile["collections"]["contacts"]
+            ["fields"]["displayName"]["selector"].__setitem__(
+                "confidence", {"minimum": 0.1}
+            ),
+            "item_relation": lambda profile: profile["collections"]["contacts"]
+            ["item"]["steps"][0].__setitem__(
+                "relation",
+                {"anchor_selector_id": "fallback", "relation": "rightOf"},
+            ),
+        }
+
+        for case, mutate in mutations.items():
+            with self.subTest(case=case):
+                raw = _valid_profile()
+                mutate(raw)  # type: ignore[arg-type]
+                with self.assertRaises(SelectorProfileValidationError):
+                    parse_selector_profile(raw)
+
+    def test_non_descendant_field_cannot_carry_ignored_selector(self) -> None:
+        raw = _valid_profile()
+        fields = raw["collections"]["contacts"]["fields"]  # type: ignore[index]
+        fields["displayName"]["source"] = "attribute"  # type: ignore[index]
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "selector is only supported for descendant fields",
+        ):
+            parse_selector_profile(raw)
+
+    def test_selector_query_limit_above_public_bound_is_rejected(self) -> None:
+        raw = _valid_profile()
+        item_step = raw["collections"]["contacts"]["item"]["steps"][0]  # type: ignore[index]
+        item_step["limit"] = 501
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "limit must be <= 500",
+        ):
+            parse_selector_profile(raw)
+
 
 class FakeQueryRunner:
     def __init__(self, payloads: list[dict[str, object]]) -> None:
@@ -1665,6 +1752,31 @@ class SelectorResolverTests(unittest.TestCase):
         )
         self.assertEqual(result.diagnostics.query_count, 2)
 
+    def test_resolver_propagates_truncated_fallback_without_more_fallbacks(
+        self,
+    ) -> None:
+        raw = _valid_profile()
+        selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        selector["fallbacks"] = ["fallback"]
+        runner = FakeQueryRunner(
+            [
+                _query_payload([]),
+                _query_payload(
+                    [{"axPath": "0/9", "role": "AXButton"}],
+                    truncated=True,
+                ),
+            ]
+        )
+
+        result = SelectorResolver(parse_selector_profile(raw), runner).resolve(
+            "navigation.contacts"
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.diagnostics.failure_kind, "selector_query_truncated")
+        self.assertEqual(result.diagnostics.query_count, 2)
+        self.assertEqual(len(runner.calls), 2)
+
     def test_resolver_cache_query_failure_stops_and_evicts_entry(self) -> None:
         profile = parse_selector_profile(_valid_profile())
         resolver = SelectorResolver(
@@ -1792,6 +1904,86 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(result.diagnostics.failure_kind, "selector_query_truncated")
         self.assertEqual(result.diagnostics.truncated, True)
         self.assertEqual(len(runner.calls), 1)
+
+    def test_resolver_never_selects_or_caches_truncated_candidates(self) -> None:
+        candidate = {
+            "axPath": "0/1",
+            "role": "AXRadioButton",
+            "description": "Contacts",
+            "actions": ["AXPress"],
+            "frame": {"x": 1, "y": 2, "width": 100, "height": 20},
+        }
+        for pick in ("first", "best", "largestArea", "all"):
+            with self.subTest(pick=pick):
+                raw = _valid_profile()
+                selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+                selector["pick"] = pick
+                selector["fallbacks"] = ["fallback"]
+                profile = parse_selector_profile(raw)
+                runner = FakeQueryRunner(
+                    [_query_payload([candidate], truncated=True)]
+                )
+                resolver = SelectorResolver(
+                    profile,
+                    runner,
+                    app_bundle_id="com.example.Sample",
+                    window_fingerprint="main",
+                )
+
+                result = resolver.resolve("navigation.contacts")
+
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(
+                    result.diagnostics.failure_kind,
+                    "selector_query_truncated",
+                )
+                self.assertEqual(len(runner.calls), 1)
+                self.assertFalse(resolver.cache._entries)
+
+    def test_exact_self_cache_probe_accepts_only_limit_truncation(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        candidate = {
+            "axPath": "0/1",
+            "role": "AXRadioButton",
+            "description": "Contacts",
+            "actions": ["AXPress"],
+        }
+        resolver = SelectorResolver(
+            profile,
+            FakeQueryRunner([_query_payload([candidate])]),
+            app_bundle_id="com.example.Sample",
+            window_fingerprint="main",
+        )
+        self.assertEqual(resolver.resolve("navigation.contacts").status, "resolved")
+
+        limit_runner = FakeQueryRunner(
+            [_query_payload([candidate], truncated=True, truncation_reason="limit")]
+        )
+        resolver.query_runner = limit_runner
+        cached = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(cached.status, "resolved")
+        self.assertEqual(cached.diagnostics.cache_status, "hit")
+        self.assertEqual(len(limit_runner.calls), 1)
+        self.assertEqual(limit_runner.calls[0]["query"]["scope"], "self")  # type: ignore[index]
+
+        timed_runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [candidate],
+                    truncated=True,
+                    truncation_reason="time_budget",
+                ),
+                _query_payload([{**candidate, "axPath": "0/2"}]),
+            ]
+        )
+        resolver.query_runner = timed_runner
+        refreshed = resolver.resolve("navigation.contacts")
+
+        self.assertEqual(refreshed.status, "resolved")
+        self.assertEqual(refreshed.elements[0].element_ref.ax_path, "0/2")
+        self.assertEqual(refreshed.diagnostics.cache_status, "stale")
+        self.assertEqual(len(timed_runner.calls), 2)
 
 
 class CollectionExtractorTests(unittest.TestCase):
@@ -2316,8 +2508,10 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.items, ({"displayName": "Ada"},))
         self.assertIn("AXSelected", runner.calls[2]["query"]["attributes"])
 
-    def test_pagination_uses_limit_plus_one_for_has_more(self) -> None:
-        profile = parse_selector_profile(_valid_profile())
+    def test_raw_candidate_lookahead_does_not_claim_semantic_has_more(self) -> None:
+        raw = _valid_profile()
+        raw["collections"]["contacts"]["item"]["steps"][0]["limit"] = 2  # type: ignore[index]
+        profile = parse_selector_profile(raw)
         runner = FakeQueryRunner(
             [
                 _query_payload(
@@ -2353,14 +2547,17 @@ class CollectionExtractorTests(unittest.TestCase):
 
         result = extractor.extract("contacts", limit=1)
 
-        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.status, "partial")
         self.assertEqual(result.items, ({"displayName": "Alice"},))
         self.assertEqual(result.pagination.limit, 1)
-        self.assertEqual(result.pagination.has_more, True)
-        self.assertFalse(result.diagnostics.truncated)
-        self.assertIsNone(result.diagnostics.truncation_reason)
-        self.assertIsNone(result.diagnostics.failure_kind)
-        self.assertEqual(result.diagnostics.query_count, 3)
+        self.assertEqual(result.pagination.has_more, False)
+        self.assertTrue(result.diagnostics.truncated)
+        self.assertEqual(result.diagnostics.truncation_reason, "limit")
+        self.assertEqual(
+            result.diagnostics.failure_kind,
+            "selector_query_truncated",
+        )
+        self.assertEqual(result.diagnostics.query_count, 4)
         self.assertEqual(runner.calls[1]["query"]["limit"], 2)
 
     def test_limit_truncation_with_more_than_lookahead_is_complete(self) -> None:
@@ -2544,9 +2741,112 @@ class CollectionExtractorTests(unittest.TestCase):
         self.assertEqual(result.pagination.limit, 1)
         self.assertEqual(result.pagination.returned, 1)
         self.assertEqual(result.pagination.returned, len(result.items))
-        self.assertEqual(result.pagination.has_more, True)
+        self.assertEqual(result.pagination.has_more, False)
         self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
         self.assertEqual(result.diagnostics.query_count, 4)
+
+    def test_invalid_candidates_do_not_consume_semantic_lookahead(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                        {"axPath": "0/11/2", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        },
+                        {
+                            "axPath": "0/11/2/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=1,
+        )
+
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.items, ({"displayName": "Alice"},))
+        self.assertTrue(result.pagination.has_more)
+        self.assertEqual(result.diagnostics.failure_kind, "selector_field_missing")
+
+    def test_collection_batch_queries_never_exceed_public_limit(self) -> None:
+        raw = _valid_profile()
+        item_step = raw["collections"]["contacts"]["item"]["steps"][0]  # type: ignore[index]
+        field_step = raw["collections"]["contacts"]["fields"]["displayName"][
+            "selector"
+        ]["steps"][0]  # type: ignore[index]
+        item_step["limit"] = 500
+        field_step["limit"] = 500
+        profile = parse_selector_profile(raw)
+        runner = FakeQueryRunner(
+            [
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/1",
+                            "role": "AXRadioButton",
+                            "description": "Contacts",
+                            "actions": ["AXPress"],
+                        }
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {"axPath": "0/11/0", "role": "AXRow"},
+                        {"axPath": "0/11/1", "role": "AXRow"},
+                    ]
+                ),
+                _query_payload(
+                    [
+                        {
+                            "axPath": "0/11/0/0",
+                            "role": "AXStaticText",
+                            "value": "Alice",
+                        },
+                        {
+                            "axPath": "0/11/1/0",
+                            "role": "AXStaticText",
+                            "value": "Bob",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        result = CollectionExtractor(SelectorResolver(profile, runner)).extract(
+            "contacts",
+            limit=1,
+        )
+
+        self.assertEqual(result.items, ({"displayName": "Alice"},))
+        self.assertTrue(result.pagination.has_more)
+        limits = [call["query"]["limit"] for call in runner.calls]  # type: ignore[index]
+        self.assertLessEqual(max(limits), 500)
+        self.assertEqual(runner.calls[2]["query"]["limit"], 500)  # type: ignore[index]
 
     def test_computed_element_ref_returns_normalized_item_element(self) -> None:
         raw = _valid_profile()

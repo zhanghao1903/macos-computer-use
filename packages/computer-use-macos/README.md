@@ -165,7 +165,12 @@ The package provides:
 - stable `COMPUTER_USE_FAILURE_KINDS` constants for package-owned failure
   routing, including
   `errors.ACCESSIBILITY_ACTION_UNSUPPORTED` for a definite native no-effect
-  result
+  result and the query/action worker failed or empty-response constants
+
+Accessibility query, action, and tree workers require the requested app to be
+the current usable frontmost application. They fail before creating an AX
+application element when the bundle/name does not match or the app is hidden or
+terminated; a background process is never selected as a fallback.
 
 It does not provide WeChat semantics, product authorization, UI, LLM decision
 loops, or caller task state.

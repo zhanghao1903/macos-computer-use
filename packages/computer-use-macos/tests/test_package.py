@@ -15,7 +15,9 @@ from tempfile import TemporaryDirectory
 import threading
 import time
 import tomllib
+from types import ModuleType
 import unittest
+from unittest.mock import patch
 
 from app_control_protocol import (
     HELPER_RESPONSE_SCHEMA,
@@ -28,8 +30,15 @@ from app_control_protocol import (
     validate_protocol_payload,
 )
 import computer_use_macos
-from computer_use_macos.accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
+from computer_use_macos.accessibility_limits import (
+    MAX_ACCESSIBILITY_QUERY_DEPTH,
+    MAX_ACCESSIBILITY_QUERY_LIMIT,
+)
 from computer_use_macos import (
+    ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_ACTION_WORKER_FAILED,
+    ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_QUERY_WORKER_FAILED,
     COMPUTER_USE_TOOL,
     COMPUTER_USE_FAILURE_KINDS,
     AppControlConfig,
@@ -106,6 +115,116 @@ BANNED_TERMS = (
     "wechat_desktop_tool",
 )
 BANNED_IMPORTS = ("from macos_computer_use", "import macos_computer_use")
+
+
+class _GeneratedScriptApp:
+    def __init__(
+        self,
+        *,
+        name: str,
+        bundle_id: str,
+        terminated: bool = False,
+        hidden: bool = False,
+    ) -> None:
+        self._name = name
+        self._bundle_id = bundle_id
+        self._terminated = terminated
+        self._hidden = hidden
+
+    def localizedName(self) -> str:
+        return self._name
+
+    def bundleIdentifier(self) -> str:
+        return self._bundle_id
+
+    def isTerminated(self) -> bool:
+        return self._terminated
+
+    def isHidden(self) -> bool:
+        return self._hidden
+
+    def processIdentifier(self) -> int:
+        raise AssertionError("background app must not reach AX element creation")
+
+
+def _run_generated_script_until_target_check(
+    source: str,
+    argv: list[str],
+    *,
+    frontmost: _GeneratedScriptApp | None,
+) -> tuple[dict[str, object], dict[str, int]]:
+    counters = {"createApplication": 0, "backgroundLookup": 0}
+
+    class Workspace:
+        @classmethod
+        def sharedWorkspace(cls) -> object:
+            return cls()
+
+        def frontmostApplication(self) -> _GeneratedScriptApp | None:
+            return frontmost
+
+    objc_module = ModuleType("objc")
+
+    def lookup_class(name: str) -> object:
+        if name == "NSWorkspace":
+            return Workspace
+        if name == "NSRunningApplication":
+            counters["backgroundLookup"] += 1
+            raise AssertionError("worker must not enumerate background apps")
+        raise LookupError(name)
+
+    objc_module.lookUpClass = lookup_class  # type: ignore[attr-defined]
+    objc_module.loadBundle = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+
+    application_services = ModuleType("ApplicationServices")
+    application_services.AXIsProcessTrusted = lambda: True  # type: ignore[attr-defined]
+
+    def create_application(pid: int) -> object:
+        counters["createApplication"] += 1
+        return {"pid": pid}
+
+    application_services.AXUIElementCreateApplication = create_application  # type: ignore[attr-defined]
+    application_services.AXUIElementCopyActionNames = (  # type: ignore[attr-defined]
+        lambda *args: (1, None)
+    )
+    application_services.AXUIElementCopyAttributeNames = (  # type: ignore[attr-defined]
+        lambda *args: (1, None)
+    )
+    application_services.AXUIElementCopyAttributeValue = (  # type: ignore[attr-defined]
+        lambda *args: (1, None)
+    )
+    application_services.AXUIElementPerformAction = (  # type: ignore[attr-defined]
+        lambda *args: 0
+    )
+    application_services.AXUIElementSetAttributeValue = (  # type: ignore[attr-defined]
+        lambda *args: 0
+    )
+    application_services.kAXErrorActionUnsupported = -25206  # type: ignore[attr-defined]
+    application_services.kAXErrorAttributeUnsupported = -25205  # type: ignore[attr-defined]
+    application_services.kAXFocusedWindowAttribute = "AXFocusedWindow"  # type: ignore[attr-defined]
+
+    stdout = StringIO()
+    with (
+        patch.dict(
+            sys.modules,
+            {
+                "objc": objc_module,
+                "ApplicationServices": application_services,
+            },
+        ),
+        patch.object(sys, "argv", argv),
+        redirect_stdout(stdout),
+    ):
+        try:
+            exec(compile(source, "<generated-accessibility-script>", "exec"), {})
+        except SystemExit as exc:
+            if exc.code not in {None, 0}:
+                raise
+
+    lines = [line for line in stdout.getvalue().splitlines() if line.strip()]
+    if not lines:
+        raise AssertionError("generated script did not emit a result")
+    return json.loads(lines[-1]), counters
 
 
 class FakeStreamingAppControl:
@@ -936,10 +1055,12 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIn("for attr in SAFE_ATTRIBUTES:", source)
         self.assertIn("TIME_BUDGET_SECONDS", source)
         self.assertIn("TARGET_BUNDLE_ID", source)
-        self.assertIn("runningApplicationsWithBundleIdentifier_", source)
         self.assertIn("frontmost = workspace.frontmostApplication()", source)
         self.assertIn("app_matches_bundle(frontmost, TARGET_BUNDLE_ID)", source)
-        self.assertIn("bool(candidate.isActive())", source)
+        self.assertIn('not bool(app.isHidden())', source)
+        self.assertIn('"accessibility_tree_target_app_not_frontmost"', source)
+        self.assertNotIn("runningApplicationsWithBundleIdentifier_", source)
+        self.assertNotIn("bool(candidate.isActive())", source)
         self.assertIn("truncationReason", source)
         self.assertNotIn("for attr in attribute_names:", source)
 
@@ -2511,12 +2632,15 @@ for line in sys.stdin:
             '"accessibility_query_target_app_not_frontmost"',
             source,
         )
-        self.assertIn("bool(candidate.isActive())", source)
+        self.assertIn('not bool(app.isHidden())', source)
+        self.assertNotIn("runningApplicationsWithBundleIdentifier_", source)
+        self.assertNotIn("bool(candidate.isActive())", source)
         self.assertIn('"AXWindows"', source)
         self.assertIn("return None", source)
 
     def test_package_accessibility_query_uses_shared_depth_limit(self) -> None:
         self.assertEqual(MAX_ACCESSIBILITY_QUERY_DEPTH, 8)
+        self.assertEqual(MAX_ACCESSIBILITY_QUERY_LIMIT, 500)
 
         normalized = _normalize_accessibility_query_request(
             target_app="WeChat",
@@ -2576,7 +2700,9 @@ for line in sys.stdin:
         self.assertIn("app_matches_bundle(frontmost, bundle_id)", source)
         self.assertIn("app_matches_name(frontmost, target_app)", source)
         self.assertIn('"target_app_not_frontmost"', source)
-        self.assertIn("bool(candidate.isActive())", source)
+        self.assertIn('not bool(app.isHidden())', source)
+        self.assertNotIn("runningApplicationsWithBundleIdentifier_", source)
+        self.assertNotIn("bool(candidate.isActive())", source)
         self.assertIn("return None", source)
         self.assertIn("action: str | None = None", source)
         self.assertIn("action_attempted: bool = False", source)
@@ -2604,6 +2730,89 @@ for line in sys.stdin:
         self.assertIn("for line in sys.stdin:", source)
         self.assertIn("accessibility_action_worker_failed", source)
         self.assertIn("accessibility_action_worker_empty_response", source)
+
+    def test_generated_accessibility_workers_fail_closed_for_non_frontmost_app(
+        self,
+    ) -> None:
+        target_bundle = "com.tencent.xinWeChat"
+        target_name = "WeChat"
+        request = {
+            "targetApp": target_name,
+            "bundleId": target_bundle,
+            "root": {"kind": "focusedWindow"},
+            "query": {"scope": "children", "limit": 1},
+        }
+        action_request = {
+            "targetApp": target_name,
+            "bundleId": target_bundle,
+            "action": "AXPress",
+            "target": {"kind": "axPath", "axPath": "0/1"},
+        }
+        cases = (
+            (
+                "query_background",
+                _accessibility_query_script(),
+                ["query", json.dumps(request)],
+                _GeneratedScriptApp(
+                    name="TextEdit",
+                    bundle_id="com.apple.TextEdit",
+                ),
+                "accessibility_query_target_app_not_frontmost",
+            ),
+            (
+                "action_background",
+                _accessibility_action_script(),
+                ["action", json.dumps(action_request)],
+                _GeneratedScriptApp(
+                    name="TextEdit",
+                    bundle_id="com.apple.TextEdit",
+                ),
+                "target_app_not_frontmost",
+            ),
+            (
+                "tree_background",
+                _accessibility_tree_snapshot_script(),
+                ["tree", "1", target_bundle],
+                _GeneratedScriptApp(
+                    name="TextEdit",
+                    bundle_id="com.apple.TextEdit",
+                ),
+                "accessibility_tree_target_app_not_frontmost",
+            ),
+            (
+                "query_terminated",
+                _accessibility_query_script(),
+                ["query", json.dumps(request)],
+                _GeneratedScriptApp(
+                    name=target_name,
+                    bundle_id=target_bundle,
+                    terminated=True,
+                ),
+                "accessibility_query_target_app_not_frontmost",
+            ),
+            (
+                "action_hidden",
+                _accessibility_action_script(),
+                ["action", json.dumps(action_request)],
+                _GeneratedScriptApp(
+                    name=target_name,
+                    bundle_id=target_bundle,
+                    hidden=True,
+                ),
+                "target_app_not_frontmost",
+            ),
+        )
+
+        for case, source, argv, frontmost, expected_failure in cases:
+            with self.subTest(case=case):
+                result, counters = _run_generated_script_until_target_check(
+                    source,
+                    argv,
+                    frontmost=frontmost,
+                )
+                self.assertEqual(result["failureKind"], expected_failure)
+                self.assertEqual(counters["createApplication"], 0)
+                self.assertEqual(counters["backgroundLookup"], 0)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
         runner = FakeRunner()
@@ -3809,6 +4018,43 @@ for line in sys.stdin:
             )
 
         self.assertLessEqual(literal_kinds, failure_kinds)
+
+    def test_accessibility_worker_failures_are_public_and_registered(self) -> None:
+        worker_failures = {
+            ACCESSIBILITY_QUERY_WORKER_FAILED,
+            ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
+            ACCESSIBILITY_ACTION_WORKER_FAILED,
+            ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
+        }
+
+        self.assertLessEqual(worker_failures, set(COMPUTER_USE_FAILURE_KINDS))
+        for failure_kind in worker_failures:
+            self.assertEqual(COMPUTER_USE_FAILURE_KINDS.count(failure_kind), 1)
+        self.assertEqual(
+            computer_use_macos.ACCESSIBILITY_QUERY_WORKER_FAILED,
+            "accessibility_query_worker_failed",
+        )
+        self.assertEqual(
+            computer_use_macos.ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
+            "accessibility_query_worker_empty_response",
+        )
+        self.assertEqual(
+            computer_use_macos.ACCESSIBILITY_ACTION_WORKER_FAILED,
+            "accessibility_action_worker_failed",
+        )
+        self.assertEqual(
+            computer_use_macos.ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
+            "accessibility_action_worker_empty_response",
+        )
+        worker_sources = (
+            _accessibility_query_worker_script(),
+            _accessibility_action_worker_script(),
+        )
+        for failure_kind in worker_failures:
+            self.assertTrue(
+                any(failure_kind in source for source in worker_sources),
+                failure_kind,
+            )
 
 
 def _coerce_command(command: ToolCommand | Mapping[str, object]) -> ToolCommand:

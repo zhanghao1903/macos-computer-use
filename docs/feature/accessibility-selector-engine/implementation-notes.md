@@ -4225,3 +4225,60 @@ wechat-desktop-tool: 140 tests passed
 
 No real Accessibility action or WeChat message was executed. The change adds
 no command, schema version, configuration key, dependency, or semantic API.
+
+## R2 Review Remediation: Bounded Generic Selector Decisions
+
+Status: implementation and focused package verification complete; exact-head
+repository verification and replacement review remain pending.
+
+This slice addresses `PRR-028`, `PRR-029`, `PRR-031`, `PRR-032`, `PRR-034`,
+and `PRR-036` in `computer-use-macos`.
+
+Selector resolution now rejects a truncated decision query before candidate
+matching, pick, fallback, or cache write. The only bounded exception is an
+exact-self cache validation query that returns exactly one cached node with a
+limit truncation signal. Time/depth/unknown cache-validation truncation marks
+the entry stale and requires a complete fresh query.
+
+Collection item and descendant field selectors now parse with their executable
+defaults (`all`/disabled cache and `first`/disabled cache respectively).
+Validation rejects extra steps, unsupported roots, pick policies, cache,
+fallbacks, confidence customization, relations, and selectors attached to
+non-descendant fields. This makes the accepted profile language equal to the
+runtime language instead of silently ignoring configuration.
+
+Collection pagination now counts records only after required fields are
+successfully extracted. One additional accepted semantic record establishes
+`hasMore`; rejected AX rows do not consume page capacity. Item scans use the
+validated bounded item limit, and an incomplete scan without semantic
+lookahead reports `selector_query_truncated`. Batch field queries are capped at
+the shared public maximum of 500, with missing entries resolved through bounded
+per-item extraction.
+
+The generated query, action, and tree scripts now require the requested app to
+be the current non-hidden, non-terminated frontmost application. They no longer
+enumerate `NSRunningApplication` instances by bundle id. Fake-framework
+regressions prove bundle mismatch, terminated app, and hidden app failures occur
+before `AXUIElementCreateApplication` and perform zero background lookup.
+
+The query/action warm-worker failed and empty-response values are declared as
+four named public constants, exported from the package, and included exactly
+once in `COMPUTER_USE_FAILURE_KINDS`.
+
+Focused verification:
+
+```text
+uv run --python .venv/bin/python pytest -q \
+  packages/computer-use-macos/tests/test_selectors.py
+72 passed
+
+uv run --python .venv/bin/python pytest -q \
+  packages/computer-use-macos/tests/test_package.py
+83 passed
+
+uv run --python .venv/bin/python pytest -q \
+  packages/wechat-desktop-tool/tests/test_profiles.py
+9 passed
+```
+
+No live macOS query, Accessibility action, or WeChat mutation was executed.

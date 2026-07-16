@@ -809,6 +809,22 @@ These constants cover package-owned failures such as `invalid_input`,
 propagate a lower-level `failureKind` from another compatible app-control
 client in nested evidence.
 
+Warm accessibility worker process failures are also stable public constants:
+
+- `ACCESSIBILITY_QUERY_WORKER_FAILED`
+- `ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE`
+- `ACCESSIBILITY_ACTION_WORKER_FAILED`
+- `ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE`
+
+All four are exported from `computer_use_macos` and included exactly once in
+`COMPUTER_USE_FAILURE_KINDS`.
+
+Accessibility query, action, and legacy tree workers operate only on the
+current usable frontmost application. A bundle-id or app-name mismatch,
+terminated app, hidden app, or unavailable frontmost app fails before an AX
+application element is created. The workers do not select a background process
+with the requested bundle identifier.
+
 The caller must own:
 
 - user-facing confirmation UI;

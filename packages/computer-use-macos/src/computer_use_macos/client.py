@@ -17,7 +17,10 @@ from typing import TYPE_CHECKING, Any
 
 from app_control_protocol import AppControlConfig, HelperConfig
 
-from .accessibility_limits import MAX_ACCESSIBILITY_QUERY_DEPTH
+from .accessibility_limits import (
+    MAX_ACCESSIBILITY_QUERY_DEPTH,
+    MAX_ACCESSIBILITY_QUERY_LIMIT,
+)
 from .commands import CommandResult, CommandRunner, SubprocessCommandRunner
 from .models import (
     ComputerUseOperation,
@@ -2712,7 +2715,7 @@ def _normalize_accessibility_query_request(
         query_payload.get("limit"),
         default=50,
         minimum=1,
-        maximum=500,
+        maximum=MAX_ACCESSIBILITY_QUERY_LIMIT,
         name="query.limit",
     )
     query_payload["timeBudgetMs"] = _bounded_int(
@@ -3377,9 +3380,9 @@ def app_matches_name(app: Any, app_name: str) -> bool:
 
 def app_is_usable(app: Any) -> bool:
     try:
-        return not bool(app.isTerminated())
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
     except Exception:
-        return True
+        return False
 
 
 def selected_running_app() -> Any:
@@ -3387,39 +3390,23 @@ def selected_running_app() -> Any:
     target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
     frontmost = workspace.frontmostApplication()
-    if bundle_id:
-        if (
-            frontmost is not None
-            and app_matches_bundle(frontmost, bundle_id)
-            and app_is_usable(frontmost)
-        ):
-            return frontmost
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
-        for candidate in apps or []:
-            try:
-                if bool(candidate.isActive()) and app_is_usable(candidate):
-                    return candidate
-            except Exception:
-                pass
-        for candidate in apps or []:
-            if app_is_usable(candidate):
-                return candidate
-        fail(
-            "accessibility_query_target_app_not_running",
-            f"No running app found for bundle id: {bundle_id}",
-        )
-    if target_app:
-        if (
-            frontmost is not None
-            and app_matches_name(frontmost, target_app)
-            and app_is_usable(frontmost)
-        ):
-            return frontmost
+    if frontmost is None or not app_is_usable(frontmost):
         fail(
             "accessibility_query_target_app_not_frontmost",
-            f"Target app is not frontmost: {target_app}",
+            "No usable frontmost app is available",
         )
+    if bundle_id:
+        if not app_matches_bundle(frontmost, bundle_id):
+            fail(
+                "accessibility_query_target_app_not_frontmost",
+                f"Target bundle is not frontmost: {bundle_id}",
+            )
+    if target_app:
+        if not app_matches_name(frontmost, target_app):
+            fail(
+                "accessibility_query_target_app_not_frontmost",
+                f"Target app is not frontmost: {target_app}",
+            )
     return frontmost
 
 
@@ -4222,9 +4209,9 @@ def app_matches_name(app: Any, app_name: str) -> bool:
 
 def app_is_usable(app: Any) -> bool:
     try:
-        return not bool(app.isTerminated())
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
     except Exception:
-        return True
+        return False
 
 
 def selected_running_app() -> Any:
@@ -4232,39 +4219,20 @@ def selected_running_app() -> Any:
     target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
     frontmost = workspace.frontmostApplication()
+    if frontmost is None or not app_is_usable(frontmost):
+        fail("target_app_not_frontmost", "No usable frontmost app is available")
     if bundle_id:
-        if (
-            frontmost is not None
-            and app_matches_bundle(frontmost, bundle_id)
-            and app_is_usable(frontmost)
-        ):
-            return frontmost
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
-        for candidate in apps or []:
-            try:
-                if bool(candidate.isActive()) and app_is_usable(candidate):
-                    return candidate
-            except Exception:
-                pass
-        for candidate in apps or []:
-            if app_is_usable(candidate):
-                return candidate
-        fail(
-            "target_app_not_running",
-            f"No running app found for bundle id: {bundle_id}",
-        )
+        if not app_matches_bundle(frontmost, bundle_id):
+            fail(
+                "target_app_not_frontmost",
+                f"Target bundle is not frontmost: {bundle_id}",
+            )
     if target_app:
-        if (
-            frontmost is not None
-            and app_matches_name(frontmost, target_app)
-            and app_is_usable(frontmost)
-        ):
-            return frontmost
-        fail(
-            "target_app_not_frontmost",
-            f"Target app is not frontmost: {target_app}",
-        )
+        if not app_matches_name(frontmost, target_app):
+            fail(
+                "target_app_not_frontmost",
+                f"Target app is not frontmost: {target_app}",
+            )
     return frontmost
 
 
@@ -4669,30 +4637,17 @@ def mark_truncated(reason: str) -> None:
 def selected_running_app() -> Any:
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
     frontmost = workspace.frontmostApplication()
-    if TARGET_BUNDLE_ID:
-        if (
-            frontmost is not None
-            and app_matches_bundle(frontmost, TARGET_BUNDLE_ID)
-            and app_is_usable(frontmost)
-        ):
-            return frontmost
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(
-            TARGET_BUNDLE_ID
-        )
-        for candidate in apps or []:
-            try:
-                if bool(candidate.isActive()) and app_is_usable(candidate):
-                    return candidate
-            except Exception:
-                pass
-        for candidate in apps or []:
-            if app_is_usable(candidate):
-                return candidate
+    if frontmost is None or not app_is_usable(frontmost):
         fail(
-            "accessibility_tree_target_app_not_running",
-            f"No running app found for bundle id: {TARGET_BUNDLE_ID}",
+            "accessibility_tree_target_app_not_frontmost",
+            "No usable frontmost app is available",
         )
+    if TARGET_BUNDLE_ID:
+        if not app_matches_bundle(frontmost, TARGET_BUNDLE_ID):
+            fail(
+                "accessibility_tree_target_app_not_frontmost",
+                f"Target bundle is not frontmost: {TARGET_BUNDLE_ID}",
+            )
     return frontmost
 
 
@@ -4705,9 +4660,9 @@ def app_matches_bundle(app: Any, bundle_id: str) -> bool:
 
 def app_is_usable(app: Any) -> bool:
     try:
-        return not bool(app.isTerminated())
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
     except Exception:
-        return True
+        return False
 
 
 def safe_scalar(value: Any) -> Any:
