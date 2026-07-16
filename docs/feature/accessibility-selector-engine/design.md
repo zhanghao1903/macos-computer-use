@@ -1299,23 +1299,72 @@ attempted, but macOS definitively rejected the requested operation without
 performing it.
 
 Higher-level adapters may issue one configured mutating fallback only when the
-failed `accessibility_action` carries a complete, internally consistent proof:
+failed `accessibility_action` carries a complete, end-to-end consistent proof:
 
 | Requested action | Required native error | Attempted | Effect |
 | --- | ---: | --- | --- |
 | `AXPress` | `kAXErrorActionUnsupported` (`-25206`) | `true` | `none` |
 | `AXSetFocus` | `kAXErrorAttributeUnsupported` (`-25205`) | `true` | `none` |
 
+The generated native producer must emit the validated requested `action` in
+every result created after a native action call, including unsupported and
+other native failures. The consumer must pass the exact outbound request action
+into its recovery policy. Every response action copy must have the expected
+type, agree with every other copy, and equal that request action. An internally
+valid `AXSetFocus/-25205` response therefore cannot authorize fallback for an
+`AXPress` request, or vice versa.
+
 The failure kind, action, attempt state, effect, and native error code are all
 proof fields. Every occurrence in public observation, metadata, or nested
 action payloads must have the expected type and value. Missing required proof,
-an action/error mismatch, `-25204`, an empty value, a non-string effect, a
-non-integer error code, or any contradictory duplicate fails closed. Unknown
-or malformed outcomes must not be followed by a click, keypress, focus change,
-or another mutating strategy.
+an action/error mismatch, a request/response action mismatch, `-25204`, an
+empty value, a non-string effect, a non-integer error code, or any contradictory
+duplicate fails closed. Unknown or malformed outcomes must not be followed by
+a click, keypress, focus change, or another mutating strategy.
+
+Attempt and dispatch evidence use a presence-sensitive internal model:
+
+| Evidence state | Meaning | Recovery effect |
+| --- | --- | --- |
+| absent | No copy of the field was published. | Allowed only where the existing explicit-unsupported contract permits absence. |
+| valid `true` | Every present copy is Boolean `true`. | Attempt evidence blocks legacy recovery; dispatch evidence is accepted only by the complete definite-no-effect exception. |
+| valid `false` | Every present copy is Boolean `false`. | Can prove pre-dispatch recovery when the result is also retryable. |
+| invalid | A relevant container or value is malformed, or duplicate values disagree. | Always fail closed. |
+
+Neither the client normalizer nor the WeChat adapter may coerce untrusted values
+with `bool(...)`. The client promotes `actionAttempted` into normalized metadata
+only when the source value is an actual Boolean; the raw action payload remains
+available for fail-closed validation. The WeChat collector checks camel-case
+and snake-case aliases in the observation, metadata, nested action payloads,
+diagnostics, and transport records. A present malformed container, truthy or
+falsey non-Boolean value, or contradictory duplicate invalidates recovery.
+
+For legacy `unsupported_operation` or pre-call
+`unsupported_accessibility_action`, one configured fallback remains compatible
+only when attempt evidence is absent or valid `false` and all present dispatch
+evidence is well formed and consistent. For retryable transport failures,
+dispatch evidence must be present, valid, and exactly `false`; attempt evidence
+must also be valid and not `true`. The complete native definite-no-effect proof
+may override valid dispatched/non-retryable evidence, but malformed or
+contradictory dispatch evidence still fails closed.
 
 This amendment is additive for direct `computer-use-macos` callers: the
 failure kind was already emitted and is now declared in the stable routing
 tuple. It intentionally narrows malformed/version-skewed WeChat recovery; no
 command, schema version, configuration key, package dependency, or semantic
 API shape changes.
+
+### Review Remediation Acceptance For PRR-021, PRR-022, And PRR-026
+
+- Production-generated `AXPress/-25206` and `AXSetFocus/-25205` failures carry
+  their actual requested action through `ComputerUseClient` normalization and
+  each authorize exactly one matching configured fallback.
+- Both request/response mismatch directions, despite internally valid response
+  action/code pairs, authorize zero fallback.
+- Truthy and falsey malformed attempt values, malformed dispatch aliases,
+  malformed relevant containers, and conflicting duplicates authorize zero
+  fallback across the shared WeChat recovery callers.
+- Valid explicit unsupported and proven pre-dispatch results retain exactly one
+  configured fallback.
+- Tests assert the operation count and order so a second desktop mutation
+  cannot be hidden by a successful fallback result.
