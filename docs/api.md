@@ -545,6 +545,11 @@ app_control = ComputerUseClient.from_config("app-control.toml")
 wechat = WeChatDesktopTool.from_config(app_control, "app-control.toml")
 ```
 
+`wechat.selector_profile_path` names one TOML asset containing both the generic
+selector profile and the WeChat control map. The override activates atomically;
+if either section is missing or invalid, both packaged defaults are used for
+the lifetime of that tool instance.
+
 Public operations:
 
 | Operation | Python API | Purpose | Mutates Desktop |
@@ -597,6 +602,13 @@ The read-model APIs use `macos.computer_use/accessibility_query` internally.
 Normal responses expose WeChat concepts such as navigation items, contact rows,
 conversation rows, messages, and available semantic actions. They do not expose
 raw `attributeNames` or full AX trees.
+
+Low-level query/action/observe evidence and stream events use operation-specific
+allowlists. They omit nodes, paths, target labels, window content, AX values,
+descriptions, and raw payloads. `inspect_window(include_raw=True)` places raw
+query data only in `observation.rawQueries`; evidence and events remain
+sanitized. `execute_action.observation.result` is an audit summary rather than
+the lower backend's raw observation.
 
 `inspect_window` returns:
 
@@ -804,7 +816,7 @@ from wechat_desktop_tool import WECHAT_FAILURE_KINDS
 These constants cover package-owned failures such as `invalid_input`,
 `coordinate_click_disabled`, `app_not_allowlisted`, `contact_not_found`,
 `accessibility_action_unsupported`, `wechat_action_ref_expired`,
-`draft_failed`, and `submit_unknown`. The named macOS constant is available as
+`wechat_query_truncated`, `draft_failed`, and `submit_unknown`. The named macOS constant is available as
 `computer_use_macos.errors.ACCESSIBILITY_ACTION_UNSUPPORTED`. A tool may still
 propagate a lower-level `failureKind` from another compatible app-control
 client in nested evidence.

@@ -68,6 +68,7 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertEqual(len(failure_kinds), len(WECHAT_FAILURE_KINDS))
         self.assertIn("contact_not_found", failure_kinds)
         self.assertIn("submit_unknown", failure_kinds)
+        self.assertIn("wechat_query_truncated", failure_kinds)
 
         literal_kinds: set[str] = set()
         for relative in ("tool.py", "cli.py"):

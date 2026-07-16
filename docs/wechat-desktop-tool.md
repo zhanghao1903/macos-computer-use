@@ -212,6 +212,8 @@ must have at least one non-diagnostic action whose `status` is not `blocked`.
 By default, raw Accessibility data is not returned because it can contain
 contact names and message text. Set `include_raw=True` only for debugging; then
 the scoped low-level query payloads are included as `rawQueries`.
+`include_raw=True` does not duplicate those payloads into `evidence`, progress
+events, final-event evidence, or the default event log.
 
 ## Read Model APIs
 
@@ -465,10 +467,13 @@ result retryable, or explicitly reports that the action is unsupported without
 reporting an attempted action. It can also use one fallback for
 `accessibility_action_unsupported` only when the complete proof reports
 `AXPress/-25206` or `AXSetFocus/-25205`, `actionAttempted=true`, and
-`actionEffect=none`. Every public, metadata, alias, and nested occurrence of
-the failure kind, action, attempted state, effect, and native error code must
-have the expected type and agree. The proof action must equal the action in the
-exact outbound request; a valid `AXSetFocus/-25205` response cannot authorize a
+`actionEffect=none`. The collector reads only named proof containers:
+`ToolObservation.metadata`, `observation`, `evidence`, `ToolError.evidence`,
+and their documented `metadata`, `accessibilityAction`, `diagnostics`, and
+`transport` records. Every occurrence of the failure kind, action, attempted
+state, effect, native error code, dispatch state, and retryability must have the
+expected type and agree. The proof action must equal the action in the exact
+outbound request; a valid `AXSetFocus/-25205` response cannot authorize a
 fallback for `AXPress`, or vice versa. This direct-backend definite no-effect
 result intentionally takes precedence over valid `requestDispatched=true` and
 `retryable=false` evidence because the native operation was rejected as
@@ -494,6 +499,11 @@ each app-control step is also emitted as a `progress` `ToolEvent`. The event
 uses the top-level WeChat command id, stores the app-control operation and
 observation in `data`, and uses nested phase names such as
 `open_contact.open_wechat` inside `focus_contact` and `send_message`.
+Accessibility query evidence contains availability, stable failures, timing,
+counts, and truncation diagnostics only. Action evidence contains typed audit
+proof only. Observe evidence contains foreground app identity and availability
+status, not window titles, AX nodes, paths, values, descriptions, or raw data.
+`execute_action.result` uses the same sanitized action summary.
 If a lower app-control backend echoes command input, WeChat progress events and
 evidence redact nested `input.text` / `input.message` values before returning
 them; semantic outputs expose message hashes, counts, and requested visible
@@ -525,10 +535,13 @@ candidate is opened.
 Selector-backed list, open, and read operations distinguish backend query
 failure from a successful empty result. Their stable top-level failure kinds
 are `missing_accessibility`, `accessibility_query_timeout`,
-`app_control_transport_failed`, and `accessibility_query_failed`. The selector
-or collection diagnostics retain `failureKind="selector_query_failed"`, the
-exact backend `causeFailureKind`, and backend retryability. A successful query
-with no match continues to use the operation-specific not-found failure.
+`app_control_transport_failed`, `wechat_query_truncated`, and
+`accessibility_query_failed`. Exact structured causes are authoritative:
+permission, timeout, transport, and truncation are mapped before legacy message
+keywords are considered. The selector or collection diagnostics retain the
+generic `failureKind`, exact backend `causeFailureKind`, and backend
+retryability. A successful complete query with no match continues to use the
+operation-specific not-found failure.
 
 When `draft_message` cannot type because the chat input is not focused, and the
 backend reports `failureKind="input_not_focused"` or an explicit diagnostic

@@ -36,7 +36,7 @@ from .models import (
 )
 from .profiles import build_packaged_collection_extractor
 from .profiles import build_packaged_selector_resolver
-from .profiles import load_control_map
+from .profiles import load_selector_assets
 from .window_model import build_wechat_window_model
 
 if TYPE_CHECKING:
@@ -62,6 +62,44 @@ _DEFINITE_UNSUPPORTED_NATIVE_ERRORS = {
     "AXPress": -25206,
     "AXSetFocus": -25205,
 }
+_SELECTOR_PERMISSION_FAILURES = frozenset(
+    {
+        "missing_accessibility",
+        "accessibility_not_trusted",
+        "accessibility_permission_missing",
+        "accessibility_query_permission_missing",
+    }
+)
+_SELECTOR_TIMEOUT_FAILURES = frozenset(
+    {
+        "timeout",
+        "accessibility_query_timeout",
+        "accessibility_snapshot_timeout",
+        "accessibility_tree_snapshot_timeout",
+    }
+)
+_SELECTOR_TRANSPORT_FAILURES = frozenset(
+    {
+        "helper_transport_failed",
+        "app_control_transport_failed",
+        "local_service_failed",
+        "local_service_unavailable",
+        "socket_unavailable",
+        "connection_failed",
+        "accessibility_query_worker_failed",
+        "accessibility_query_worker_empty_response",
+        "accessibility_query_invalid_json",
+        "accessibility_query_invalid_payload",
+    }
+)
+_SELECTOR_TRUNCATION_FAILURES = frozenset(
+    {
+        "selector_query_truncated",
+        "accessibility_query_truncated",
+        "query_limit_reached",
+        "query_time_budget_reached",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +107,22 @@ class _BooleanEvidence:
     present: bool
     valid: bool
     value: bool | None = None
+
+
+@dataclass(frozen=True)
+class _StringEvidence:
+    present: bool
+    valid: bool
+    value: str | None = None
+
+
+@dataclass(frozen=True)
+class _IntegerEvidence:
+    present: bool
+    valid: bool
+    value: int | None = None
+
+
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -138,7 +192,11 @@ class WeChatDesktopTool:
                 "computer_use.backend=helper in version 0.2.0; use direct or "
                 "a direct-backed local service"
             )
-        self._control_map = load_control_map(self._config.selector_profile_path)
+        self._selector_assets = load_selector_assets(
+            self._config.selector_profile_path
+        )
+        self._control_map = self._selector_assets.control_map
+        self._selector_profile = self._selector_assets.selector_profile
 
     @classmethod
     def from_config(
@@ -663,6 +721,12 @@ class WeChatDesktopTool:
             summary=summary,
             limit=limit,
             page_token=page_token,
+            active_window_title=_string_from_observation(
+                opened,
+                "windowTitle",
+                "window_title",
+                "title",
+            ),
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -679,7 +743,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
-            selector_profile_path=self._config.selector_profile_path,
+            selector_profile=self._selector_profile,
         )
         navigation = resolver.resolve(navigation_selector_id)
         if navigation.status != "resolved" or not navigation.elements:
@@ -765,6 +829,7 @@ class WeChatDesktopTool:
         summary: str,
         limit: int,
         page_token: str | None,
+        active_window_title: str | None,
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
@@ -772,6 +837,7 @@ class WeChatDesktopTool:
         switched = self._press_mapped_navigation(
             command,
             navigation_key,
+            active_window_title=active_window_title,
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -842,13 +908,14 @@ class WeChatDesktopTool:
         command: ToolCommand,
         navigation_key: str,
         *,
+        active_window_title: str | None = None,
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
         control = self._control_map.navigation.get(navigation_key)
         if control is None:
             return None
-        if _evidence_window_title_matches_navigation(evidence, control):
+        if _window_title_matches_navigation(active_window_title, control):
             phase = f"control_map_switch_{navigation_key}_skipped"
             skipped = ToolObservation.ok(
                 command_id=f"{command.command_id}:{phase}",
@@ -1239,6 +1306,12 @@ class WeChatDesktopTool:
         chats_ready = self._press_mapped_navigation(
             command,
             "chats",
+            active_window_title=_string_from_observation(
+                opened,
+                "windowTitle",
+                "window_title",
+                "title",
+            ),
             evidence=evidence,
             phase_events=phase_events,
         )
@@ -1267,7 +1340,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
-            selector_profile_path=self._config.selector_profile_path,
+            selector_profile=self._selector_profile,
         )
         main_content = resolver.resolve("regions.mainContent")
         if main_content.status != "resolved" or not main_content.elements:
@@ -2029,7 +2102,7 @@ class WeChatDesktopTool:
                 "status": "ok",
                 "actionId": action_id,
                 "method": _executed_action_method(action_ref, result),
-                "result": result.observation,
+                "result": _safe_executed_action_result(result),
             },
             evidence=evidence,
         )
@@ -2436,7 +2509,7 @@ class WeChatDesktopTool:
         resolver = build_packaged_selector_resolver(
             selector_runner,
             app_bundle_id=self._config.bundle_id or "",
-            selector_profile_path=self._config.selector_profile_path,
+            selector_profile=self._selector_profile,
         )
         chat_panel = resolver.resolve("regions.chatPanel")
         if chat_panel.status != "resolved" or not chat_panel.elements:
@@ -3365,7 +3438,10 @@ def _failure_from_selector_result(
     message: str,
     evidence: dict[str, JsonValue],
 ) -> ToolObservation:
-    if result.diagnostics.failure_kind == "selector_query_failed":
+    if result.diagnostics.failure_kind in {
+        "selector_query_failed",
+        "selector_query_truncated",
+    }:
         return _failure_from_selector_query(
             command,
             result.diagnostics,
@@ -3412,7 +3488,10 @@ def _failure_from_collection_result(
     message: str,
     evidence: dict[str, JsonValue],
 ) -> ToolObservation:
-    if result.diagnostics.failure_kind == "selector_query_failed":
+    if result.diagnostics.failure_kind in {
+        "selector_query_failed",
+        "selector_query_truncated",
+    }:
         return _failure_from_selector_query(
             command,
             result.diagnostics,
@@ -3455,17 +3534,48 @@ def _failure_from_selector_query(
     semantic_payload: dict[str, JsonValue],
     evidence: dict[str, JsonValue],
 ) -> ToolObservation:
-    cause = diagnostics.cause_failure_kind or "accessibility_query_failed"
-    cause_text = cause.casefold()
+    diagnostic_kind = diagnostics.failure_kind or "selector_query_failed"
+    cause = diagnostics.cause_failure_kind
+    cause_text = cause.casefold() if isinstance(cause, str) else ""
+    diagnostic_kind_text = diagnostic_kind.casefold()
     diagnostic_message = diagnostics.message or message
-    context = f"{cause_text} {diagnostic_message.casefold()}"
+    category: str | None = None
     if (
-        any(
+        diagnostic_kind_text in _SELECTOR_TRUNCATION_FAILURES
+        or cause_text in _SELECTOR_TRUNCATION_FAILURES
+    ):
+        category = "truncation"
+    elif cause_text in _SELECTOR_PERMISSION_FAILURES:
+        category = "permission"
+    elif cause_text in _SELECTOR_TIMEOUT_FAILURES:
+        category = "timeout"
+    elif cause_text in _SELECTOR_TRANSPORT_FAILURES:
+        category = "transport"
+
+    if category is None:
+        context = f"{cause_text} {diagnostic_message.casefold()}"
+        if any(
             token in context
             for token in ("permission", "accessibility_not_trusted")
-        )
-        or cause_text == "missing_accessibility"
-    ):
+        ):
+            category = "permission"
+        elif "timeout" in context or "timed_out" in context:
+            category = "timeout"
+        elif any(
+            token in context
+            for token in (
+                "transport",
+                "socket",
+                "connection",
+                "local_service",
+                "helper",
+            )
+        ):
+            category = "transport"
+        else:
+            category = "query"
+
+    if category == "permission":
         status = ToolStatus.NOT_READY
         mapped_failure_kind = "missing_accessibility"
         default_retryable = False
@@ -3473,27 +3583,25 @@ def _failure_from_selector_query(
             "Grant Accessibility permission to the process or helper that runs "
             "app-control, then retry."
         )
-    elif "timeout" in context or "timed_out" in context:
+    elif category == "timeout":
         status = ToolStatus.FAILED
         mapped_failure_kind = "accessibility_query_timeout"
         default_retryable = True
         recovery_hint = (
             "Retry the bounded Accessibility query after app state settles."
         )
-    elif any(
-        token in context
-        for token in (
-            "transport",
-            "socket",
-            "connection",
-            "local_service",
-            "helper",
-        )
-    ):
+    elif category == "transport":
         status = ToolStatus.NOT_READY
         mapped_failure_kind = "app_control_transport_failed"
         default_retryable = True
         recovery_hint = "Restore the configured app-control transport, then retry."
+    elif category == "truncation":
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "wechat_query_truncated"
+        default_retryable = True
+        recovery_hint = (
+            "Retry with a narrower selector or smaller page after app state settles."
+        )
     else:
         status = ToolStatus.FAILED
         mapped_failure_kind = "accessibility_query_failed"
@@ -3972,10 +4080,12 @@ def _first_concrete_label(labels: tuple[str, ...]) -> str | None:
     return None
 
 
-def _evidence_window_title_matches_navigation(
-    evidence: Mapping[str, JsonValue],
+def _window_title_matches_navigation(
+    window_title: str | None,
     control: WeChatMappedControl,
 ) -> bool:
+    if window_title is None:
+        return False
     expected = {
         label.casefold()
         for label in control.labels
@@ -3983,45 +4093,8 @@ def _evidence_window_title_matches_navigation(
     }
     if not expected:
         return False
-    for key in (
-        "verify_wechat_window_after_focus",
-        "verify_wechat_accessibility_window",
-        "verify_wechat_window",
-    ):
-        item = evidence.get(key)
-        if not isinstance(item, Mapping):
-            continue
-        title = _window_title_from_safe_observation(item)
-        if title and any(label in title.casefold() for label in expected):
-            return True
-    return False
-
-
-def _window_title_from_safe_observation(value: Mapping[str, JsonValue]) -> str | None:
-    observation = value.get("observation")
-    if isinstance(observation, Mapping):
-        for key in ("windowTitle", "window_title", "title"):
-            title = observation.get(key)
-            if isinstance(title, str) and title.strip():
-                return title.strip()
-        metadata = observation.get("metadata")
-        if isinstance(metadata, Mapping):
-            for key in ("window_title", "windowTitle"):
-                title = metadata.get(key)
-                if isinstance(title, str) and title.strip():
-                    return title.strip()
-        nested = observation.get("accessibilityQuery")
-        if isinstance(nested, Mapping):
-            window = nested.get("window")
-            if isinstance(window, Mapping):
-                title = window.get("title")
-                if isinstance(title, str) and title.strip():
-                    return title.strip()
-    for key in ("summary", "textExtract"):
-        text = value.get(key)
-        if isinstance(text, str) and "Window:" in text:
-            return text.rsplit("Window:", 1)[1].strip().rstrip(".")
-    return None
+    normalized_title = window_title.casefold()
+    return any(label in normalized_title for label in expected)
 
 
 def _mapped_control_node_matches(
@@ -4184,6 +4257,11 @@ def _should_fallback_from_accessibility_action(
 ) -> bool:
     if result.success or result.operation != "accessibility_action":
         return False
+    if not _accessibility_action_proof_is_consistent(
+        result,
+        expected_action=expected_action,
+    ):
+        return False
     attempted = _accessibility_action_attempted(result)
     dispatched = _accessibility_action_request_dispatched(result)
     if not attempted.valid or not dispatched.valid:
@@ -4295,28 +4373,64 @@ def _accessibility_action_has_definite_no_effect(
 def _accessibility_action_proof_payloads(
     result: ToolObservation,
 ) -> tuple[Mapping[str, Any], ...] | None:
-    if not isinstance(result.metadata, Mapping):
-        return None
-    observation = result.observation
-    if not isinstance(observation, Mapping):
+    if not all(
+        isinstance(payload, Mapping)
+        for payload in (result.metadata, result.observation, result.evidence)
+    ):
         return None
 
-    roots: list[Mapping[str, Any]] = [result.metadata, observation]
-    if "metadata" in observation:
-        metadata = observation.get("metadata")
-        if not isinstance(metadata, Mapping):
+    top_level: dict[str, Any] = {}
+    if result.failure_kind is not None:
+        top_level["failureKind"] = result.failure_kind
+    if result.retryable is not None:
+        top_level["retryable"] = result.retryable
+
+    roots: list[Mapping[str, Any]] = [
+        top_level,
+        result.metadata,
+        result.observation,
+        result.evidence,
+    ]
+    if result.error is not None:
+        if isinstance(result.error, ToolError):
+            roots.append(result.error.to_dict())
+            roots.append(result.error.evidence)
+        elif isinstance(result.error, Mapping):
+            roots.append(result.error)
+            if "evidence" in result.error:
+                error_evidence = result.error.get("evidence")
+                if not isinstance(error_evidence, Mapping):
+                    return None
+                roots.append(error_evidence)
+        else:
             return None
-        roots.append(metadata)
 
-    payloads = list(roots)
-    for payload in tuple(roots):
-        for key in ("accessibilityAction", "accessibility_action"):
+    nested_container_keys = (
+        "metadata",
+        "accessibilityAction",
+        "accessibility_action",
+        "diagnostics",
+        "transport",
+        "accessibilityActionTransport",
+        "accessibility_action_transport",
+    )
+    payloads: list[Mapping[str, Any]] = []
+    pending = list(roots)
+    seen: set[int] = set()
+    while pending:
+        payload = pending.pop(0)
+        identity = id(payload)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        payloads.append(payload)
+        for key in nested_container_keys:
             if key not in payload:
                 continue
             nested = payload.get(key)
             if not isinstance(nested, Mapping):
                 return None
-            payloads.append(nested)
+            pending.append(nested)
     return tuple(payloads)
 
 
@@ -4324,6 +4438,16 @@ def _required_consistent_string_evidence(
     payloads: tuple[Mapping[str, Any], ...],
     keys: tuple[str, ...],
 ) -> str | None:
+    evidence = _consistent_string_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_string_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _StringEvidence:
     values: list[str] = []
     for payload in payloads:
         for key in keys:
@@ -4331,11 +4455,13 @@ def _required_consistent_string_evidence(
                 continue
             value = payload.get(key)
             if not isinstance(value, str) or not value:
-                return None
+                return _StringEvidence(present=True, valid=False)
             values.append(value)
-    if not values or any(value != values[0] for value in values[1:]):
-        return None
-    return values[0]
+    if not values:
+        return _StringEvidence(present=False, valid=True)
+    if any(value != values[0] for value in values[1:]):
+        return _StringEvidence(present=True, valid=False)
+    return _StringEvidence(present=True, valid=True, value=values[0])
 
 
 def _required_consistent_bool_evidence(
@@ -4372,6 +4498,16 @@ def _required_consistent_int_evidence(
     payloads: tuple[Mapping[str, Any], ...],
     keys: tuple[str, ...],
 ) -> int | None:
+    evidence = _consistent_int_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_int_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _IntegerEvidence:
     values: list[int] = []
     for payload in payloads:
         for key in keys:
@@ -4379,11 +4515,59 @@ def _required_consistent_int_evidence(
                 continue
             value = payload.get(key)
             if not isinstance(value, int) or isinstance(value, bool):
-                return None
+                return _IntegerEvidence(present=True, valid=False)
             values.append(value)
-    if not values or any(value != values[0] for value in values[1:]):
-        return None
-    return values[0]
+    if not values:
+        return _IntegerEvidence(present=False, valid=True)
+    if any(value != values[0] for value in values[1:]):
+        return _IntegerEvidence(present=True, valid=False)
+    return _IntegerEvidence(present=True, valid=True, value=values[0])
+
+
+def _accessibility_action_proof_is_consistent(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    failure_kind = _consistent_string_evidence(
+        payloads,
+        ("failureKind", "failure_kind"),
+    )
+    action = _consistent_string_evidence(payloads, ("action",))
+    effect = _consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    attempted = _consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
+    dispatched = _consistent_bool_evidence(
+        payloads,
+        ("requestDispatched", "request_dispatched"),
+    )
+    retryable = _consistent_bool_evidence(payloads, ("retryable",))
+    if not all(
+        item.valid
+        for item in (
+            failure_kind,
+            action,
+            effect,
+            native_error_code,
+            attempted,
+            dispatched,
+            retryable,
+        )
+    ):
+        return False
+    return not action.present or action.value == expected_action
 
 
 def _accessibility_action_request_dispatched(
@@ -4392,30 +4576,8 @@ def _accessibility_action_request_dispatched(
     payloads = _accessibility_action_proof_payloads(result)
     if payloads is None:
         return _BooleanEvidence(present=True, valid=False)
-    transport_candidates: list[Mapping[str, Any]] = []
-    for payload in payloads:
-        for key in (
-            "accessibility_action_transport",
-            "accessibilityActionTransport",
-        ):
-            if key not in payload:
-                continue
-            transport = payload.get(key)
-            if not isinstance(transport, Mapping):
-                return _BooleanEvidence(present=True, valid=False)
-            transport_candidates.append(transport)
-        if "diagnostics" in payload:
-            diagnostics = payload.get("diagnostics")
-            if not isinstance(diagnostics, Mapping):
-                return _BooleanEvidence(present=True, valid=False)
-            if "transport" not in diagnostics:
-                continue
-            transport = diagnostics.get("transport")
-            if not isinstance(transport, Mapping):
-                return _BooleanEvidence(present=True, valid=False)
-            transport_candidates.append(transport)
     return _consistent_bool_evidence(
-        tuple(transport_candidates),
+        payloads,
         ("requestDispatched", "request_dispatched"),
     )
 
@@ -5123,80 +5285,277 @@ def _with_timing(
     return ToolObservation.from_dict(payload)
 
 
-def _inspect_window_observe_evidence(
+def _safe_app_control_observation(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    if observation.operation == "accessibility_query":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Accessibility query completed."
+                if observation.success
+                else "Accessibility query failed."
+            ),
+        )
+        payload["observation"] = {
+            "accessibilityQuery": _safe_accessibility_query_payload(observation)
+        }
+        return payload
+    if observation.operation == "accessibility_action":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Accessibility action completed."
+                if observation.success
+                else "Accessibility action failed."
+            ),
+        )
+        payload["observation"] = {
+            "accessibilityAction": _safe_accessibility_action_payload(observation)
+        }
+        return payload
+    if observation.operation == "click":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Click completed." if observation.success else "Click failed."
+            ),
+        )
+        payload["observation"] = {
+            "action": {
+                "operation": "click",
+                "available": observation.success,
+            }
+        }
+        return payload
+    if observation.operation == "observe":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Observed application state."
+                if observation.success
+                else "Application observation failed."
+            ),
+        )
+        safe_observation: dict[str, JsonValue] = {}
+        for output_key, source_keys in (
+            (
+                "frontmostApp",
+                ("frontmostApp", "frontmost_app", "appName", "app_name"),
+            ),
+            (
+                "frontmostBundleId",
+                (
+                    "frontmostBundleId",
+                    "frontmost_bundle_id",
+                    "bundleId",
+                    "bundle_id",
+                ),
+            ),
+        ):
+            value = _string_from_observation(observation, *source_keys)
+            if value is not None:
+                safe_observation[output_key] = value
+        accessibility = _mapping_from_observation(observation, "accessibility")
+        if accessibility is not None:
+            safe_observation["accessibility"] = _safe_accessibility_status(
+                accessibility
+            )
+        payload["observation"] = safe_observation
+        return payload
+    return _redact_input_text(observation.to_dict())
+
+
+def _safe_app_control_envelope(
     observation: ToolObservation,
     *,
-    include_raw: bool,
+    summary: str,
 ) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
+        "schema": observation.schema,
         "commandId": observation.command_id,
         "tool": observation.tool,
         "operation": observation.operation,
         "status": observation.status.value,
         "success": observation.success,
-        "summary": observation.summary,
+        "summary": summary,
     }
     if observation.failure_kind is not None:
         payload["failureKind"] = observation.failure_kind
-    if include_raw:
-        payload["observation"] = observation.observation
-        if observation.evidence:
-            payload["evidence"] = observation.evidence
-        return payload
-
-    for output_key, source_keys in (
-        ("frontmostApp", ("frontmostApp", "frontmost_app", "appName", "app_name")),
-        (
-            "frontmostBundleId",
-            ("frontmostBundleId", "frontmost_bundle_id", "bundleId", "bundle_id"),
-        ),
-        ("windowTitle", ("windowTitle", "window_title", "title")),
-        ("snapshotId", ("snapshotId", "snapshot_id")),
-    ):
-        value = _string_from_observation(observation, *source_keys)
-        if value is not None:
-            payload[output_key] = value
-
-    accessibility = _mapping_from_observation(observation, "accessibility")
-    if accessibility is not None:
-        payload["accessibility"] = _public_accessibility_status(accessibility)
+    if observation.retryable is not None:
+        payload["retryable"] = observation.retryable
+    safe_timing: dict[str, JsonValue] = {}
+    for key in ("startedAt", "durationMs", "endedAt", "timeoutMs"):
+        value = observation.timing.get(key)
+        if isinstance(value, str | int | float) and not isinstance(value, bool):
+            safe_timing[key] = value
+    if safe_timing:
+        payload["timing"] = safe_timing
     return payload
 
 
-def _public_accessibility_status(
-    accessibility: dict[str, JsonValue],
+def _safe_accessibility_query_payload(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    source = _query_payload(observation)
+    payload: dict[str, JsonValue] = {}
+    schema = source.get("schema")
+    if isinstance(schema, str):
+        payload["schema"] = schema
+    available = source.get("available")
+    payload["available"] = (
+        available if isinstance(available, bool) else observation.success
+    )
+    for key in ("status", "failureKind", "causeFailureKind"):
+        value = source.get(key)
+        if isinstance(value, str):
+            payload[key] = value
+    if "failureKind" not in payload and observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    retryable = source.get("retryable")
+    if isinstance(retryable, bool):
+        payload["retryable"] = retryable
+    elif observation.retryable is not None:
+        payload["retryable"] = observation.retryable
+
+    diagnostics = source.get("diagnostics")
+    if isinstance(diagnostics, Mapping):
+        safe_diagnostics: dict[str, JsonValue] = {}
+        for key in (
+            "returnedNodes",
+            "visitedNodes",
+            "matchedNodes",
+            "queryCount",
+            "nodeCount",
+            "durationMs",
+            "elapsedMs",
+            "timeBudgetMs",
+            "limit",
+            "maxDepth",
+            "truncated",
+            "truncationReason",
+            "failureKind",
+            "causeFailureKind",
+            "retryable",
+            "cacheStatus",
+            "preferVisibleRows",
+        ):
+            value = diagnostics.get(key)
+            if isinstance(value, str | int | float | bool):
+                safe_diagnostics[key] = value
+        if safe_diagnostics:
+            payload["diagnostics"] = safe_diagnostics
+    return payload
+
+
+def _safe_accessibility_action_payload(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    source = _mapping_from_observation(observation, "accessibilityAction") or {}
+    payload: dict[str, JsonValue] = {}
+    schema = source.get("schema")
+    if isinstance(schema, str):
+        payload["schema"] = schema
+    available = source.get("available")
+    payload["available"] = (
+        available if isinstance(available, bool) else observation.success
+    )
+    status = source.get("status")
+    if isinstance(status, str):
+        payload["status"] = status
+
+    proof_payloads = _accessibility_action_proof_payloads(observation)
+    if proof_payloads is not None:
+        for output_key, keys in (
+            ("failureKind", ("failureKind", "failure_kind")),
+            ("action", ("action",)),
+            ("actionEffect", ("actionEffect", "action_effect")),
+        ):
+            evidence = _consistent_string_evidence(proof_payloads, keys)
+            if evidence.present and evidence.valid and evidence.value is not None:
+                payload[output_key] = evidence.value
+        native_code = _consistent_int_evidence(
+            proof_payloads,
+            ("nativeErrorCode", "native_error_code"),
+        )
+        if native_code.present and native_code.valid and native_code.value is not None:
+            payload["nativeErrorCode"] = native_code.value
+        for output_key, keys in (
+            ("actionAttempted", ("actionAttempted", "action_attempted")),
+            ("requestDispatched", ("requestDispatched", "request_dispatched")),
+            ("retryable", ("retryable",)),
+        ):
+            evidence = _consistent_bool_evidence(proof_payloads, keys)
+            if evidence.present and evidence.valid and evidence.value is not None:
+                payload[output_key] = evidence.value
+    elif observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    return payload
+
+
+def _safe_executed_action_result(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {
+        "operation": observation.operation,
+        "status": observation.status.value,
+        "success": observation.success,
+    }
+    if observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    if observation.operation == "accessibility_action":
+        payload["accessibilityAction"] = _safe_accessibility_action_payload(
+            observation
+        )
+    return payload
+
+
+def _safe_accessibility_status(
+    accessibility: Mapping[str, JsonValue],
 ) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {}
     available = accessibility.get("available")
     if isinstance(available, bool):
         payload["available"] = available
-    elif accessibility:
-        payload["available"] = True
     for key in (
         "failureKind",
-        "message",
         "timeoutSeconds",
         "treeFailureKind",
-        "treeMessage",
         "treeTimeoutSeconds",
+        "treeAvailable",
     ):
         value = accessibility.get(key)
         if isinstance(value, str | int | float | bool):
             payload[key] = value
-    tree_available = accessibility.get("treeAvailable")
-    if isinstance(tree_available, bool):
-        payload["treeAvailable"] = tree_available
     payload["focusedWindowAvailable"] = isinstance(
         accessibility.get("focusedWindow"),
-        dict,
+        Mapping,
     )
     return payload
 
 
-def _safe_app_control_observation(
-    observation: ToolObservation,
-) -> dict[str, JsonValue]:
-    return _redact_input_text(observation.to_dict())
+def _safe_app_control_event_summary(observation: ToolObservation) -> str:
+    if observation.operation == "accessibility_query":
+        return (
+            "Accessibility query completed."
+            if observation.success
+            else "Accessibility query failed."
+        )
+    if observation.operation == "accessibility_action":
+        return (
+            "Accessibility action completed."
+            if observation.success
+            else "Accessibility action failed."
+        )
+    if observation.operation == "click":
+        return "Click completed." if observation.success else "Click failed."
+    if observation.operation == "observe":
+        return (
+            "Observed application state."
+            if observation.success
+            else "Application observation failed."
+        )
+    return observation.summary
 
 
 def _redact_input_text(value: JsonValue, *, in_input: bool = False) -> JsonValue:
@@ -5240,19 +5599,20 @@ class _PhaseEventCollector:
         phase_name = phase
         if parent.command_id != self._command.command_id:
             phase_name = f"{parent.operation}.{phase}"
+        safe_observation = _safe_app_control_observation(observation)
         event = ToolEvent(
             command_id=self._command.command_id,
             seq=self.next_seq(),
             event_type=ToolEventType.PROGRESS,
             phase=phase_name,
             status=observation.status,
-            summary=observation.summary,
+            summary=_safe_app_control_event_summary(observation),
             data={
                 "phase": phase_name,
                 "appControlOperation": operation,
                 "parentCommandId": parent.command_id,
                 "appControlCommandId": observation.command_id,
-                "appControlObservation": _safe_app_control_observation(observation),
+                "appControlObservation": safe_observation,
             },
         )
         self.events.append(event)

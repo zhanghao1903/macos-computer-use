@@ -17,8 +17,10 @@ from wechat_desktop_tool.profiles import (
     load_control_map,
     load_packaged_control_map,
     load_packaged_selector_profile,
+    load_selector_assets,
     load_selector_profile,
 )
+from wechat_desktop_tool import WeChatDesktopConfig, WeChatDesktopTool
 
 
 class WeChatSelectorProfileTests(unittest.TestCase):
@@ -293,8 +295,93 @@ class WeChatSelectorProfileTests(unittest.TestCase):
             profile_path.write_text("schema_version = [", encoding="utf-8")
 
             profile = load_selector_profile(profile_path)
+            control_map = load_control_map(profile_path)
 
         self.assertEqual(profile.profile_id, DEFAULT_WECHAT_SELECTOR_PROFILE_ID)
+        self.assertEqual(control_map.map_id, "wechat.macos.default")
+
+    def test_override_with_invalid_control_map_falls_back_as_one_pair(self) -> None:
+        packaged_text = (
+            resources.files("wechat_desktop_tool")
+            .joinpath(DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+        override_text = packaged_text.replace(
+            'profile_id = "wechat.macos"',
+            'profile_id = "wechat.override"',
+            1,
+        ).replace(
+            'schema_version = "wechat.control-map.v1"',
+            'schema_version = "wechat.control-map.invalid"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-override.toml"
+            profile_path.write_text(override_text, encoding="utf-8")
+
+            assets = load_selector_assets(profile_path)
+            profile = load_selector_profile(profile_path)
+            control_map = load_control_map(profile_path)
+
+        self.assertEqual(assets.selector_profile.profile_id, "wechat.macos")
+        self.assertEqual(assets.control_map.map_id, "wechat.macos.default")
+        self.assertEqual(profile.profile_id, "wechat.macos")
+        self.assertEqual(control_map.map_id, "wechat.macos.default")
+
+    def test_override_with_invalid_selector_falls_back_as_one_pair(self) -> None:
+        packaged_text = (
+            resources.files("wechat_desktop_tool")
+            .joinpath(DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+        override_text = packaged_text.replace(
+            'schema_version = "app-control.selector-profile.v1"',
+            'schema_version = "app-control.selector-profile.invalid"',
+            1,
+        ).replace(
+            'map_id = "wechat.macos.default"',
+            'map_id = "wechat.override"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-override.toml"
+            profile_path.write_text(override_text, encoding="utf-8")
+
+            assets = load_selector_assets(profile_path)
+            profile = load_selector_profile(profile_path)
+            control_map = load_control_map(profile_path)
+
+        self.assertEqual(assets.selector_profile.profile_id, "wechat.macos")
+        self.assertEqual(assets.control_map.map_id, "wechat.macos.default")
+        self.assertEqual(profile.profile_id, "wechat.macos")
+        self.assertEqual(control_map.map_id, "wechat.macos.default")
+
+    def test_valid_override_is_stored_as_one_tool_asset_pair(self) -> None:
+        packaged_text = (
+            resources.files("wechat_desktop_tool")
+            .joinpath(DEFAULT_WECHAT_SELECTOR_PROFILE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+        override_text = packaged_text.replace(
+            'profile_id = "wechat.macos"',
+            'profile_id = "wechat.override"',
+            1,
+        ).replace(
+            'map_id = "wechat.macos.default"',
+            'map_id = "wechat.override"',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "wechat-override.toml"
+            profile_path.write_text(override_text, encoding="utf-8")
+
+            tool = WeChatDesktopTool(  # type: ignore[arg-type]
+                object(),
+                WeChatDesktopConfig(selector_profile_path=str(profile_path)),
+            )
+
+        self.assertEqual(tool._selector_profile.profile_id, "wechat.override")
+        self.assertEqual(tool._control_map.map_id, "wechat.override")
 
 
 if __name__ == "__main__":

@@ -164,8 +164,8 @@ The package consumes the shared `AppControlConfig` `wechat` section:
 app_name = "WeChat"
 bundle_id = "com.tencent.xinWeChat"
 app_control_tool = "macos.computer_use"
-# Optional custom selector profile. Invalid files fall back to the packaged
-# WeChat selector profile.
+# Optional custom selector profile and control map. The file activates only
+# when both sections validate; otherwise both packaged defaults are used.
 # selector_profile_path = "./profiles/wechat-local.toml"
 # Accepted for compatibility with older integrations. Normal contact switching
 # uses selector-backed open_contact and does not depend on these fields.
@@ -188,9 +188,16 @@ package-owned semantic failures such as `contact_not_found`, `draft_failed`,
 
 Selector-backed reads classify backend query failures into stable top-level
 kinds: `missing_accessibility`, `accessibility_query_timeout`,
-`app_control_transport_failed`, and `accessibility_query_failed`. The exact
-backend cause remains available as `diagnostics.causeFailureKind`; use the
-top-level kind for routing and the nested cause for diagnostics.
+`app_control_transport_failed`, `wechat_query_truncated`, and
+`accessibility_query_failed`. Exact structured causes take precedence over
+message keywords. The exact backend cause remains available as
+`diagnostics.causeFailureKind`; use the top-level kind for routing and the
+nested cause for diagnostics.
+
+Normal query/action/observe evidence and stream events are privacy-safe
+allowlisted summaries. They omit AX nodes, paths, target labels, window titles,
+values, descriptions, and raw payloads. `inspect_window(include_raw=True)`
+returns raw query data only in the explicit semantic result field.
 
 ## Package Boundary
 

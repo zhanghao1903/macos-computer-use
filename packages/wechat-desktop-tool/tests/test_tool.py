@@ -14,12 +14,15 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 from typing import Any
 import unittest
 from unittest.mock import patch
 
 from app_control_protocol import (
     AppControlConfig,
+    LoggingConfig,
+    LoggingToolObserver,
     ToolCommand,
     ToolError,
     ToolEvent,
@@ -394,6 +397,9 @@ class _Application:
         return "WeChat"
 
     def isTerminated(self):
+        return False
+
+    def isHidden(self):
         return False
 
     def isActive(self):
@@ -1248,6 +1254,75 @@ def _definite_unsupported_accessibility_action_response(
     )
 
 
+def _definite_unsupported_action_proof(
+    *,
+    action: str = "AXPress",
+) -> dict[str, Any]:
+    return {
+        "failureKind": "accessibility_action_unsupported",
+        "action": action,
+        "actionAttempted": True,
+        "actionEffect": "none",
+        "nativeErrorCode": -25205 if action == "AXSetFocus" else -25206,
+        "requestDispatched": True,
+    }
+
+
+def _unsupported_action_response_at_proof_location(
+    location: str,
+    *,
+    proof_updates: Mapping[str, Any] | None = None,
+    include_direct_proof: bool = False,
+    malformed: bool = False,
+) -> ToolObservation:
+    proof = _definite_unsupported_action_proof()
+    proof.update(proof_updates or {})
+    proof_container: Any = [] if malformed else proof
+    observation: dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
+    result_evidence: dict[str, Any] = {}
+    error_evidence: dict[str, Any] = {}
+    if include_direct_proof:
+        observation["accessibilityAction"] = _definite_unsupported_action_proof()
+
+    if location == "observation_action":
+        observation["accessibilityAction"] = proof_container
+    elif location == "observation_diagnostics":
+        observation["diagnostics"] = proof_container
+    elif location == "observation_transport":
+        observation["diagnostics"] = {"transport": proof_container}
+    elif location == "metadata_transport":
+        metadata["accessibilityActionTransport"] = proof_container
+    elif location == "result_evidence":
+        result_evidence["accessibilityAction"] = proof_container
+    elif location == "error_evidence":
+        error_evidence["accessibilityAction"] = proof_container
+    else:
+        raise ValueError(f"unknown proof location: {location}")
+
+    error = ToolError(
+        failure_kind="accessibility_action_unsupported",
+        message="native action is unsupported",
+        retryable=False,
+        evidence=error_evidence,
+    )
+    return ToolObservation(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        success=False,
+        summary=error.message,
+        observation=observation,
+        evidence=result_evidence,
+        failure_kind=error.failure_kind,
+        message=error.message,
+        retryable=error.retryable,
+        error=error,
+        metadata=metadata,
+    )
+
+
 def _contradictory_unsupported_accessibility_action_response() -> ToolObservation:
     return _mutated_unsupported_accessibility_action_response(
         nested_updates={"actionEffect": "unknown"},
@@ -1873,11 +1948,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
             result.observation["rawQueries"]["topLevel"]["raw"],
             {"nodeCount": 4},
         )
-        self.assertEqual(
-            result.evidence["inspect_window"]["observation"]["accessibilityQuery"][
-                "raw"
+        self.assertNotIn(
+            "raw",
+            result.evidence["inspect_window"]["observation"][
+                "accessibilityQuery"
             ],
-            {"nodeCount": 4},
         )
 
     def test_raw_tree_window_model_uses_action_refs_for_ui_actions(self) -> None:
@@ -2194,6 +2269,127 @@ class WeChatDesktopToolTests(unittest.TestCase):
             app_control.commands[2].input["query"]["preferVisibleRows"],
             True,
         )
+
+    def test_semantic_list_limits_do_not_leak_raw_ax_content_to_observability(
+        self,
+    ) -> None:
+        canary = "PRIVATE_CANARY_CHARLIE"
+        contacts_query = _accessibility_query_response(
+            [
+                _normalized_node(
+                    "0/12/2/0/0/0/1",
+                    "AXStaticText",
+                    value="Ada",
+                ),
+                _normalized_node(
+                    "0/12/2/0/1/0/1",
+                    "AXStaticText",
+                    value="Bob",
+                ),
+                _normalized_node(
+                    "0/12/2/0/2/0/1",
+                    "AXStaticText",
+                    value=canary,
+                ),
+            ]
+        )
+        contacts_query["summary"] = f"query observed {canary}"
+        conversations_query = _accessibility_query_response(
+            [
+                _normalized_row("0/12/1/0/0", "Ada,first,09:00"),
+                _normalized_row("0/12/1/0/1", "Bob,second,10:00", y=184),
+                _normalized_row(
+                    "0/12/1/0/2",
+                    f"Charlie,{canary},11:00",
+                    y=248,
+                ),
+            ]
+        )
+        conversations_query["summary"] = f"query observed {canary}"
+        messages_query = _accessibility_query_response(
+            [
+                _normalized_node("0/11/4/2", "AXStaticText", value="Ada"),
+                _normalized_row("0/11/4/0/0/0", "one"),
+                _normalized_row("0/11/4/0/0/1", "two", y=184),
+                _normalized_row("0/11/4/0/0/2", canary, y=248),
+            ]
+        )
+        messages_query["summary"] = f"query observed {canary}"
+        cases = (
+            (
+                "contacts",
+                list_contacts_command(limit=2, command_id="cmd_contacts_privacy"),
+                [
+                    {},
+                    {
+                        "observation": {
+                            "frontmostApp": "WeChat",
+                            "frontmostBundleId": "com.tencent.xinWeChat",
+                            "windowTitle": "微信 (通讯录)",
+                        }
+                    },
+                    contacts_query,
+                ],
+                lambda result: [
+                    item["displayName"] for item in result.observation["items"]
+                ],
+                ["Ada", "Bob"],
+            ),
+            (
+                "conversations",
+                list_conversations_command(
+                    limit=2,
+                    command_id="cmd_conversations_privacy",
+                ),
+                [{}, conversations_query],
+                lambda result: [
+                    item["preview"] for item in result.observation["items"]
+                ],
+                ["first", "second"],
+            ),
+            (
+                "messages",
+                read_visible_messages_command(
+                    limit=2,
+                    command_id="cmd_messages_privacy",
+                ),
+                [{}, messages_query],
+                lambda result: [
+                    item["text"] for item in result.observation["messages"]
+                ],
+                ["one", "two"],
+            ),
+        )
+
+        for label, command, responses, semantic_values, expected in cases:
+            with self.subTest(label=label):
+                observer = RecordingObserver()
+                result = WeChatDesktopTool(FakeAppControl(responses)).run_command(
+                    command,
+                    observer=observer,
+                )
+
+                self.assertTrue(result.success)
+                self.assertEqual(semantic_values(result), expected)
+                serialized_result_evidence = json.dumps(
+                    result.evidence,
+                    ensure_ascii=False,
+                )
+                serialized_events = json.dumps(
+                    [event.to_dict() for event in observer.events],
+                    ensure_ascii=False,
+                )
+                log_stream = StringIO()
+                logging_observer = LoggingToolObserver(
+                    config=LoggingConfig(json=True, redact_text=True),
+                    stream=log_stream,
+                )
+                for event in observer.events:
+                    logging_observer.on_event(event)
+
+                self.assertNotIn(canary, serialized_result_evidence)
+                self.assertNotIn(canary, serialized_events)
+                self.assertNotIn(canary, log_stream.getvalue())
 
     def test_row_without_axpress_does_not_publish_unexecutable_axpress_action_ref(
         self,
@@ -2877,6 +3073,64 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         self.assertIn("execute_action:selector_fallback", result.evidence)
 
+    def test_execute_action_does_not_republish_low_level_target_content(self) -> None:
+        canary = "PRIVATE_ACTION_TARGET_CANARY"
+        app_control = FakeAppControl(
+            [
+                _accessibility_action_response(
+                    ax_path="0/2",
+                    role="AXRadioButton",
+                    label=canary,
+                )
+            ]
+        )
+        observer = RecordingObserver()
+        action_ref = {
+            "schema": "wechat.action_ref.v1",
+            "id": "privacy.action",
+            "kind": "navigation.switch",
+            "preferredMethod": "accessibility_action",
+            "target": {
+                "axPath": "0/2",
+                "role": "AXRadioButton",
+                "label": canary,
+                "actions": ["AXPress"],
+            },
+            "action": "AXPress",
+            "preconditions": {
+                "roleIn": ["AXRadioButton"],
+                "labelIn": [canary],
+                "actionIn": ["AXPress"],
+            },
+        }
+
+        result = WeChatDesktopTool(app_control).run_command(
+            execute_action_command(
+                action_ref,
+                command_id="cmd_action_privacy",
+            ),
+            observer=observer,
+        )
+
+        self.assertTrue(result.success)
+        serialized = json.dumps(
+            {
+                "result": result.to_dict(),
+                "events": [event.to_dict() for event in observer.events],
+            },
+            ensure_ascii=False,
+        )
+        log_stream = StringIO()
+        logging_observer = LoggingToolObserver(
+            config=LoggingConfig(json=True, redact_text=True),
+            stream=log_stream,
+        )
+        for event in observer.events:
+            logging_observer.on_event(event)
+
+        self.assertNotIn(canary, serialized)
+        self.assertNotIn(canary, log_stream.getvalue())
+
     def test_execute_action_uses_one_fallback_for_definite_native_unsupported(
         self,
     ) -> None:
@@ -3152,6 +3406,116 @@ class WeChatDesktopToolTests(unittest.TestCase):
         for label, response in cases:
             with self.subTest(label=label):
                 app_control = FakeAppControl([response])
+                result = WeChatDesktopTool(app_control)._click_node_phase(
+                    wechat_command("open_contact", {"contact": "Ada"}),
+                    _normalized_row("0/11/1/0/0", "Ada"),
+                    phase="open_visible_contact",
+                    evidence={},
+                    snapshot_id="frontmost:WeChat:微信 (聊天)",
+                )
+
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    [command.operation for command in app_control.commands],
+                    ["accessibility_action"],
+                )
+
+    def test_click_node_accepts_complete_proof_from_each_known_container(
+        self,
+    ) -> None:
+        locations = (
+            "observation_action",
+            "observation_diagnostics",
+            "observation_transport",
+            "metadata_transport",
+            "result_evidence",
+            "error_evidence",
+        )
+        for location in locations:
+            with self.subTest(location=location):
+                app_control = FakeAppControl(
+                    [
+                        _unsupported_action_response_at_proof_location(location),
+                        {},
+                    ]
+                )
+                result = WeChatDesktopTool(app_control)._click_node_phase(
+                    wechat_command("open_contact", {"contact": "Ada"}),
+                    _normalized_row("0/11/1/0/0", "Ada"),
+                    phase="open_visible_contact",
+                    evidence={},
+                    snapshot_id="frontmost:WeChat:微信 (聊天)",
+                )
+
+                self.assertTrue(result.success)
+                self.assertEqual(
+                    [command.operation for command in app_control.commands],
+                    ["accessibility_action", "click"],
+                )
+
+    def test_click_node_blocks_conflicts_in_every_known_proof_container(
+        self,
+    ) -> None:
+        locations = (
+            "observation_diagnostics",
+            "observation_transport",
+            "metadata_transport",
+            "result_evidence",
+            "error_evidence",
+        )
+        conflicting_updates = (
+            {"action": "AXSetFocus"},
+            {"actionAttempted": False},
+            {"actionEffect": "performed"},
+            {"nativeErrorCode": -25204},
+            {"requestDispatched": False},
+        )
+        for location in locations:
+            for updates in conflicting_updates:
+                with self.subTest(location=location, updates=updates):
+                    app_control = FakeAppControl(
+                        [
+                            _unsupported_action_response_at_proof_location(
+                                location,
+                                proof_updates=updates,
+                                include_direct_proof=True,
+                            )
+                        ]
+                    )
+                    result = WeChatDesktopTool(app_control)._click_node_phase(
+                        wechat_command("open_contact", {"contact": "Ada"}),
+                        _normalized_row("0/11/1/0/0", "Ada"),
+                        phase="open_visible_contact",
+                        evidence={},
+                        snapshot_id="frontmost:WeChat:微信 (聊天)",
+                    )
+
+                    self.assertFalse(result.success)
+                    self.assertEqual(
+                        [command.operation for command in app_control.commands],
+                        ["accessibility_action"],
+                    )
+
+    def test_click_node_blocks_malformed_known_proof_containers(self) -> None:
+        locations = (
+            "observation_action",
+            "observation_diagnostics",
+            "observation_transport",
+            "metadata_transport",
+            "result_evidence",
+            "error_evidence",
+        )
+        for location in locations:
+            with self.subTest(location=location):
+                app_control = FakeAppControl(
+                    [
+                        _unsupported_action_response_at_proof_location(
+                            location,
+                            include_direct_proof=location != "observation_action",
+                            malformed=True,
+                        )
+                    ]
+                )
                 result = WeChatDesktopTool(app_control)._click_node_phase(
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
@@ -4619,6 +4983,99 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     diagnostics["causeFailureKind"],
                     cause,
                 )
+
+    def test_selector_failure_routing_prefers_structured_diagnostics(self) -> None:
+        cases = (
+            (
+                "transport_over_permission_text",
+                "selector_query_failed",
+                "helper_transport_failed",
+                "Permission denied while reading Accessibility",
+                True,
+                ToolStatus.NOT_READY,
+                "app_control_transport_failed",
+                "Restore",
+            ),
+            (
+                "permission_over_timeout_text",
+                "selector_query_failed",
+                "missing_accessibility",
+                "Helper socket timed out",
+                False,
+                ToolStatus.NOT_READY,
+                "missing_accessibility",
+                "Grant Accessibility permission",
+            ),
+            (
+                "timeout_over_transport_text",
+                "selector_query_failed",
+                "accessibility_query_timeout",
+                "Helper transport reported permission denied",
+                True,
+                ToolStatus.FAILED,
+                "accessibility_query_timeout",
+                "Retry",
+            ),
+            (
+                "truncation_over_permission_text",
+                "selector_query_truncated",
+                None,
+                "Permission denied while collecting more candidates",
+                None,
+                ToolStatus.FAILED,
+                "wechat_query_truncated",
+                "narrower selector",
+            ),
+        )
+        for (
+            label,
+            failure_kind,
+            cause,
+            message,
+            retryable,
+            expected_status,
+            expected_kind,
+            expected_hint,
+        ) in cases:
+            with self.subTest(label=label):
+                diagnostics = SimpleNamespace(
+                    tried_selectors=("navigation.contacts",),
+                    query_count=1,
+                    node_count=0,
+                    truncated=failure_kind == "selector_query_truncated",
+                    truncation_reason=(
+                        "limit" if failure_kind == "selector_query_truncated" else None
+                    ),
+                    cache_status="disabled",
+                    failure_kind=failure_kind,
+                    cause_failure_kind=cause,
+                    retryable=retryable,
+                    message=message,
+                )
+                diagnostic_payload = tool_module._selector_diagnostics_payload(
+                    diagnostics
+                )
+
+                result = tool_module._failure_from_selector_query(
+                    wechat_command("open_contact", {"contact": "Ada"}),
+                    diagnostics,
+                    message="selector failed",
+                    observation_key="selector",
+                    semantic_payload={"diagnostics": diagnostic_payload},
+                    evidence={},
+                )
+
+                self.assertEqual(result.status, expected_status)
+                self.assertEqual(result.failure_kind, expected_kind)
+                self.assertEqual(
+                    result.retryable,
+                    retryable if retryable is not None else True,
+                )
+                self.assertIn(expected_hint, result.recovery_hint)
+                nested = result.observation["selector"]["diagnostics"]
+                self.assertEqual(nested["failureKind"], failure_kind)
+                if cause is not None:
+                    self.assertEqual(nested["causeFailureKind"], cause)
 
     def test_open_contact_maps_missing_search_box_to_wechat_failure(self) -> None:
         app_control = FakeAppControl(

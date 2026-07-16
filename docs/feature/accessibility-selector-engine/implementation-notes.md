@@ -4282,3 +4282,72 @@ uv run --python .venv/bin/python pytest -q \
 ```
 
 No live macOS query, Accessibility action, or WeChat mutation was executed.
+
+## R3 Review Remediation: Trusted WeChat Boundaries
+
+Status: implementation and full WeChat package verification complete;
+historical review-artifact repair and exact-head repository verification remain
+pending.
+
+This slice addresses `PRR-021`, `PRR-026`, `PRR-030`, `PRR-033`, and
+`PRR-035` at the WeChat semantic boundary.
+
+Selector configuration now loads as one frozen `WeChatSelectorAssets` pair.
+The override TOML is read once and both the generic selector profile and WeChat
+control map must validate before either becomes active. A half-valid, missing,
+malformed, or invalid override falls back to both packaged assets. The tool
+stores the pair at construction and passes the stored profile object to every
+resolver instead of reopening the path during a command.
+
+Mutation recovery now traverses one allowlisted evidence graph rooted at
+result metadata, observation, result evidence, and error evidence. Named
+metadata, nested action, diagnostics, and transport containers feed the same
+failure-kind, action, attempted-state, effect, native-code, dispatch, and
+retryability consistency checks. Any malformed container/value, conflicting
+alias, action mismatch, or inconsistent known copy stops after the original
+`accessibility_action`. Complete request-bound proof in any supported container
+retains exactly one configured fallback.
+
+Low-level observability now uses operation-specific allowlists. Query evidence
+contains availability, stable failure data, timing, counts, and truncation
+only; action/click evidence contains typed audit state only; observe evidence
+contains foreground identity and availability status only. AX nodes, paths,
+window titles, target labels, values, descriptions, raw data, and low-level
+summaries do not enter normal evidence, progress/final events, or default
+redacted logs. The explicit `inspect_window(includeRaw=true)` response still
+returns `rawQueries`, without duplicating raw data into those channels.
+
+Navigation fast-path decisions no longer read window titles back from public
+evidence. They consume the in-memory `observe` result directly, preserving the
+existing skip behavior while allowing public evidence to omit window content.
+
+Selector failure routing now maps exact permission, timeout, transport, and
+truncation diagnostics before consulting legacy message keywords. Truncation
+returns the registered stable WeChat failure `wechat_query_truncated` rather
+than an operation-specific not-found result. Recognized causes cannot be
+overridden by adversarial permission/timeout/transport text.
+
+Deterministic verification:
+
+```text
+.venv/bin/python -m compileall -q \
+  packages/wechat-desktop-tool/src/wechat_desktop_tool \
+  packages/wechat-desktop-tool/tests
+passed
+
+.venv/bin/python -m unittest discover \
+  -s packages/wechat-desktop-tool/tests -p 'test_*.py'
+149 passed
+
+git diff --check
+passed
+```
+
+The suite includes both half-valid override directions, invalid TOML, one
+stored valid pair, complete proof in six known container shapes, malformed
+containers, 25 cross-container action/attempt/effect/code/dispatch conflicts,
+structured-cause/message adversarial routing, and contact/conversation/message
+plus action-target canaries across result evidence, progress/final events, and
+`LoggingToolObserver(redact_text=true)`. The production generated native action
+fixtures remain covered for both unsupported native pairs. No live WeChat or
+macOS mutation was executed.

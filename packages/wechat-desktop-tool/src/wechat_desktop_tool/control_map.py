@@ -5,10 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
-from importlib import resources
 from pathlib import Path
 from typing import Any
-import tomllib
 
 
 CONTROL_MAP_SCHEMA_VERSION = "wechat.control-map.v1"
@@ -69,24 +67,17 @@ def load_control_map(
 ) -> WeChatControlMap:
     """Load the WeChat control map from an override or the packaged profile."""
 
-    if selector_profile_path is not None:
-        try:
-            data = _load_toml_path(selector_profile_path)
-            return parse_control_map(data)
-        except (OSError, ValueError, TypeError):
-            pass
-    return load_packaged_control_map()
+    from .profiles import load_selector_assets
+
+    return load_selector_assets(selector_profile_path).control_map
 
 
 def load_packaged_control_map() -> WeChatControlMap:
     """Load the default packaged WeChat control map."""
 
-    profile_text = (
-        resources.files("wechat_desktop_tool")
-        .joinpath("profiles/wechat-macos.toml")
-        .read_text(encoding="utf-8")
-    )
-    return parse_control_map(tomllib.loads(profile_text))
+    from .profiles import load_packaged_selector_assets
+
+    return load_packaged_selector_assets().control_map
 
 
 def parse_control_map(data: Mapping[str, Any]) -> WeChatControlMap:
@@ -261,10 +252,6 @@ def _parse_root_resolver_step(
             else _non_negative_int(path_index, f"{field_name}.path_index")
         ),
     )
-
-
-def _load_toml_path(path: str | Path) -> Mapping[str, Any]:
-    return tomllib.loads(Path(path).expanduser().read_text(encoding="utf-8"))
 
 
 def _mapping(value: Any, field_name: str) -> Mapping[str, Any]:
