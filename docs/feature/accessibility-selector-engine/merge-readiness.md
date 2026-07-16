@@ -8,8 +8,10 @@
   [`pr-review-macos-computer-use-3-59c6fb5.md`](./pr-review-macos-computer-use-3-59c6fb5.md)
   for head `59c6fb5`, published at `0a1e5cb`
 - Latest implementation fix head: `3abc501`
-- Current decision: `REQUEST_CHANGES`; implementation is remediated but a new
-  exact-head verification and re-review are still required
+- Latest fully verified lifecycle head: `681170d`
+- Current decision: `REQUEST_CHANGES`; implementation and evidence are
+  remediated and exact-head verification is green, but a new re-review is still
+  required
 
 ## Current Remediation
 
@@ -49,26 +51,25 @@ evidence in the report narrative; only the six tests actually run at
 - A selector profile override activates only when its generic profile and
   WeChat control map both validate from the same parse.
 
-## Verification To Date
+## Exact-Head Verification
 
-Focused verification for `b9493a8`:
+Clean-clone verification at exact head `681170d` passed:
 
-- `computer-use-macos/tests/test_selectors.py`: 72 passed;
-- `computer-use-macos/tests/test_package.py`: 83 passed;
-- `wechat-desktop-tool/tests/test_profiles.py`: 9 passed.
+- root repository: 127 tests;
+- `app-control-protocol`: 55 tests;
+- `computer-use-macos`: 155 tests, 1 sandbox socket skip;
+- `wechat-desktop-tool`: 149 tests;
+- compilation, release preflight, all three wheel builds, metadata/content and
+  no-bytecode checks, isolated install/import/API smoke, old dependency
+  rejection, whitespace, and clean-tree checks;
+- both the corrected historical `f19cbd9` result and latest `59c6fb5`
+  request-changes result validate against the current schema/invariant
+  validator.
 
-Verification for `3abc501`:
-
-- WeChat package discovery: 149 passed;
-- WeChat source and test compilation: passed;
-- whitespace validation: passed.
-
-Historical artifact verification:
-
-- `validate_review_result.py ...pr-review-macos-computer-use-3-f19cbd9.json`:
-  `VALID`;
-- JSON syntax and SHA-256 checks: passed;
-- no historical run was rebound to a commit where it did not execute.
+GitHub `CI / test` run
+[`29519349230`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29519349230)
+passed for full exact head `681170d0f459ff52b7281d957e3fd0b88d66a665`.
+PR #3 was draft, mechanically mergeable, and `CLEAN` at observation time.
 
 No live Accessibility action or WeChat mutation was executed during this
 remediation.
@@ -94,13 +95,9 @@ fixes exist.
 
 ## Remaining Gates
 
-1. Commit and push the historical artifact correction.
-2. Run full repository/package, compilation, preflight, and packaging checks at
-   the resulting head and record exact commands and outcomes.
-3. Observe GitHub Actions for that exact head.
-4. Produce a new schema-valid re-review that revalidates every open finding and
+1. Produce a new schema-valid re-review that revalidates every open finding and
    supersedes the `59c6fb5` decision.
-5. Synchronize the GitHub PR body, mark the PR ready, and merge only after the
+2. Synchronize the GitHub PR body, mark the PR ready, and merge only after the
    new review grants approval.
 
 Signed-helper proof and package publication remain separate release gates.

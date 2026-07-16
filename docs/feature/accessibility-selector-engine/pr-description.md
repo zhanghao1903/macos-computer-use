@@ -8,8 +8,8 @@ for head `59c6fb5`, published at `0a1e5cb`. Its decision is
 `REQUEST_CHANGES`. Runtime remediation is complete at `3abc501`, and the
 historical `f19cbd9` machine-result integrity defect has been corrected without
 changing its represented decision or inventing exact-head test runs. Full
-exact-head verification, GitHub CI, and a new re-review remain required before
-merge.
+clean-clone verification and GitHub CI pass at exact lifecycle head `681170d`;
+a new re-review remains required before merge.
 
 ## Problem
 
@@ -132,19 +132,20 @@ result. Raw Accessibility query payloads are available only through explicit
 
 ## Verification
 
-Current remediation verification:
+Clean-clone verification at exact head `681170d` passed:
 
-- generic selector slice: 72 selector tests, 83 computer-use package tests,
-  and 9 WeChat profile tests passed;
-- WeChat boundary slice: 149 package tests passed;
-- WeChat source/test compilation and whitespace checks passed;
-- corrected `f19cbd9` machine result validates under schema/invariant validator
-  version `1.1`, with SHA-256
-  `01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`.
-
-Repository-wide tests, release preflight, wheel/install checks, and GitHub CI
-must be rerun at the final remediation head. Earlier `65f8855` full-suite and
-`f19cbd9` CI evidence remains historical support, not current-head proof.
+- root repository: 127 tests;
+- `app-control-protocol`: 55 tests;
+- `computer-use-macos`: 155 tests, 1 sandbox socket skip;
+- `wechat-desktop-tool`: 149 tests;
+- compilation, release preflight, all three wheel build/content/install/API
+  smoke checks, old dependency rejection, whitespace, and clean-tree checks;
+- both review machine results validate under schema/invariant validator `1.1`;
+- corrected `f19cbd9` result SHA-256:
+  `01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`;
+- exact-head GitHub `CI / test` run
+  [`29519349230`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29519349230):
+  passed.
 
 No fresh real WeChat mutation was needed for this error-classification fix.
 Historical authorized live evidence remains recorded separately and is not
@@ -171,7 +172,7 @@ fallback exception.
 
 ## Merge Decision
 
-The current authoritative decision remains `REQUEST_CHANGES`. Do not mark the
-PR ready or merge until full final-head validation, exact-head GitHub CI, and a
-new schema-valid review close all findings and grant approval. Signed-helper
+The current authoritative decision remains `REQUEST_CHANGES`. Exact-head local
+validation and GitHub CI are green; do not mark the PR ready or merge until a
+new schema-valid review closes all findings and grants approval. Signed-helper
 proof and publication remain separate release actions.

@@ -4392,3 +4392,23 @@ SHA-256
 
 No runtime source, live Accessibility operation, or WeChat mutation is part of
 this slice.
+
+## R5 Full Verification
+
+Status: local clean-clone validation and exact-head GitHub CI complete at
+`681170d`; replacement review remains pending.
+
+The final remediation head passed 127 root tests, 55 protocol tests, 155
+computer-use tests with one sandbox skip, and 149 WeChat tests with
+`ResourceWarning` promoted to an error. Compilation, release preflight, all
+three wheel builds, metadata/content/no-bytecode checks, isolated install and
+API smoke, old dependency rejection, both review-result validators, whitespace,
+and clean-tree checks passed.
+
+GitHub `CI / test` run `29519349230` completed successfully for full SHA
+`681170d0f459ff52b7281d957e3fd0b88d66a665`. PR #3 remained open, draft,
+mechanically mergeable, and `CLEAN`.
+
+No live desktop mutation was performed. Exact commands, timings, environment,
+CI links, and remaining external-release limitations are recorded in
+`verification.md` under "R5 Full Remediation Verification".

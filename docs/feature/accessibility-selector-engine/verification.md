@@ -2229,3 +2229,57 @@ WeChat contact switch, or message send was executed. The fake framework modules
 exist only inside temporary test directories and do not enter package artifacts.
 Exact-head GitHub CI and a replacement review remain required after this F5
 evidence commit.
+
+## R5 Full Remediation Verification
+
+Date: 2026-07-17.
+
+Exact tested head:
+`681170d0f459ff52b7281d957e3fd0b88d66a665`.
+
+Validation ran in the clean no-hardlink clone
+`/private/tmp/macos-computer-use-selector-r5-txUFXg/repo`. The clone was made
+from the committed feature branch after the R2/R3 runtime fixes and R4 review
+artifact correction. It remained clean after tests, compilation, preflight,
+and wheel checks. The primary worktree's unrelated dirty files were not
+available to the test process.
+
+### Exact Commands And Results
+
+| Scope | Command | Result |
+| --- | --- | --- |
+| Root repository | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py'` | 127 passed in 42.840 seconds, including wheel and release integration checks. |
+| `app-control-protocol` | `PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests -p 'test_*.py'` | 55 passed in 0.014 seconds. |
+| `computer-use-macos` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests -p 'test_*.py'` | 155 passed in 1.543 seconds; 1 sandbox socket test skipped. |
+| `wechat-desktop-tool` | `PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests -p 'test_*.py'` | 149 passed in 1.241 seconds. |
+| Compile | `PYTHONPYCACHEPREFIX=<external-temp> <workspace>/.venv/bin/python -m compileall -q packages examples scripts tests` | Passed without writing bytecode into the clone. |
+| Release preflight | `env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py` | Passed; only the expected sandbox socket and seven unavailable external-proof warnings remained. |
+| Wheel build/install | `/opt/anaconda3/bin/python3 scripts/wheel_check.py` | All three 0.2.0 wheels built, passed metadata/content/no-bytecode checks, installed together in isolation, imported, passed API smoke, and rejected WeChat 0.2.0 with local 0.1.1 dependencies. |
+| Historical review result | `/opt/anaconda3/bin/python3 <workspace>/.agents/skills/pr-review/scripts/validate_review_result.py docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-f19cbd9.json` | `VALID`; corrected SHA-256 `01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`. |
+| Latest blocking review result | Same validator against `pr-review-macos-computer-use-3-59c6fb5.json` | `VALID`. |
+| Diff and clean tree | `git diff --check origin/main...HEAD`, `git status --short`, and `git rev-parse HEAD` | Passed; clone remained clean at `681170d`. |
+
+The report validator is an untracked workspace skill and therefore was invoked
+by absolute path against the committed JSON inside the clean clone. The skill
+itself was not treated as feature content or test input.
+
+### Exact-Head CI And PR State
+
+GitHub Actions workflow `CI / test` passed for exact head `681170d`:
+
+- run: https://github.com/zhanghao1903/macos-computer-use/actions/runs/29519349230
+- job: https://github.com/zhanghao1903/macos-computer-use/actions/runs/29519349230/job/87692268230
+- started: `2026-07-16T17:20:21Z`
+- completed: `2026-07-16T17:22:56Z`
+
+At observation time, PR #3 was open and draft, mechanically mergeable, and had
+merge state `CLEAN`. Its remote head matched full SHA
+`681170d0f459ff52b7281d957e3fd0b88d66a665`.
+
+### Limitations
+
+Ruff is unavailable in the workspace environment. Repository-wide strict mypy
+still has no accepted clean baseline and is not a configured CI gate. No live
+Accessibility action, WeChat contact switch, message read, draft, or send was
+executed. Signed-helper, TestPyPI, PyPI, and trusted-publisher proof remain
+release-stage gates rather than merge-review evidence for this remediation.
