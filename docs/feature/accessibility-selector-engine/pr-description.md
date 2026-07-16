@@ -2,16 +2,14 @@
 
 ## Current Status
 
-The implementation and deterministic verification are complete through F5
-head `f19cbd9`. The replacement review resolved reopened `PRR-021`, `PRR-022`,
-and `PRR-026`, revalidated `PRR-025`, and returned `APPROVE` with no blocking
-findings. The review is recorded in
-[`pr-review-macos-computer-use-3-f19cbd9.md`](https://github.com/zhanghao1903/macos-computer-use/blob/412a2d3/docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-f19cbd9.md)
-and published at `412a2d3`.
-
-GitHub Actions run
-[`29463591047`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29463591047)
-passed against exact F5/review head `f19cbd9`.
+The latest authoritative review is
+[`pr-review-macos-computer-use-3-59c6fb5.md`](./pr-review-macos-computer-use-3-59c6fb5.md)
+for head `59c6fb5`, published at `0a1e5cb`. Its decision is
+`REQUEST_CHANGES`. Runtime remediation is complete at `3abc501`, and the
+historical `f19cbd9` machine-result integrity defect has been corrected without
+changing its represented decision or inventing exact-head test runs. Full
+exact-head verification, GitHub CI, and a new re-review remain required before
+merge.
 
 ## Problem
 
@@ -20,11 +18,11 @@ broad scans. The selector-engine work added fast, bounded, identity-checked AX
 queries and actions, but a no-replay remediation later collapsed Apple's
 definite unsupported errors into the same class as uncertain attempted
 actions. Rows that safely rejected `AXPress` could therefore lose their one
-configured fallback. Later review found that the new failure was absent from
-the stable routing tuple. The latest review then exercised the real generated
-producer and found that it omitted action, request action was not bound to the
-response proof, and malformed attempted/dispatch values could still trigger a
-fallback.
+configured fallback. Later reviews found producer/proof defects and broader
+boundedness and trust-boundary gaps: truncated selector decisions, collection
+step drift and pagination errors, background-app targeting, non-atomic profile
+overrides, private AX evidence leakage, ambiguous failure routing, incomplete
+failure registration, and an invalid historical review artifact.
 
 ## Solution
 
@@ -47,7 +45,24 @@ This PR provides an internal Accessibility selector engine owned by
 - privacy-safe source-bound release proof and coordinated package version
   `0.2.0`.
 
-The latest remediation adds precise native action effect evidence:
+The latest remediation adds these invariants:
+
+- truncated selector/collection data cannot produce a normal match, cache
+  write, or false not-found result;
+- collection pages count accepted semantic records and enforce the public
+  query limit;
+- generated query/action/tree workers target only the current visible
+  frontmost application;
+- WeChat profile and control-map overrides activate as one validated pair;
+- all supported action-proof containers participate in one request-bound,
+  fail-closed consistency check;
+- query/action/observe evidence and events use privacy-safe allowlists;
+- structured permission, timeout, transport, and truncation causes take
+  precedence over message keywords;
+- all emitted worker failure kinds are exported and registered.
+
+The earlier action-recovery remediation adds precise native action effect
+evidence:
 
 - successful native calls publish `actionEffect=performed`;
 - `AXPress/-25206` and `AXSetFocus/-25205` publish
@@ -92,6 +107,10 @@ remain compatible.
 Applications routing failures through `COMPUTER_USE_FAILURE_KINDS` now receive
 the emitted `accessibility_action_unsupported` value as a declared package
 failure.
+Truncated WeChat selector reads return the stable
+`wechat_query_truncated` failure rather than an operation-specific not-found
+result. Raw Accessibility query payloads are available only through explicit
+`inspect_window(include_raw=True)` result data, not normal evidence or events.
 
 ## Safety
 
@@ -106,22 +125,26 @@ failure.
 - A failed fallback is final.
 - Contact identity is verified before reads, drafts, or sends continue.
 - Private UI content and raw observations are excluded from release proof.
+- Background or hidden applications cannot receive generated AX query, action,
+  or tree work.
+- Truncated data and malformed selector profile steps cannot drive a semantic
+  decision.
 
 ## Verification
 
-Clean-clone deterministic verification:
+Current remediation verification:
 
-- root: 127 passed;
-- `app-control-protocol`: 55 passed;
-- `computer-use-macos`: 144 passed, 1 skipped;
-- `wechat-desktop-tool`: 140 passed;
-- decision-focused tests repeated ten times: 350 unsafe subcases, zero second
-  mutation;
-- 20 production-generated `AXPress/-25206` and `AXSetFocus/-25205` executions:
-  exactly one configured fallback each;
-- compile, release preflight, wheel build/install/import/API smoke, dependency
-  rejection, whitespace, and clean-tree checks: passed;
-- exact F5/review head GitHub Actions run `29463591047`: passed.
+- generic selector slice: 72 selector tests, 83 computer-use package tests,
+  and 9 WeChat profile tests passed;
+- WeChat boundary slice: 149 package tests passed;
+- WeChat source/test compilation and whitespace checks passed;
+- corrected `f19cbd9` machine result validates under schema/invariant validator
+  version `1.1`, with SHA-256
+  `01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`.
+
+Repository-wide tests, release preflight, wheel/install checks, and GitHub CI
+must be rerun at the final remediation head. Earlier `65f8855` full-suite and
+`f19cbd9` CI evidence remains historical support, not current-head proof.
 
 No fresh real WeChat mutation was needed for this error-classification fix.
 Historical authorized live evidence remains recorded separately and is not
@@ -129,19 +152,14 @@ represented as post-remediation proof.
 
 ## Finding State
 
-- `PRR-001` through `PRR-020`: resolved.
-- `PRR-021`: resolved; malformed or contradictory attempted/dispatch evidence
-  cannot authorize another mutation.
-- `PRR-022`: resolved; definite unsupported/no-effect recovery and uncertain
-  outcome no-replay use the real generated producer and are deterministically
-  verified.
-- `PRR-023`: resolved; tracked F6 records and the GitHub PR body were
-  synchronized and verified by the replacement review.
-- `PRR-024`: resolved; both stable API documents publish one precedence rule.
-- `PRR-025`: resolved; the emitted failure is declared in the stable public
-  routing tuple.
-- `PRR-026`: resolved; malformed, incomplete, contradictory, or
-  request-mismatched proof cannot trigger a second mutation.
+- `PRR-001` through `PRR-020`, plus `PRR-022` through `PRR-025`: previously
+  resolved; final regression revalidation remains part of the next review.
+- `PRR-021`, `PRR-026`, `PRR-030`, `PRR-033`, `PRR-035`: remediated in
+  `3abc501`.
+- `PRR-028`, `PRR-029`, `PRR-031`, `PRR-032`, `PRR-034`, `PRR-036`:
+  remediated in `b9493a8`.
+- `PRR-027`: historical machine result corrected and validator-clean; final
+  downstream re-review remains pending.
 
 ## Release Record
 
@@ -153,8 +171,7 @@ fallback exception.
 
 ## Merge Decision
 
-The replacement review approved implementation/evidence head `f19cbd9`, and
-its exact-head CI is green. This report/status-only update must receive final
-exact-head CI and review renewal. It does not change the PR from draft
-automatically; marking ready and merging remain repository-owner actions.
-Signed-helper proof and publication remain separate F7 release actions.
+The current authoritative decision remains `REQUEST_CHANGES`. Do not mark the
+PR ready or merge until full final-head validation, exact-head GitHub CI, and a
+new schema-valid review close all findings and grant approval. Signed-helper
+proof and publication remain separate release actions.

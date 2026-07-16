@@ -4351,3 +4351,44 @@ plus action-target canaries across result evidence, progress/final events, and
 `LoggingToolObserver(redact_text=true)`. The production generated native action
 fixtures remain covered for both unsupported native pairs. No live WeChat or
 macOS mutation was executed.
+
+## R4 Review Remediation: Historical Evidence Integrity
+
+Status: `PRR-027` artifact correction complete; exact-final-head verification
+and replacement review remain pending.
+
+The committed `f19cbd9` machine result was repaired without changing its
+historical `APPROVE` decision or asserting that a test ran at a commit where it
+did not run:
+
+- `PRR-021`, `PRR-022`, `PRR-025`, and `PRR-026` retain the fingerprints from
+  the previous authoritative `1e56b00` result;
+- the delta uses the exact two-dot range
+  `1e56b00..f19cbd9`;
+- one explicit documentation/evidence publication risk surface covers all
+  eight previously unclassified delta paths;
+- the machine `reviewer_runs` list contains only the six focused tests actually
+  executed at reviewed head `f19cbd9`;
+- package, root, stress, compile, preflight, and wheel checks run at
+  implementation head `65f8855` remain clearly labeled supporting evidence in
+  the human-readable report.
+
+The current merge-readiness and PR-description records now point to the latest
+authoritative `59c6fb5` `REQUEST_CHANGES` review and treat the completed fixes
+as pending exact-head verification/re-review rather than as an approval.
+
+Deterministic verification:
+
+```text
+/opt/anaconda3/bin/python3 \
+  .agents/skills/pr-review/scripts/validate_review_result.py \
+  docs/feature/accessibility-selector-engine/\
+pr-review-macos-computer-use-3-f19cbd9.json
+VALID
+
+SHA-256
+01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653
+```
+
+No runtime source, live Accessibility operation, or WeChat mutation is part of
+this slice.

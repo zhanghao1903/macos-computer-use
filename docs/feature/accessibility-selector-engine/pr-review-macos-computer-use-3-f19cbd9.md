@@ -19,6 +19,7 @@
 | Previous review | `pr-review-macos-computer-use-3-1e56b00.md` @ `1e56b00`, `REQUEST_CHANGES` |
 | Previous result integrity | `pr-review-macos-computer-use-3-1e56b00.json`, SHA-256 `e5a26ab93c56e63a29b270ffbb2628789416503bda89c988a6c99e9d3c726218` |
 | Supersedes | The `1e56b00` request-changes decision |
+| Integrity correction | `2026-07-17`; machine result corrected without changing the historical decision or represented test outcomes |
 
 ## 2. Decision
 
@@ -31,8 +32,9 @@
   consumer binds every proof to the outbound action, and attempted/dispatch
   evidence is presence-sensitive and fail-closed. Production-generated valid
   pairs retain one fallback, while malformed, contradictory, mismatched, and
-  unknown outcomes execute no second mutation. Exact-head local validation and
-  GitHub CI pass.
+  unknown outcomes execute no second mutation. Exact-head focused local
+  validation and GitHub CI pass; broader implementation checks are supporting
+  evidence from `65f8855`.
 
 This report does not publish a GitHub review, change draft state, or merge the
 PR.
@@ -64,7 +66,7 @@ normalizer, consumer, caller, test, documentation, packaging, or CI paths.
 
 ### Reviewed scope
 
-- exact `1e56b00...f19cbd9` remediation delta and all 12 changed paths;
+- exact `1e56b00..f19cbd9` remediation delta and all 12 changed paths;
 - prior finding closure at the current head;
 - producer to normalization to protocol observation to WeChat recovery flow;
 - every shared fallback call site and expected-action source;
@@ -72,8 +74,9 @@ normalizer, consumer, caller, test, documentation, packaging, or CI paths.
   pre-dispatch, unsupported, timeout, transport-loss, and valid native results;
 - current base-to-head effective diff reconciled through the prior finding
   ledger and current affected-path audit;
-- package/root tests, stress, compilation, release preflight, wheel/install/API
-  smoke, dependency rejection, clean-tree checks, and exact-head CI.
+- implementation-head package/root tests, stress, compilation, release
+  preflight, wheel/install/API smoke, dependency rejection, clean-tree checks,
+  plus exact-reviewed-head focused tests and CI.
 
 ### Excluded scope
 
@@ -115,6 +118,7 @@ normalizer, consumer, caller, test, documentation, packaging, or CI paths.
 | Generated producer and public observation | public contract, deployment compatibility | Real generated worker payload, client normalization, wheel/API smoke | `PASS` |
 | Boolean evidence parser | trust boundary, data integrity, mutation recovery | Missing/type/container/alias/duplicate/conflict cases | `PASS` |
 | Expected-action propagation | mutation recovery, test adequacy | All call sites audited; both mismatch directions and valid pairs tested | `PASS` |
+| Contract and evidence publication | public contract, data integrity, deployment compatibility | Stable docs, prior report/hash, verification claims, and all eight documentation paths reconciled | `PASS` |
 | Test harness and temporary framework stubs | test adequacy, packaging | Temp-only modules, wheel-content checks, clean clone | `PASS` |
 
 All delta files were classified. No unclassified change remains. The full PR
@@ -155,8 +159,9 @@ diff is reconciled through the prior reports plus this delta review.
 - **Status:** remains resolved.
 - **Resolution:** `ACCESSIBILITY_ACTION_UNSUPPORTED` remains in
   `COMPUTER_USE_FAILURE_KINDS`; this remediation did not regress routing.
-- **Verification:** computer-use package, root, preflight, wheel, and CI checks
-  pass at the current head.
+- **Verification:** computer-use package, root, preflight, and wheel checks pass
+  at implementation head `65f8855`; focused tests and CI pass at reviewed head
+  `f19cbd9`.
 
 ## 6. Required Actions Before Merge
 
@@ -183,7 +188,17 @@ the reviewed implementation snapshot.
 
 ## 8. Validation Evidence
 
-### Reviewer-executed checks
+### Exact-reviewed-head checks
+
+| Check | Environment | Result |
+|---|---|---|
+| Decision-focused exact-head pass | clean no-hardlink clone @ `f19cbd9` | 6 named tests passed |
+
+### Supporting implementation-head checks
+
+The following checks ran at implementation head `65f8855`. They remain useful
+supporting evidence because `f19cbd9` changes only `verification.md`, but they
+are not represented as exact-head `reviewer_runs` in the machine result.
 
 | Check | Environment | Result |
 |---|---|---|
@@ -191,7 +206,6 @@ the reviewed implementation snapshot.
 | Protocol package | same clone | 55 passed |
 | Computer-use package | same clone | 144 passed, 1 skipped |
 | WeChat package | same clone | 140 passed |
-| Decision-focused exact-head pass | clean no-hardlink clone @ `f19cbd9` | 6 named tests passed |
 | Adversarial stress | implementation clone, ten iterations | 350 unsafe subcases, zero second mutation; 20 valid pair fallbacks |
 | Compile | external pycache | passed |
 | Release preflight | clean clone | passed with expected socket/external-proof warnings |
@@ -220,7 +234,11 @@ Overall validation is `PASSED`.
 
 - This decision is authoritative only for base `fed6523` and head `f19cbd9`.
 - The large base-to-head diff is reconciled through the complete prior review
-  ledger and this fully classified remediation delta.
+  ledger and this fully classified two-dot remediation delta.
+- The `2026-07-17` integrity correction restores preserved finding
+  fingerprints, classifies all changed paths, and removes stale-head runs from
+  the machine `reviewer_runs` list. It does not assert that the supporting
+  `65f8855` checks ran at `f19cbd9`.
 - Independent agents were unavailable. A separate second-pass source/caller
   audit and a clean-clone exact-head test pass were used instead.
 - No live desktop mutation, signed helper, or package publication occurred.
@@ -248,3 +266,5 @@ No open question changes the decision.
 The companion file
 `pr-review-macos-computer-use-3-f19cbd9.json` is the authoritative structured
 result and validates against `pr-review-result.schema.json` version `1.1`.
+Its corrected SHA-256 is
+`01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`.

@@ -63,7 +63,7 @@
         "EVIDENCE_CHANGED",
         "REVIEW_CORRECTION"
       ],
-      "commit_range": "1e56b0086b2d996124d5c60db5723eb98ac29ec0...f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
+      "commit_range": "1e56b0086b2d996124d5c60db5723eb98ac29ec0..f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
       "commits_reviewed": [
         "cdcbd47f1780fd1d08fb8c371a1db0e1f035e4cc",
         "b4026eef0b91944e51eebea1a1e2326e7b8dfadb",
@@ -204,6 +204,38 @@
         "result": "PASS"
       },
       {
+        "surface": "Feature contract, review history, and verification publication",
+        "risk_triggers": [
+          "public-contract",
+          "data-integrity",
+          "deployment-compatibility"
+        ],
+        "reason": "Contract, plan, review history, and verification changes must remain mutually consistent and must not overstate the commit at which evidence was collected.",
+        "affected_paths": [
+          "docs/api.md",
+          "docs/feature/accessibility-selector-engine/design.md",
+          "docs/feature/accessibility-selector-engine/implementation-notes.md",
+          "docs/feature/accessibility-selector-engine/implementation-plan.md",
+          "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.json",
+          "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-1e56b00.md",
+          "docs/feature/accessibility-selector-engine/verification.md",
+          "docs/wechat-desktop-tool.md"
+        ],
+        "checks": [
+          "Compare stable API wording with the amended design and implementation plan",
+          "Validate the prior machine result hash and preserved finding ledger",
+          "Separate implementation-head supporting evidence from exact reviewed-head evidence",
+          "Reconcile every documentation path in the two-dot remediation delta"
+        ],
+        "finding_ids": [
+          "PRR-021",
+          "PRR-022",
+          "PRR-025",
+          "PRR-026"
+        ],
+        "result": "PASS"
+      },
+      {
         "surface": "Temporary framework test harness and package contents",
         "risk_triggers": [
           "test-adequacy",
@@ -310,7 +342,7 @@
       "verification": "Package suites, ten-iteration stress, and exact-head focused tests pass with operation-count assertions.",
       "status": "resolved",
       "origin": "PREVIOUSLY_MISSED",
-      "fingerprint": "wechat-action-recovery-malformed-boolean-evidence"
+      "fingerprint": "wechat-action-recovery-bypasses-dispatch-no-replay"
     },
     {
       "id": "PRR-022",
@@ -341,7 +373,7 @@
       "verification": "Both production-generated pairs carry the matching action and execute one fallback; wheel/API smoke passes.",
       "status": "resolved",
       "origin": "PREVIOUSLY_MISSED",
-      "fingerprint": "native-action-producer-missing-action"
+      "fingerprint": "compatibility:native-unsupported:unknown-effect"
     },
     {
       "id": "PRR-026",
@@ -372,7 +404,7 @@
       "verification": "Both mismatch directions stop after accessibility_action; matching production pairs retain one fallback.",
       "status": "resolved",
       "origin": "PREVIOUSLY_MISSED",
-      "fingerprint": "wechat-proof-request-action-binding"
+      "fingerprint": "wechat-strict-unsupported-native-proof-no-replay"
     },
     {
       "id": "PRR-025",
@@ -403,7 +435,7 @@
       "verification": "Current-head package and exact-head CI checks pass.",
       "status": "resolved",
       "origin": "BASE_DIFF",
-      "fingerprint": "computer-use-native-unsupported-registry"
+      "fingerprint": "computer-use-failure-routing-accessibility-action-unsupported"
     }
   ],
   "required_actions": [
@@ -450,46 +482,6 @@
     "overall_status": "PASSED",
     "reviewer_runs": [
       {
-        "command": "python -W error::ResourceWarning -m unittest discover -s tests",
-        "environment": "clean no-hardlink Darwin arm64 clone; CPython 3.12.7",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "127 root tests passed in 42.752 seconds, including wheel and release integration.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
-      },
-      {
-        "command": "python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests",
-        "environment": "same clean implementation clone",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "55 protocol tests passed.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
-      },
-      {
-        "command": "python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
-        "environment": "same clean implementation clone",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "144 tests passed; one sandbox socket test skipped.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
-      },
-      {
-        "command": "python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests",
-        "environment": "same clean implementation clone",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "140 WeChat tests passed.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
-      },
-      {
         "command": "six decision-focused producer/recovery tests",
         "environment": "clean no-hardlink exact-head f19cbd9 clone",
         "head_sha": "f19cbd9118c30ced9a3812d9829a3b7e6fbd3592",
@@ -498,26 +490,6 @@
         "summary": "Production pairs, malformed evidence, dispatched failures, strict proof, and both mismatch directions passed.",
         "required_for_approval": true,
         "evidence_ref": "local exact-head review run"
-      },
-      {
-        "command": "decision-focused producer/recovery set repeated ten times",
-        "environment": "clean implementation clone with ResourceWarning as error",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "10 of 10 passed; 350 unsafe subcases executed zero fallback and 20 valid native pairs each used one fallback.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
-      },
-      {
-        "command": "compileall, release_preflight.py, and wheel_check.py",
-        "environment": "clean implementation clone; external pycache; Anaconda wheel build driver",
-        "head_sha": "65f8855767971f864154c6173f134c6d03fea37b",
-        "status": "PASS",
-        "exit_code": 0,
-        "summary": "Compile, preflight, all wheel contents, isolated installs, API smoke, and incompatible dependency rejection passed.",
-        "required_for_approval": true,
-        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md"
       }
     ],
     "ci_checks": [
