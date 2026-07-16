@@ -341,3 +341,63 @@ Revert this remediation slice as one unit. No persisted data or configuration
 migration exists. A rollback restores the previous tuple and permissive proof
 parser, so it must also restore the prior `REQUEST_CHANGES` merge state rather
 than representing that behavior as safe to merge.
+
+## Review Remediation Slice: End-To-End Action And Recovery Evidence
+
+This slice closes reopened `PRR-021`, `PRR-022`, and `PRR-026` without changing
+the public command or semantic API shape.
+
+### Contract And Files
+
+- `computer_use_macos/client.py`:
+  - add the validated requested action to generated native failure payloads
+    after `AXUIElementPerformAction` or `AXUIElementSetAttributeValue` runs;
+  - normalize `actionAttempted` only when its raw value is Boolean, without
+    truthiness coercion;
+  - preserve the raw payload so downstream validation sees malformed values.
+- `computer-use-macos/tests/test_package.py`:
+  - exercise the generated failure producer for both native unsupported pairs;
+  - assert the requested action survives direct-client normalization;
+  - assert truthy and falsey malformed attempt values are not promoted as
+    trusted normalized Booleans.
+- `wechat_desktop_tool/tool.py`:
+  - model attempt and dispatch evidence as absent, valid true, valid false, or
+    invalid;
+  - treat malformed relevant containers, aliases, values, and contradictory
+    duplicates as invalid;
+  - pass the outbound action into every shared fallback decision and require
+    all response action copies to equal it.
+- `wechat-desktop-tool/tests/test_tool.py`:
+  - derive cross-package native fixtures from the production generated action
+    script instead of manually injecting an action field;
+  - prove one fallback for matching `AXPress/-25206` and
+    `AXSetFocus/-25205` producer-to-consumer paths;
+  - prove zero fallback for both request/response mismatch directions, truthy
+    and falsey malformed attempted values, malformed dispatch duplicates,
+    malformed containers, missing evidence, and conflicts;
+  - assert action/fallback operation counts across mapped navigation, visible
+    contacts, search focus/results, node clicking, and public actionRef
+    execution through their shared policy.
+- `docs/api.md`, `docs/wechat-desktop-tool.md`, and
+  `implementation-notes.md`: document producer ownership, expected-action
+  binding, presence-sensitive parsing, compatibility, and fail-closed behavior.
+
+### Verification
+
+1. Run focused computer-use and WeChat regressions with `ResourceWarning`
+   promoted to errors.
+2. Run both full package suites, protocol tests, and root discovery from an
+   exact clean implementation commit.
+3. Repeat adversarial cross-package recovery cases ten times and require zero
+   fallback for every unsafe result.
+4. Run compilation, release preflight, wheel/install/API smoke, dependency
+   rejection, whitespace, clean-tree, and exact-head GitHub CI checks.
+5. Refresh `verification.md`, merge-readiness, tracked/live PR description, and
+   produce a replacement schema-valid review report.
+
+### Rollback
+
+Revert producer, normalizer, recovery parser, tests, and stable documentation as
+one unit. The change has no persisted state or configuration migration. A
+rollback reopens all three safety/compatibility findings and must restore
+`REQUEST_CHANGES` rather than retaining merge readiness.
