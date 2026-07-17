@@ -980,6 +980,7 @@ def _accessibility_query_response(
     *,
     available: bool = True,
     truncated: bool = False,
+    truncation_reason: str | None = None,
     include_raw: bool = False,
     snapshot_id: str = "frontmost:WeChat:微信 (聊天)",
     window_title: str = "微信 (聊天)",
@@ -1014,6 +1015,8 @@ def _accessibility_query_response(
             "truncated": truncated,
         },
     }
+    if truncation_reason is not None:
+        payload["diagnostics"]["truncationReason"] = truncation_reason
     if include_raw:
         payload["raw"] = {"nodeCount": len(nodes)}
     return {"observation": {"accessibilityQuery": payload}}
@@ -4186,6 +4189,148 @@ class WeChatDesktopToolTests(unittest.TestCase):
             "AXFocused",
             app_control.commands[9].input["query"]["attributes"],
         )
+
+    def test_truncated_control_map_contact_targets_never_mutate(self) -> None:
+        candidate_sets = (
+            [],
+            [_normalized_row("0/12/1/0/0", "Ada,hello,09:00")],
+            [
+                _normalized_row("0/12/1/0/0", "Ada,hello,09:00"),
+                _normalized_row("0/12/1/0/1", "Ada,other,09:01"),
+            ],
+        )
+        for reason in ("limit", "time_budget", "depth"):
+            for nodes in candidate_sets:
+                with self.subTest(reason=reason, candidate_count=len(nodes)):
+                    response = _accessibility_query_response(
+                        nodes,
+                        truncated=True,
+                        truncation_reason=reason,
+                    )
+                    app_control = FakeAppControl(
+                        [response] if nodes else [response, response]
+                    )
+
+                    result = WeChatDesktopTool(
+                        app_control
+                    )._open_visible_contact_with_control_map(
+                        wechat_command("open_contact", {"contact": "Ada"}),
+                        contact="Ada",
+                        evidence={},
+                    )
+
+                    assert result is not None
+                    self.assertFalse(result.success)
+                    self.assertEqual(result.failure_kind, "wechat_query_truncated")
+                    self.assertEqual(
+                        result.observation["diagnostics"]["truncationReason"],
+                        reason,
+                    )
+                    self.assertTrue(
+                        all(
+                            command.operation == "accessibility_query"
+                            for command in app_control.commands
+                        )
+                    )
+
+    def test_truncated_selector_visible_contact_targets_never_mutate(self) -> None:
+        candidate_sets = (
+            [],
+            [_normalized_row("0/11/1/0/0", "Ada,hello,09:00")],
+            [
+                _normalized_row("0/11/1/0/0", "Ada,hello,09:00"),
+                _normalized_row("0/11/1/0/1", "Ada,other,09:01"),
+            ],
+        )
+        for reason in ("limit", "time_budget", "depth"):
+            for nodes in candidate_sets:
+                with self.subTest(reason=reason, candidate_count=len(nodes)):
+                    app_control = FakeAppControl(
+                        [
+                            _accessibility_query_response(
+                                nodes,
+                                truncated=True,
+                                truncation_reason=reason,
+                            )
+                        ]
+                    )
+
+                    result = WeChatDesktopTool(
+                        app_control
+                    )._open_visible_contact_phase(
+                        wechat_command("open_contact", {"contact": "Ada"}),
+                        contact="Ada",
+                        main_content={"axPath": "0/11", "role": "AXSplitGroup"},
+                        evidence={},
+                    )
+
+                    assert result is not None
+                    self.assertFalse(result.success)
+                    self.assertEqual(result.failure_kind, "wechat_query_truncated")
+                    self.assertEqual(
+                        result.observation["diagnostics"]["truncationReason"],
+                        reason,
+                    )
+                    self.assertEqual(
+                        [command.operation for command in app_control.commands],
+                        ["accessibility_query"],
+                    )
+
+    def test_truncated_search_targets_block_draft_and_submit(self) -> None:
+        candidate_sets = (
+            [],
+            [_normalized_row("0/11/search/0", "Ada")],
+            [
+                _normalized_row("0/11/search/0", "Ada"),
+                _normalized_row("0/11/search/1", "Ada")
+            ],
+        )
+        for reason in ("limit", "time_budget", "depth"):
+            for nodes in candidate_sets:
+                with self.subTest(reason=reason, candidate_count=len(nodes)):
+                    responses = [
+                        {},
+                        _accessibility_query_response([]),
+                        _accessibility_query_response([]),
+                        _top_level_query_response(chats_selected=True),
+                        _accessibility_query_response([]),
+                        _top_level_query_response(chats_selected=True),
+                        _main_children_query_response(),
+                        {},
+                        {},
+                        {},
+                        {},
+                        _accessibility_query_response(
+                            nodes,
+                            truncated=True,
+                            truncation_reason=reason,
+                        ),
+                    ]
+                    app_control = FakeAppControl(responses)
+
+                    result = WeChatDesktopTool(app_control).send_message(
+                        contact="Ada",
+                        message="PRIVATE_MESSAGE_MUST_NOT_BE_DRAFTED",
+                    )
+
+                    self.assertFalse(result.success)
+                    self.assertEqual(result.failure_kind, "wechat_query_truncated")
+                    self.assertEqual(
+                        result.observation["diagnostics"]["truncationReason"],
+                        reason,
+                    )
+                    operations = [
+                        command.operation for command in app_control.commands
+                    ]
+                    self.assertEqual(operations[-1], "accessibility_query")
+                    self.assertNotIn("accessibility_action", operations)
+                    self.assertNotIn("press_key", operations)
+                    typed_text = [
+                        command.input.get("text")
+                        for command in app_control.commands
+                        if command.operation == "type_text"
+                    ]
+                    self.assertEqual(typed_text, ["Ada"])
 
     def test_open_contact_stops_when_search_row_action_was_dispatched(self) -> None:
         app_control = FakeAppControl(

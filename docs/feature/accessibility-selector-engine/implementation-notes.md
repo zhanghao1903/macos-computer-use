@@ -4343,6 +4343,32 @@ wechat-desktop-tool package suite: 150 passed
 No live Accessibility action, click, keypress, contact switch, draft, or send
 was executed.
 
+## R8 Complete Contact-Target Queries
+
+Status: implementation and deterministic package verification complete.
+
+One semantic completeness gate now checks direct contact-target query
+diagnostics before candidate construction. It is applied to the control-map
+conversation path, selector visible-row path, and search-result path. A
+successful response with `truncated=true` returns
+`wechat_query_truncated` with bounded diagnostics and does not rank a partial
+set as unique or fall through to Return.
+
+The regression matrix covers zero, one, and two returned matches against
+limit, time-budget, and depth truncation on each of the three paths: 27
+decision counterexamples. Control-map and visible-row cases execute only their
+bounded query operations. Search cases run through the public composite
+`send_message` API; they may focus the search field and type the contact before
+the target query, but execute no target Accessibility action, Return keypress,
+message draft, or submit after the incomplete result.
+
+```text
+truncated target matrix: 3 test methods / 27 subcases passed
+wechat-desktop-tool package suite: 153 passed
+```
+
+No real WeChat contact, draft, message, or desktop mutation was used.
+
 ## R3 Review Remediation: Trusted WeChat Boundaries
 
 Status: implementation and full WeChat package verification complete;

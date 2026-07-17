@@ -551,6 +551,13 @@ generic `failureKind`, exact backend `causeFailureKind`, and backend
 retryability. A successful complete query with no match continues to use the
 operation-specific not-found failure.
 
+Contact opening treats query completeness as part of target identity. The
+control-map conversation query, selector visible-row query, and search-result
+query all inspect `diagnostics.truncated` before parsing or ranking candidates.
+Any truncated result returns `wechat_query_truncated`, even if zero, one, or
+multiple matching rows were returned. The incomplete set is never followed by
+a row click, Accessibility action, Return keypress, message draft, or submit.
+
 When `draft_message` cannot type because the chat input is not focused, and the
 backend reports `failureKind="input_not_focused"` or an explicit diagnostic
 such as `inputFocused=false`, the tool returns `not_ready` with

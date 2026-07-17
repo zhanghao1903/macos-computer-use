@@ -1423,6 +1423,14 @@ class WeChatDesktopTool:
             evidence=evidence,
             phase_events=phase_events,
         )
+        truncation_failure = _contact_target_query_truncation_failure(
+            command,
+            contact,
+            results,
+            evidence=evidence,
+        )
+        if truncation_failure is not None:
+            return truncation_failure
         candidates = (
             _search_candidates_from_nodes(
                 _query_nodes(results),
@@ -1527,6 +1535,14 @@ class WeChatDesktopTool:
         )
         if not visible_rows.success:
             return None
+        truncation_failure = _contact_target_query_truncation_failure(
+            command,
+            contact,
+            visible_rows,
+            evidence=evidence,
+        )
+        if truncation_failure is not None:
+            return truncation_failure
         candidates = _visible_contact_candidates_from_nodes(
             _query_nodes(visible_rows),
             contact,
@@ -1614,6 +1630,14 @@ class WeChatDesktopTool:
         if collection_query is None:
             return None
         query_result, _collection, nodes = collection_query
+        truncation_failure = _contact_target_query_truncation_failure(
+            command,
+            contact,
+            query_result,
+            evidence=evidence,
+        )
+        if truncation_failure is not None:
+            return truncation_failure
         candidates = _visible_contact_candidates_from_nodes(
             nodes,
             contact,
@@ -5246,6 +5270,46 @@ def _chat_title_from_query_nodes(nodes: list[dict[str, Any]]) -> str | None:
 def _query_truncated(observation: ToolObservation) -> bool:
     diagnostics = _query_payload(observation).get("diagnostics")
     return bool(isinstance(diagnostics, Mapping) and diagnostics.get("truncated"))
+
+
+def _contact_target_query_truncation_failure(
+    command: ToolCommand,
+    contact: str,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation | None:
+    if not observation.success or not _query_truncated(observation):
+        return None
+    raw_diagnostics = _query_payload(observation).get("diagnostics")
+    diagnostics: dict[str, JsonValue] = {"truncated": True}
+    if isinstance(raw_diagnostics, Mapping):
+        returned_nodes = raw_diagnostics.get("returnedNodes")
+        if isinstance(returned_nodes, int) and not isinstance(returned_nodes, bool):
+            diagnostics["returnedNodes"] = returned_nodes
+        truncation_reason = raw_diagnostics.get("truncationReason")
+        if isinstance(truncation_reason, str) and truncation_reason:
+            diagnostics["truncationReason"] = truncation_reason
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_query_truncated",
+        message=(
+            "WeChat contact target query was truncated before uniqueness could "
+            "be established."
+        ),
+        recovery_hint=(
+            "Retry after WeChat settles or use a narrower contact identifier."
+        ),
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "query_truncated",
+            "diagnostics": diagnostics,
+        },
+        evidence=evidence,
+    )
 
 
 def _next_page_token(
