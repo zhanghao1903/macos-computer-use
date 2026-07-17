@@ -86,9 +86,12 @@ flow:
 6. Define data flow and operation flow for features that traverse macOS
    Accessibility, local service boundaries, helper transport, or semantic app
    adapters.
-7. Implement against the approved package boundary. Generic macOS capability
-   belongs in `computer-use-macos`; app semantics belong in the app adapter such
-   as `wechat-desktop-tool`.
+7. Use the repository `implementation-execution` skill for non-trivial or
+   high-risk F4 work. Implement against the approved package boundary, maintain
+   changed-surface/risk ledgers and adversarial evidence, then produce an
+   exact-head review handoff. Generic macOS capability belongs in
+   `computer-use-macos`; app semantics belong in an adapter such as
+   `wechat-desktop-tool`.
 8. Add targeted unit tests, SDK/example tests when public usage changes, and a
    documented manual smoke path for real desktop behavior.
 9. Update stable docs after implementation, including [api.md](api.md), package

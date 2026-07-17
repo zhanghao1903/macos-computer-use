@@ -12,6 +12,10 @@ traceability.
 This skill orchestrates the lifecycle. It does not replace package-specific
 workflow gates. For this repository, use `product-workflow-gate` before package
 implementation, review, release, documentation, or repository-management work.
+During F4, use `implementation-execution` for non-trivial implementation,
+review remediation, public-contract changes, desktop automation, or other
+high-risk work. Lifecycle owns phase transitions; implementation execution owns
+slice quality and review-ready evidence.
 
 ## Lifecycle Phases
 
@@ -161,6 +165,15 @@ plan. Commit and push the F3 plan before code implementation begins.
 
 ## F4. Implementation
 
+- Use `implementation-execution` before edits when the work is non-trivial,
+  cross-package, public-contract, desktop-mutation, retry/fallback,
+  cache/pagination, privacy, packaging, or review-remediation work.
+- For a small isolated change, scale its ledger down, but still freeze scope,
+  classify changed paths, define proportional counterexamples, and bind
+  verification to the exact slice head.
+- If implementation exposes a missing correctness, security, privacy,
+  compatibility, mutation, or release decision, mark the slice blocked and
+  return to F1-F3. Do not silently change the approved plan in code.
 - Keep edits scoped to the approved package boundary.
 - Preserve existing public behavior unless the feature explicitly changes it.
 - Avoid broad refactors unrelated to the feature.
@@ -173,6 +186,12 @@ plan. Commit and push the F3 plan before code implementation begins.
 Update the feature document or stable docs with implementation notes that
 explain the completed slice. Commit and push the F4 code and documentation
 together after tests for that slice pass or are explicitly deferred.
+
+Before leaving F4, require an implementation handoff with the frozen base and
+exact head, complete changed-file classification, risk-surface status, public
+contract propagation, mutation/privacy/compatibility decisions, exact test
+evidence, skipped checks, limitations, and reviewer-focus paths. The handoff may
+say `ready_for_review` or `blocked`; it must not self-approve the PR.
 
 ## F5. Verification, Examples, And Documentation
 

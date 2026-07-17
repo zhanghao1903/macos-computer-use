@@ -56,3 +56,40 @@ risk surfaces.
 
 Revert the S1 commit. No package, protocol, configuration, or runtime migration
 is required.
+
+## S2 Lifecycle Integration
+
+- Status: implemented; verification pending F5 consolidation
+- Scope:
+  - `.agents/skills/feature-lifecycle/SKILL.md`
+  - `docs/README.md`
+
+### Behavior Implemented
+
+`feature-lifecycle` now invokes `implementation-execution` during F4 for
+non-trivial, cross-package, public-contract, desktop-mutation, retry/fallback,
+cache/pagination, privacy, packaging, and review-remediation work. It keeps
+phase-transition ownership and requires blocked implementation to return to
+F1-F3 rather than inventing missing decisions in code.
+
+Small isolated changes may scale down the ledger, but still require frozen
+scope, changed-path classification, proportional counterexamples, and
+exact-head evidence. Leaving F4 requires a review handoff and cannot claim PR
+approval.
+
+The repository documentation now exposes this workflow alongside
+`feature-lifecycle` and the package workflow gate.
+
+### Ownership Check
+
+- `feature-lifecycle`: branch, phase, documentation carrier, commit/push cadence.
+- `implementation-execution`: F4 slices, risk gates, implementation evidence,
+  and `ready_for_review` handoff.
+- formal review: independent decision after F4/F5 evidence exists.
+
+No circular phase ownership or package dependency is introduced.
+
+### Rollback
+
+Revert the S2 commit. The standalone implementation skill remains usable, and
+the lifecycle returns to its prior generic F4 rules.
