@@ -1534,3 +1534,72 @@ valid.
 Each owner slice can be reverted independently except profile/control-map
 loading, whose pair must roll back together. Reverting any safety slice restores
 `REQUEST_CHANGES`; it cannot retain merge-ready documentation.
+
+## Review Remediation 2026-07-17: Target Completeness And Identity
+
+This amendment addresses `PRR-023`, `PRR-026`, `PRR-037`, `PRR-038`, and
+`PRR-039` from review head `e86181a`. It preserves the existing command and
+semantic API shapes while tightening target identity, public failure routing,
+mutation recovery, and contact-target completeness.
+
+### Contract Decisions
+
+1. **Bundle-first application identity.** When a request supplies a bundle id,
+   an exact match against the current usable frontmost application is
+   authoritative. `targetApp` is not compared in that branch because it is a
+   presentation alias and can legitimately differ by locale. Name matching is
+   required only when no bundle id was supplied.
+2. **Stable operation-specific failures.** Query, action, and tree frontmost
+   guards keep their already-emitted failure values. Each value has one named
+   constant, one public package export, and exactly one entry in
+   `COMPUTER_USE_FAILURE_KINDS`.
+3. **Semantically coherent action recovery.** The complete native unsupported
+   proof remains the only post-dispatch no-effect exception. Legacy unsupported
+   recovery accepts absent/false attempt evidence only when any effect is
+   exactly `none` and no native error code is present. Retryable pre-dispatch
+   recovery additionally requires `requestDispatched=false`. A performed or
+   unknown effect, any native code outside the complete native proof, malformed
+   value, or contradictory copy authorizes no second mutation.
+4. **Complete contact-target decisions.** A successful low-level query is not
+   a complete target set when its diagnostics report truncation. Control-map,
+   visible-row, and search-result paths all return
+   `wechat_query_truncated` before candidate parsing, ranking, click,
+   Accessibility action, Return fallback, draft, or submit.
+5. **Lifecycle truthfulness.** Tracked and live PR records may describe the
+   remediation as implemented and awaiting re-review, but must not restore an
+   approval or merge-ready claim until an independent exact-head review and CI
+   evidence exist.
+
+### Risk Surface Ledger
+
+| Surface | Invariant | Counterexamples | Verification |
+| --- | --- | --- | --- |
+| Frontmost identity | Exact requested bundle wins over localized display name; name-only requests still match names. | Correct bundle with `WeChat`/`微信` alias mismatch; wrong bundle; wrong name-only target; hidden, terminated, or missing app. | Execute generated query/action workers and assert whether AX application creation is reached. |
+| Public failure contract | Every caller-visible package-owned failure is declared, exported, registered once, documented, and present in built wheels. | Query/action/tree frontmost rejection values omitted or duplicated. | Producer-to-registry tests, package export assertions, release preflight, wheel API smoke. |
+| Action fallback | Unknown or contradictory outcome never causes replay. | Legacy unsupported or pre-dispatch result with `performed`, `unknown`, `-25204`, malformed, duplicate, or mismatched action evidence. | Shared-caller matrix asserting exact operation count and order. |
+| Contact mutation target | No mutation is authorized from an incomplete candidate set. | Zero, one, or multiple returned matches with limit/time/depth truncation on each direct target path. | Path regressions asserting no click, action, Return, draft, or submit. |
+| F6 records | Repository and platform describe the same exact head and current decision. | Obsolete approved SHA/CI/finding ledger remains in the live body. | Compare tracked description and live body after push; retain draft and pending re-review state. |
+
+### Target Decision Flow
+
+```mermaid
+flowchart TD
+    Q["Bounded contact-target query"] --> S{"Query succeeded?"}
+    S -->|No| E["Map backend failure"]
+    S -->|Yes| T{"diagnostics.truncated?"}
+    T -->|Yes| X["wechat_query_truncated; zero mutation"]
+    T -->|No| C["Parse and validate candidates"]
+    C --> A{"Exactly one verified target?"}
+    A -->|No| N["Not found or ambiguous; zero mutation"]
+    A -->|Yes| M["Execute one target action"]
+```
+
+### Compatibility And Rollback
+
+The failure registry change is additive. Bundle-first matching restores the
+documented identity precedence and broadens compatibility for localized app
+names without permitting a wrong bundle. Recovery and truncation changes are
+intentional fail-closed behavior changes for inputs that could not prove a safe
+target or outcome. Each runtime slice can be reverted independently, but any
+rollback reopens the corresponding blocker and requires F6 records to return to
+`REQUEST_CHANGES`.

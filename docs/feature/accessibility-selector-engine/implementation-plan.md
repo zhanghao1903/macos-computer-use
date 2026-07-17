@@ -512,3 +512,72 @@ remains open.
 | R3 | WeChat implementation, tests, and notes | full WeChat tests pass |
 | R4 | corrected review artifacts and downstream hashes/status | validators and hash checks pass |
 | R5 | exact-head verification and replacement review evidence | local and CI evidence is recorded |
+
+## Review Remediation Plan For `e86181a`
+
+The schema-valid report pair at `e86181a` is the frozen input. Remediation is
+split by root cause so each commit carries implementation, discriminating
+tests, documentation, and rollback evidence together.
+
+### R6: Frontmost Identity And Public Failure Contract
+
+- Change query and action generated workers to use name matching only when no
+  bundle id is present; retain usability and exact-bundle checks.
+- Declare, export, register, and document the query/action/tree frontmost
+  failure values without renaming serialized failures.
+- Extend generated-worker tests for localized alias mismatch, name-only
+  fallback, wrong identity, hidden/terminated/missing app, and zero background
+  lookup.
+- Extend package contract tests so real generated values are registry-routable
+  and importable from the installed package.
+- Gate: focused `computer-use-macos` tests, full package suite, compile, and
+  `git diff --check` pass.
+
+### R7: Action Recovery Semantic State
+
+- Centralize the non-native fallback semantic gate after typed/duplicate proof
+  collection.
+- Preserve the two complete native unsupported pairs and legacy no-evidence
+  compatibility path.
+- Reject performed/unknown effects, any native code on legacy/pre-dispatch
+  paths, action mismatch, malformed values, and contradictory copies.
+- Add a matrix for legacy explicit-unsupported and retryable pre-dispatch
+  outcomes through every shared fallback caller; assert one original operation
+  and zero fallback mutations for unsafe cases.
+- Gate: focused no-replay tests and full `wechat-desktop-tool` suite pass.
+
+### R8: Complete Contact-Target Queries
+
+- Add one contact-target completeness gate that maps successful truncated
+  low-level queries to `wechat_query_truncated`.
+- Apply it before candidate construction in control-map, visible-row, and
+  search-result paths.
+- Cover zero, one, and multiple returned candidates with limit, time, and depth
+  truncation. Assert no click, Accessibility action, Return, draft, or submit.
+- Gate: focused open/focus/draft/send regressions and full WeChat suite pass.
+
+### R9: Exact-Head Verification And F6 Synchronization
+
+- Run root and all package suites, compile, release preflight, wheel build and
+  installed API proof, review-result validation, and whitespace checks from a
+  clean exact-head snapshot.
+- Update implementation notes, verification, merge-readiness, PR description,
+  API docs, WeChat docs, and `CHANGELOG.md` with the actual evidence.
+- Push the candidate head and wait for exact-head GitHub CI.
+- Synchronize the live PR body to the tracked pending-re-review record. Do not
+  mark ready, approve, merge, tag, release, or perform live WeChat mutation.
+- Hand the immutable head and all five finding IDs to independent re-review.
+
+### Changed-Surface Classification
+
+| Paths | Surface | Required proof |
+| --- | --- | --- |
+| `computer_use_macos/client.py`, `errors.py`, `__init__.py` | identity and public failure contract | generated producer, registry/export, package and wheel tests |
+| `computer-use-macos/tests/test_package.py` | identity/registry counterexamples | executable scripts and operation counters |
+| `wechat_desktop_tool/tool.py` | mutation replay and target completeness | exact operation-count regressions |
+| `wechat-desktop-tool/tests/test_tool.py` | adversarial recovery and truncation | all direct paths plus composite no-mutation assertions |
+| stable API/WeChat docs and feature lifecycle records | consumer recovery and F6 truth | preflight, diff inspection, platform comparison |
+| `CHANGELOG.md` | release record | `Unreleased` entry names both affected packages |
+
+No configuration, protocol schema, persisted data, dependency, live desktop
+permission, or release-version change is planned.
