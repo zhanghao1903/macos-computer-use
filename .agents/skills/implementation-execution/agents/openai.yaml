@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Execution"
+  short_description: "Implement approved plans with review-ready evidence"
+  default_prompt: "Use $implementation-execution to implement this approved plan with risk-ledger, adversarial-test, exact-head, and review-handoff gates."
