@@ -5,65 +5,68 @@
 - Draft PR: https://github.com/zhanghao1903/macos-computer-use/pull/3
 - Base: `fed652343ec73734247955d44dc8e60293a7b373`
 - Latest authoritative review:
-  [`pr-review-macos-computer-use-3-e86181a.md`](./pr-review-macos-computer-use-3-e86181a.md)
-- Reviewed head: `e86181a9c300cd9929d4ce61c08188a1a36f3bb9`
-- Latest implementation head: `45774fe`
+  [`pr-review-macos-computer-use-3-eb543ec.md`](./pr-review-macos-computer-use-3-eb543ec.md)
+- Reviewed head: `eb543ec9eb3800de104dadeb5d2fbb1382d14416`
+- Latest runtime implementation head: `b01aa01312a8c64f3476c966ee5659eaed9eed6f`
 - Current decision: `REQUEST_CHANGES`
 - Merge status: **not ready**; independent exact-head re-review is required
 
 ## Remediation Snapshot
 
-The latest review opened five blockers. The implementation now contains the
-following candidate fixes; these are implementation claims, not an approval:
+The latest review contains five blockers. The following changes are candidate
+fixes and do not supersede the independent review decision:
 
-| Finding | Candidate remediation | Evidence added |
+| Finding | Candidate remediation | Deterministic evidence |
 | --- | --- | --- |
-| `PRR-026` | `7464ad1` rejects legacy and pre-dispatch recovery when any known effect or native-code evidence contradicts a definite no-effect result. | Shared-policy and end-to-end operation-count regressions cover `performed`, `unknown`, `-25204`, malformed, and contradictory evidence. |
-| `PRR-037` | `60138f3` makes an exact requested bundle match authoritative and uses localized-name matching only when no bundle was supplied. | Generated query/action worker tests cover localized aliases, name-only fallback, wrong identity, hidden/terminated apps, and missing frontmost apps. |
-| `PRR-038` | `60138f3` declares, exports, and registers all three operation-specific frontmost-target failure values; `7d870ac` proves installed-wheel propagation. | Real producer-to-observation and isolated wheel/API-smoke assertions cover the public registry. |
-| `PRR-039` | `1967107` rejects truncated contact-target queries before candidate parsing or mutation; `45774fe` also fails closed when the final search-result query itself fails. | Twenty-seven truncation combinations cover three target paths and zero/one/multiple candidates; composite send tests assert zero target action, Return, draft, and submit. |
-| `PRR-023` | Tracked F6 records now describe the current `REQUEST_CHANGES` state and candidate fixes without reusing obsolete approval or CI claims. | The live PR body must be synchronized after the remediation commits are pushed. |
+| `PRR-039` | `63a45cf` validates query envelopes centrally; `b01aa01` makes failed, truncated, malformed, or mixed-root WeChat target evidence final before another root or strategy. | Contract matrices cover all three contact-target paths, the first incomplete root, visible-query failure, and composite send side effects. |
+| `PRR-040` | `bb8506d` distinguishes an absent `any_of` key from an explicitly empty or falsey value and rejects the latter. | JSON and TOML-compatible profile tests cover missing, empty, falsey, malformed, and valid matcher forms. |
+| `PRR-041` | `bb8506d` rejects `NaN` and infinity in confidence, weight, relation-distance, and frame values during parse and validation. | Non-finite matrices cover direct construction and parsed profile inputs. |
+| `PRR-042` | `63a45cf` rejects unsupported schemas and malformed or contradictory status, availability, failure, node, diagnostics, retryability, and truncation fields. | Canonical, generated, narrow legacy, malformed, and contradictory response envelopes are tested; invalid data creates no candidates or cache entries. |
+| `PRR-043` | `b01aa01` checks candidate cardinality before frame filtering, requires one finite in-window frame, and removes Return fallback for empty or unverified sets. | Seven search-result cases prove zero target action, Return, draft, and submit for empty, malformed, offscreen, or ambiguous inputs. |
+
+The latest review artifact and its remediation design and plan are committed in
+`057154a`, `27fe73f`, and `4601ecf` respectively.
 
 ## Safety Contract
 
-- A correct requested bundle is the target identity; localized app names are
-  aliases and are only authoritative when no bundle was requested.
-- Any emitted package-owned failure is declared, exported, documented, and
-  routable through `COMPUTER_USE_FAILURE_KINDS`.
-- Mutation recovery is allowed only for a complete native definite-no-effect
-  pair or a proven pre-dispatch result with no attempted, effect, or native
-  error contradiction.
-- A truncated or failed target-selection query cannot rank a contact, click,
-  execute an Accessibility action, press Return, draft, or submit a message.
-- A failed target-selection query is final for that workflow; it cannot be
-  reinterpreted as an empty candidate set.
+- A query result is actionable only when its envelope is structurally valid,
+  semantically coherent, complete, and non-truncated.
+- A multi-root or multi-strategy target lookup stops at the first unsafe
+  decision result; later roots cannot hide earlier incomplete evidence.
+- Search-result uniqueness is evaluated before visibility filtering. Exactly
+  one candidate must also have a finite, positive, in-window frame.
+- Empty, ambiguous, malformed, offscreen, failed, or truncated candidate sets
+  cannot click, execute an Accessibility action, press Return, draft, or
+  submit a message.
+- Explicit empty selector matchers and non-finite profile numbers are invalid
+  configuration, not permissive defaults.
 
 ## Local Verification
 
-The latest broad local implementation verification passed:
+Broad local verification after the candidate runtime fixes passed:
 
-- root repository: 128 tests;
+- root repository: 128 tests, including wheel and release integration checks;
 - `app-control-protocol`: 55 tests;
-- `computer-use-macos`: 158 tests, 1 sandbox socket skip;
-- `wechat-desktop-tool`: 154 tests after the final search-query regression;
+- `computer-use-macos`: 168 tests, 1 sandbox socket skip;
+- `wechat-desktop-tool`: 159 tests;
 - compilation, release preflight, all three wheel builds, isolated
-  install/import/API smoke, old dependency rejection, review-result
+  install/import/API smoke, old dependency rejection, latest review-result
   validation, and whitespace checks.
 
-These counts are local remediation evidence. They do not replace exact-head
-GitHub CI or an independent review. No live Accessibility action, contact
-switch, message read, draft, or WeChat send was executed.
+These results are implementation-owner evidence. No live Accessibility action,
+contact switch, message read, draft, or WeChat send was executed.
 
 ## Remaining Gates
 
-1. Push every remediation commit to `codex/accessibility-selector-engine`.
-2. Run and observe GitHub CI for the resulting exact remote head.
-3. Synchronize the live PR body with
+1. Commit and push the F5/F6 documentation update.
+2. Run the complete verification set on the resulting exact local head.
+3. Observe GitHub CI on the exact remote head.
+4. Synchronize the live PR body with
    [`pr-description.md`](./pr-description.md) while keeping the PR draft and
    the decision `REQUEST_CHANGES`.
-4. Obtain an independent, schema-valid exact-head re-review that explicitly
-   revalidates `PRR-023`, `PRR-026`, `PRR-037`, `PRR-038`, and `PRR-039`.
-5. Mark ready or merge only if that replacement review grants approval.
+5. Obtain an independent, schema-valid exact-head re-review that explicitly
+   revalidates `PRR-039` through `PRR-043`.
+6. Mark ready or merge only if that replacement review grants approval.
 
 Signed-helper proof, notarization, TestPyPI/PyPI publication, and trusted
 publisher evidence remain separate release gates.

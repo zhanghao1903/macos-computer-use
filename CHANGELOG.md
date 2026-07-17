@@ -57,6 +57,10 @@
 
 ### Fixed
 
+- Reject empty or non-finite selector profile constraints, malformed or
+  contradictory Accessibility query envelopes, and incomplete WeChat contact
+  target evidence before selector resolution, contact action, Return fallback,
+  message draft, or submit.
 - Treat an exact frontmost bundle-id match as authoritative for generated
   Accessibility query/action workers, so localized app names do not reject the
   correct target, and publish all query/action/tree frontmost failures through

@@ -3,97 +3,89 @@
 ## Current Status
 
 The latest authoritative review is
-[`pr-review-macos-computer-use-3-e86181a.md`](./pr-review-macos-computer-use-3-e86181a.md)
-for reviewed head `e86181a9c300cd9929d4ce61c08188a1a36f3bb9`.
-Its decision is `REQUEST_CHANGES`, with blockers `PRR-023`, `PRR-026`,
-`PRR-037`, `PRR-038`, and `PRR-039`.
+[`pr-review-macos-computer-use-3-eb543ec.md`](./pr-review-macos-computer-use-3-eb543ec.md)
+for reviewed head `eb543ec9eb3800de104dadeb5d2fbb1382d14416`.
+Its decision is `REQUEST_CHANGES`, with blockers `PRR-039`, `PRR-040`,
+`PRR-041`, `PRR-042`, and `PRR-043`.
 
-Candidate fixes are implemented through `45774fe`. The PR remains draft and
-must not be treated as approved or merged until the remote head passes CI and
-an independent exact-head re-review closes those findings.
+Candidate runtime fixes are implemented through `b01aa01`. The PR remains
+draft and must not be treated as approved or merged until the exact remote head
+passes CI and an independent re-review closes those findings.
 
 ## Problem
 
-The selector engine had five remaining correctness and lifecycle gaps:
+The latest review identified five fail-open contract gaps:
 
-- legacy or pre-dispatch action evidence could authorize a second mutation
-  despite known `performed`, `unknown`, or `-25204` evidence;
-- a correct WeChat bundle could be rejected when the localized app name was
-  `微信` instead of `WeChat`;
-- three emitted frontmost-target failure values were missing from the stable
-  public failure registry;
-- truncated direct contact-target queries could still click, invoke an
-  Accessibility action, or press Return using an incomplete candidate set;
-- the live PR body still published an obsolete approval and CI snapshot.
+- an earlier failed, truncated, or malformed contact query could be hidden by
+  a later root or target strategy and still lead to mutation;
+- an explicit empty or falsey `any_of` matcher could be erased and broaden a
+  selector;
+- non-finite profile numbers could bypass range validation;
+- malformed or contradictory query envelopes could normalize as success;
+- empty, malformed, offscreen, or ambiguously filtered search results could
+  reach Return, draft, and submit.
 
 ## Candidate Remediation
 
-- `60138f3` restores bundle-first frontmost identity. Name matching is used
-  only when no bundle was requested.
-- `60138f3` declares, exports, registers, documents, and producer-tests the
-  query, action, and tree frontmost-target failure values.
-- `7464ad1` requires semantically coherent recovery evidence. Legacy and
-  pre-dispatch paths reject known effects and native codes unless the strict
-  native unsupported/no-effect contract is complete.
-- `1967107` rejects limit, time-budget, and depth truncation before parsing or
-  mutating across control-map, visible-row, and search-result contact paths.
-- `7d870ac` proves the new public failures survive wheel build, isolated
-  install, import, and registry routing.
-- `45774fe` closes an adjacent fail-open path: a failed final search-result
-  query now returns its structured failure instead of being treated as zero
-  candidates and followed by Return.
-- The tracked F6 records now state the current `REQUEST_CHANGES` decision and
-  pending re-review instead of claiming obsolete approval.
+- `bb8506d` preserves key presence when parsing `any_of` and rejects explicit
+  empty or malformed matcher sets.
+- `bb8506d` rejects non-finite confidence, weight, relation-distance, and frame
+  values at parser and validator boundaries.
+- `63a45cf` validates schema, status, availability, failures, nodes,
+  diagnostics, retryability, and truncation before selector resolution.
+- `b01aa01` treats every unsafe WeChat target-query result as final across
+  roots and strategies.
+- `b01aa01` decides search-result cardinality before frame filtering, requires
+  one finite in-window target, and reserves Return for a verified target action
+  with definite no-effect evidence.
+- `057154a`, `27fe73f`, and `4601ecf` preserve the review, remediation design,
+  and implementation plan for this lifecycle pass.
 
 ## Consumer Impact
 
-Existing semantic APIs and request schemas are unchanged. Public consumers can
-now import and route these additional package-owned failure constants:
-
-- `ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST`
-- `TARGET_APP_NOT_FRONTMOST`
-- `ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST`
-
-The values are members of `COMPUTER_USE_FAILURE_KINDS`. WeChat contact-target
-workflows return structured query or `wechat_query_truncated` failures before
-any mutation when target-selection data is failed or incomplete.
+Public method signatures and request schemas are unchanged. Invalid selector
+profiles now fail during configuration validation. Malformed query envelopes
+return `selector_query_failed` instead of producing candidates or cache
+entries. Unsafe WeChat target evidence returns existing structured failure
+kinds before any contact action or message operation.
 
 ## Safety
 
-- Exact bundle identity takes precedence over a localized display-name alias.
-- Contradictory action evidence cannot authorize replay.
-- Native `-25204`, `performed`, and `unknown` outcomes remain non-replayable.
-- Truncation is checked before candidates are ranked or acted upon.
-- A failed final target query cannot fall through to Return, draft, or send.
-- Composite send regressions assert zero target action, Return, message draft,
-  and submit for unsafe target-selection outcomes.
+- Incomplete evidence from one root cannot be overwritten by a later root.
+- A failed visible-contact query cannot continue into mutating search.
+- Candidate uniqueness is established before visibility filtering.
+- Invalid frame members are rejected rather than coerced to zero.
+- Empty or unverified search sets cannot use Return as an implicit selection.
+- Composite-send regressions assert zero target action, Return, draft, and
+  submit after every unsafe query or candidate result.
 - No live WeChat mutation was used as remediation evidence.
 
 ## Verification
 
-Latest broad local remediation verification passed:
+Latest broad local candidate verification passed:
 
 - root repository: 128 tests;
 - `app-control-protocol`: 55 tests;
-- `computer-use-macos`: 158 tests, 1 sandbox socket skip;
-- `wechat-desktop-tool`: 154 tests;
+- `computer-use-macos`: 168 tests, 1 sandbox socket skip;
+- `wechat-desktop-tool`: 159 tests;
 - compilation, release preflight, three-wheel build and isolated API smoke,
-  old dependency rejection, review-result validation, and whitespace checks.
+  old dependency rejection, latest review-result validation, and whitespace
+  checks.
 
-The new counterexamples execute real generated workers, all shared action
-recovery entry points, all three contact-target paths, and the full
-`send_message` operation sequence. GitHub CI must still pass on the pushed
-exact head.
+The new tests exercise strict profile parsing, all supported query envelope
+families, contradictory response aliases, all three WeChat contact-target
+paths, mixed-root continuation, the seven-case search candidate matrix, and
+the full `send_message` side-effect sequence.
 
 ## Finding State
 
 | Finding | State |
 | --- | --- |
-| `PRR-026` | Candidate fix in `7464ad1`; independent revalidation pending. |
-| `PRR-037` | Candidate fix in `60138f3`; independent revalidation pending. |
-| `PRR-038` | Candidate fix in `60138f3` and wheel proof in `7d870ac`; independent revalidation pending. |
-| `PRR-039` | Candidate fix in `1967107`, with adjacent query-failure hardening in `45774fe`; independent revalidation pending. |
-| `PRR-023` | Tracked records corrected; live PR body synchronization and independent revalidation pending. |
+| `PRR-039` | Candidate fixes in `63a45cf` and `b01aa01`; independent revalidation pending. |
+| `PRR-040` | Candidate fix in `bb8506d`; independent revalidation pending. |
+| `PRR-041` | Candidate fix in `bb8506d`; independent revalidation pending. |
+| `PRR-042` | Candidate fix in `63a45cf`; independent revalidation pending. |
+| `PRR-043` | Candidate fix in `b01aa01`; independent revalidation pending. |
 
 All previously resolved findings remain subject to regression review at the
 new exact head.

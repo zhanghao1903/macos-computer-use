@@ -224,6 +224,15 @@ summaries for structural matching. They are intended for selector engines and
 semantic adapters that need to verify UI shape without returning full child
 subtrees.
 
+Internal selector consumers validate query envelopes before exposing a
+candidate. A success response must contain a supported schema or the narrow
+legacy shape, a mapping-only node list, mapping diagnostics, and a Boolean
+`truncated` value. Wrong-type, contradictory, malformed, or version-skewed
+responses return `selector_query_failed`; malformed nodes are not silently
+dropped and cannot become cache entries or action targets. Custom selector
+profiles likewise reject explicit empty `any_of` matchers and non-finite
+confidence, weight, relation-distance, or frame values before a query runs.
+
 Use `accessibility_action` for elements that expose stable AX actions such as
 `AXPress`. The direct backend validates the target app allowlist, resolves the
 snapshot-local `axPath`, checks preconditions, and then calls

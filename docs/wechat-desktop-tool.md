@@ -354,8 +354,10 @@ Behavior:
 2. Query top-level and main-content regions.
 3. Locate the search box by AX role plus search-like description, preferring
    `AXDescription="搜索"`.
-4. Click the search box, type the contact text, query search result rows, then
-   click the only matching result.
+4. Click the search box, type the contact text, and query search result rows.
+   Continue only when the complete pre-frame candidate set contains exactly
+   one structurally valid result whose finite frame is inside the verified
+   WeChat window.
 5. Query static text in the chat panel to report the opened chat title.
 
 If multiple candidates match, the operation returns `not_found` with
@@ -363,6 +365,11 @@ If multiple candidates match, the operation returns `not_found` with
 bounded semantic `candidates` list instead of selecting one implicitly. No
 candidate action is attempted before the caller supplies a more specific
 contact name.
+
+Zero candidates return `contact_not_found`; an offscreen, missing-frame, or
+malformed unique candidate returns `wechat_action_target_unverified`. These
+states do not press Return. Return is available only after one verified
+candidate action supplies request-bound, definite no-effect evidence.
 
 Response shape:
 
@@ -553,13 +560,14 @@ operation-specific not-found failure.
 
 Contact opening treats query completeness as part of target identity. The
 control-map conversation query, selector visible-row query, and search-result
-query all inspect `diagnostics.truncated` before parsing or ranking candidates.
-Any truncated result returns `wechat_query_truncated`, even if zero, one, or
-multiple matching rows were returned. The incomplete set is never followed by
-a row click, Accessibility action, Return keypress, message draft, or submit.
-An unsuccessful final search-result query follows the same no-mutation rule and
-maps permission, timeout, and transport failures to their stable WeChat failure
-kinds instead of treating the failure as an empty candidate list.
+query validate schema, availability, node collection, diagnostics, and the
+Boolean `diagnostics.truncated` field before parsing or ranking candidates.
+Any failed, truncated, missing, contradictory, or malformed completeness
+evidence is final for that target decision. In a multi-root lookup, only a
+valid complete empty root can advance to the next root. The incomplete set is
+never followed by a row click, Accessibility action, Return keypress, message
+draft, or submit. Permission, timeout, and transport failures retain their
+stable WeChat recovery kinds instead of being treated as empty candidates.
 
 When `draft_message` cannot type because the chat input is not focused, and the
 backend reports `failureKind="input_not_focused"` or an explicit diagnostic

@@ -2335,3 +2335,47 @@ failure returns before Return, draft, or submit.
   live PR-body synchronization therefore remained pending external gates.
 - Signed-helper, notarization, TestPyPI/PyPI, and trusted-publisher proof remain
   release-stage work.
+
+## R10 Selector Contract Remediation For Review `eb543ec`
+
+Date: 2026-07-17.
+
+Reviewed head:
+`eb543ec9eb3800de104dadeb5d2fbb1382d14416`.
+
+Candidate runtime implementation head:
+`b01aa01312a8c64f3476c966ee5659eaed9eed6f`.
+
+The current authoritative review opened five blockers. The following slices
+provide candidate remediation while preserving its `REQUEST_CHANGES` decision:
+
+| Finding | Implementation | Deterministic evidence |
+| --- | --- | --- |
+| `PRR-039` | `63a45cf`, `b01aa01` | Failed, truncated, malformed, and mixed-root query results are final across control-map, visible-row, and search-result paths; composite sends perform zero downstream mutation. |
+| `PRR-040` | `bb8506d` | Absent `any_of` retains default behavior, while explicit empty, falsey, and malformed forms are rejected for JSON and TOML-compatible inputs. |
+| `PRR-041` | `bb8506d` | `NaN` and infinity are rejected for confidence, weights, relation distances, and frame members in parsed and directly constructed profiles. |
+| `PRR-042` | `63a45cf` | Canonical, generated, and narrow legacy success/failure envelopes remain supported; malformed and contradictory fields fail before candidate or cache creation. |
+| `PRR-043` | `b01aa01` | Seven search-result cases prove that empty, malformed, offscreen, or ambiguous sets cannot action a target, press Return, draft, or submit. |
+
+### Candidate Verification Results
+
+| Scope | Result |
+| --- | --- |
+| Root repository | 128 passed, including all three wheel builds, isolated install/import/API smoke, and incompatible old dependency rejection. |
+| `app-control-protocol` | 55 passed. |
+| `computer-use-macos` | 168 passed, 1 sandbox socket test skipped. |
+| `wechat-desktop-tool` | 159 passed. |
+| Compile and diff | Passed. |
+| Release preflight | Passed with the expected sandbox socket and unavailable external-release-proof warnings. |
+| Latest review result | `pr-review-macos-computer-use-3-eb543ec.json` validates under the repository review-result validator. |
+
+### Limitations
+
+- These are implementation-owner claims. An independent exact-head re-review
+  must reproduce the blockers and decide whether they are closed.
+- Exact-head GitHub CI and live PR-body synchronization are pending until the
+  F5/F6 evidence commit is pushed.
+- No live Accessibility action, contact switch, message read, draft, or WeChat
+  send was executed.
+- Signed-helper, notarization, TestPyPI/PyPI, and trusted-publisher proof remain
+  release-stage work.
