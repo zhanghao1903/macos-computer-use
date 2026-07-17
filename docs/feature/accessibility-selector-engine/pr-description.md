@@ -77,6 +77,12 @@ families, contradictory response aliases, all three WeChat contact-target
 paths, mixed-root continuation, the seven-case search candidate matrix, and
 the full `send_message` side-effect sequence.
 
+The complete local set was rerun on lifecycle evidence head `a186f2b`, and
+GitHub Actions `CI / test` passed on that exact head in 2 minutes 22 seconds:
+https://github.com/zhanghao1903/macos-computer-use/actions/runs/29595247922/job/87933943045.
+The current live PR check remains authoritative after any later lifecycle-only
+documentation commit.
+
 ## Finding State
 
 | Finding | State |

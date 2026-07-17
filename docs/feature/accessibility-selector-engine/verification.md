@@ -2346,6 +2346,9 @@ Reviewed head:
 Candidate runtime implementation head:
 `b01aa01312a8c64f3476c966ee5659eaed9eed6f`.
 
+F5/F6 lifecycle evidence head:
+`a186f2b64b57484144bf814da097c4da88edbba1`.
+
 The current authoritative review opened five blockers. The following slices
 provide candidate remediation while preserving its `REQUEST_CHANGES` decision:
 
@@ -2369,12 +2372,18 @@ provide candidate remediation while preserving its `REQUEST_CHANGES` decision:
 | Release preflight | Passed with the expected sandbox socket and unavailable external-release-proof warnings. |
 | Latest review result | `pr-review-macos-computer-use-3-eb543ec.json` validates under the repository review-result validator. |
 
+GitHub Actions `CI / test` passed on exact evidence head `a186f2b` in 2
+minutes 22 seconds:
+https://github.com/zhanghao1903/macos-computer-use/actions/runs/29595247922/job/87933943045.
+The live PR body was synchronized to the `eb543ec` review, all five current
+findings, and the candidate remediation while the PR remained draft.
+
 ### Limitations
 
 - These are implementation-owner claims. An independent exact-head re-review
   must reproduce the blockers and decide whether they are closed.
-- Exact-head GitHub CI and live PR-body synchronization are pending until the
-  F5/F6 evidence commit is pushed.
+- Any later lifecycle-only commit still requires its own exact-head CI; the
+  live PR check is authoritative for that moving remote head.
 - No live Accessibility action, contact switch, message read, draft, or WeChat
   send was executed.
 - Signed-helper, notarization, TestPyPI/PyPI, and trusted-publisher proof remain

@@ -41,9 +41,10 @@ The latest review artifact and its remediation design and plan are committed in
 - Explicit empty selector matchers and non-finite profile numbers are invalid
   configuration, not permissive defaults.
 
-## Local Verification
+## Local And Remote Verification
 
-Broad local verification after the candidate runtime fixes passed:
+The complete verification set was rerun on lifecycle evidence head
+`a186f2b64b57484144bf814da097c4da88edbba1` and passed:
 
 - root repository: 128 tests, including wheel and release integration checks;
 - `app-control-protocol`: 55 tests;
@@ -52,21 +53,23 @@ Broad local verification after the candidate runtime fixes passed:
 - compilation, release preflight, all three wheel builds, isolated
   install/import/API smoke, old dependency rejection, latest review-result
   validation, and whitespace checks.
+- GitHub Actions `CI / test` passed on the same exact head in 2 minutes 22
+  seconds: https://github.com/zhanghao1903/macos-computer-use/actions/runs/29595247922/job/87933943045.
+- The live PR body was synchronized to the current review and candidate
+  findings while the PR remained draft.
 
 These results are implementation-owner evidence. No live Accessibility action,
 contact switch, message read, draft, or WeChat send was executed.
 
 ## Remaining Gates
 
-1. Commit and push the F5/F6 documentation update.
-2. Run the complete verification set on the resulting exact local head.
-3. Observe GitHub CI on the exact remote head.
-4. Synchronize the live PR body with
-   [`pr-description.md`](./pr-description.md) while keeping the PR draft and
-   the decision `REQUEST_CHANGES`.
-5. Obtain an independent, schema-valid exact-head re-review that explicitly
+1. Keep GitHub CI green on every later lifecycle-only commit; the live PR
+   check is authoritative for the current remote head.
+2. Obtain an independent, schema-valid exact-head re-review that explicitly
    revalidates `PRR-039` through `PRR-043`.
-6. Mark ready or merge only if that replacement review grants approval.
+3. Address any newly opened blocker through another documented remediation
+   cycle.
+4. Mark ready or merge only if the replacement review grants approval.
 
 Signed-helper proof, notarization, TestPyPI/PyPI publication, and trusted
 publisher evidence remain separate release gates.
