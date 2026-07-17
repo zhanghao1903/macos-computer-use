@@ -1423,6 +1423,13 @@ class WeChatDesktopTool:
             evidence=evidence,
             phase_events=phase_events,
         )
+        if not results.success:
+            return _from_app_control_failure(
+                command,
+                _contact_target_query_failure_kind(results),
+                results,
+                evidence=evidence,
+            )
         truncation_failure = _contact_target_query_truncation_failure(
             command,
             contact,
@@ -5270,6 +5277,19 @@ def _chat_title_from_query_nodes(nodes: list[dict[str, Any]]) -> str | None:
 def _query_truncated(observation: ToolObservation) -> bool:
     diagnostics = _query_payload(observation).get("diagnostics")
     return bool(isinstance(diagnostics, Mapping) and diagnostics.get("truncated"))
+
+
+def _contact_target_query_failure_kind(observation: ToolObservation) -> str:
+    cause = observation.failure_kind or "accessibility_query_failed"
+    if cause in _SELECTOR_PERMISSION_FAILURES:
+        return "missing_accessibility"
+    if cause in _SELECTOR_TIMEOUT_FAILURES:
+        return "accessibility_query_timeout"
+    if cause in _SELECTOR_TRANSPORT_FAILURES:
+        return "app_control_transport_failed"
+    if cause in _SELECTOR_TRUNCATION_FAILURES:
+        return "wechat_query_truncated"
+    return "accessibility_query_failed"
 
 
 def _contact_target_query_truncation_failure(

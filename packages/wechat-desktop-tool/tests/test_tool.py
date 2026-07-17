@@ -4332,6 +4332,45 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     ]
                     self.assertEqual(typed_text, ["Ada"])
 
+    def test_failed_search_target_query_never_presses_return(self) -> None:
+        responses = [
+            {},
+            _accessibility_query_response([]),
+            _accessibility_query_response([]),
+            _top_level_query_response(chats_selected=True),
+            _accessibility_query_response([]),
+            _top_level_query_response(chats_selected=True),
+            _main_children_query_response(),
+            {},
+            {},
+            {},
+            {},
+            _failed_accessibility_query_response(
+                "accessibility_query_timeout",
+                "Search result query timed out.",
+                retryable=True,
+            ),
+        ]
+        app_control = FakeAppControl(responses)
+
+        result = WeChatDesktopTool(app_control).send_message(
+            contact="Ada",
+            message="PRIVATE_MESSAGE_MUST_NOT_BE_DRAFTED",
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "accessibility_query_timeout")
+        operations = [command.operation for command in app_control.commands]
+        self.assertEqual(operations[-1], "accessibility_query")
+        self.assertNotIn("accessibility_action", operations)
+        self.assertNotIn("press_key", operations)
+        typed_text = [
+            command.input.get("text")
+            for command in app_control.commands
+            if command.operation == "type_text"
+        ]
+        self.assertEqual(typed_text, ["Ada"])
+
     def test_open_contact_stops_when_search_row_action_was_dispatched(self) -> None:
         app_control = FakeAppControl(
             [

@@ -557,6 +557,9 @@ query all inspect `diagnostics.truncated` before parsing or ranking candidates.
 Any truncated result returns `wechat_query_truncated`, even if zero, one, or
 multiple matching rows were returned. The incomplete set is never followed by
 a row click, Accessibility action, Return keypress, message draft, or submit.
+An unsuccessful final search-result query follows the same no-mutation rule and
+maps permission, timeout, and transport failures to their stable WeChat failure
+kinds instead of treating the failure as an empty candidate list.
 
 When `draft_message` cannot type because the chat input is not focused, and the
 backend reports `failureKind="input_not_focused"` or an explicit diagnostic

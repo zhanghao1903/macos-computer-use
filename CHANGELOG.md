@@ -64,9 +64,9 @@
 - Prevent `wechat-desktop-tool` legacy unsupported and pre-dispatch recovery
   from replaying a mutation when any known proof reports a performed/unknown
   effect or native error code.
-- Reject truncated WeChat contact-target queries before candidate selection,
-  row action, Return fallback, draft, or submit across control-map, visible-row,
-  and search-result paths.
+- Reject truncated WeChat contact-target queries and failed final search-result
+  queries before candidate selection, row action, Return fallback, draft, or
+  submit across control-map, visible-row, and search-result paths.
 - Route public WeChat focus/send through verified `open_contact`, enforce
   target-app and row action identity before Accessibility actions, and replace
   synthetic list continuation tokens with explicit visible-window semantics.

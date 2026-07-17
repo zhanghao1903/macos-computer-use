@@ -4364,8 +4364,15 @@ bounded query operations. Search cases run through the public composite
 the target query, but execute no target Accessibility action, Return keypress,
 message draft, or submit after the incomplete result.
 
+The forward-risk pass also found that an unsuccessful final search-result
+query previously entered the same zero-candidate Return branch. That path now
+returns immediately and maps structured permission, timeout, and transport
+causes to their stable WeChat failures. Its composite regression likewise
+records no target action, Return, draft text, or submit.
+
 ```text
 truncated target matrix: 3 test methods / 27 subcases passed
+failed final search query no-mutation regression: passed
 wechat-desktop-tool package suite: 153 passed
 ```
 
