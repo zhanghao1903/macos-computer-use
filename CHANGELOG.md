@@ -9,6 +9,10 @@
 
 ### Internal
 
+- Add an `implementation-execution` agent skill that turns approved plans and
+  review remediation into risk-mapped vertical slices, adversarial tests,
+  exact-head evidence, and an independent-review handoff, and integrate it into
+  `feature-lifecycle` F4.
 - Add a `feature-lifecycle` agent skill to manage features from requirements
   through design, implementation, review, merge, release readiness, and
   traceable release notes.
