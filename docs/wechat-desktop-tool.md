@@ -485,6 +485,14 @@ distinct states. A non-Boolean value, malformed metadata/action/diagnostics/
 transport container, or contradictory alias is invalid and stops recovery,
 including on legacy explicit-unsupported and pre-dispatch paths.
 
+Legacy explicit-unsupported and retryable pre-dispatch recovery also require
+semantically coherent no-effect evidence. A present effect must be exactly
+`none`, and no native error code may be present: once a native code exists,
+only the complete request-bound native unsupported proof above can authorize a
+fallback. This prevents `requestDispatched=false` or an old unsupported status
+from overriding `performed`, `unknown`, or `-25204` evidence elsewhere in the
+same result.
+
 All other dispatched, attempted, non-retryable, contradictory, or unknown
 outcomes return immediately. Missing proof, wrong action/code pairing,
 request/response action mismatch, non-string or empty effects, non-integer

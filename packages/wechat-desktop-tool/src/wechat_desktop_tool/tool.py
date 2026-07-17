@@ -4272,6 +4272,8 @@ def _should_fallback_from_accessibility_action(
             result,
             expected_action=expected_action,
         )
+    if not _accessibility_action_has_safe_non_native_effect(result):
+        return False
     if attempted.value is True:
         return False
     unsupported = failure_kind in {
@@ -4368,6 +4370,29 @@ def _accessibility_action_has_definite_no_effect(
         and effect == "none"
         and native_error_code == expected_native_error
     )
+
+
+def _accessibility_action_has_safe_non_native_effect(
+    result: ToolObservation,
+) -> bool:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    effect = _consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    if not effect.valid or not native_error_code.valid:
+        return False
+    if effect.present and effect.value != "none":
+        return False
+    # A native code means the request reached native action evaluation. Only
+    # the complete action-bound unsupported proof above can establish no effect.
+    return not native_error_code.present
 
 
 def _accessibility_action_proof_payloads(

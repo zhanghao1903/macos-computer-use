@@ -1413,6 +1413,52 @@ def _accessibility_action_failure_with_observation(
     )
 
 
+def _legacy_unsupported_action_response(
+    *,
+    observation: Mapping[str, Any] | None = None,
+    result_evidence: Mapping[str, Any] | None = None,
+    error_evidence: Mapping[str, Any] | None = None,
+) -> ToolObservation:
+    error = ToolError(
+        failure_kind="unsupported_operation",
+        message="accessibility_action is not supported by this backend",
+        retryable=False,
+        evidence=dict(error_evidence or {}),
+    )
+    return ToolObservation(
+        command_id="cmd_accessibility_action",
+        tool="macos.computer_use",
+        operation="accessibility_action",
+        status=ToolStatus.FAILED,
+        success=False,
+        summary=error.message,
+        observation=dict(observation or {}),
+        evidence=dict(result_evidence or {}),
+        failure_kind=error.failure_kind,
+        message=error.message,
+        retryable=error.retryable,
+        error=error,
+    )
+
+
+def _contradictory_predispatch_action_response() -> ToolObservation:
+    return _accessibility_action_failure_with_observation(
+        {
+            "actionAttempted": False,
+            "actionEffect": "performed",
+            "nativeErrorCode": -25204,
+            "metadata": {
+                "accessibility_action_transport": {
+                    "requestDispatched": False,
+                }
+            },
+        },
+        failure_kind="accessibility_action_timeout",
+        retryable=True,
+        status=ToolStatus.TIMEOUT,
+    )
+
+
 def _failed_accessibility_query_response(
     failure_kind: str,
     message: str,
@@ -3798,6 +3844,60 @@ class WeChatDesktopToolTests(unittest.TestCase):
             [command.operation for command in app_control.commands],
             ["accessibility_action", "click"],
         )
+
+    def test_legacy_and_predispatch_contradictions_never_replay(self) -> None:
+        cases = (
+            (
+                "legacy_result_evidence_performed",
+                _legacy_unsupported_action_response(
+                    result_evidence={"actionEffect": "performed"},
+                ),
+            ),
+            (
+                "legacy_error_evidence_unknown",
+                _legacy_unsupported_action_response(
+                    error_evidence={"actionEffect": "unknown"},
+                ),
+            ),
+            (
+                "legacy_nested_cannot_complete",
+                _legacy_unsupported_action_response(
+                    observation={
+                        "accessibilityAction": {"nativeErrorCode": -25204},
+                    },
+                ),
+            ),
+            (
+                "predispatch_contradictory_effect_and_code",
+                _contradictory_predispatch_action_response(),
+            ),
+        )
+        policy_functions = (
+            tool_module._should_fallback_from_accessibility_action,
+            tool_module._should_try_coordinate_click_after_accessibility_action,
+            tool_module._should_press_return_for_search_result,
+        )
+
+        for label, response in cases:
+            for policy in policy_functions:
+                with self.subTest(label=label, policy=policy.__name__):
+                    self.assertFalse(policy(response, expected_action="AXPress"))
+
+            with self.subTest(label=label, caller="click_node"):
+                app_control = FakeAppControl([response, {}])
+                result = WeChatDesktopTool(app_control)._click_node_phase(
+                    wechat_command("open_contact", {"contact": "Ada"}),
+                    _normalized_row("0/11/1/0/0", "Ada"),
+                    phase="open_visible_contact",
+                    evidence={},
+                    snapshot_id="frontmost:WeChat:微信 (聊天)",
+                )
+
+                self.assertFalse(result.success)
+                self.assertEqual(
+                    [command.operation for command in app_control.commands],
+                    ["accessibility_action"],
+                )
 
     def test_click_node_phase_does_not_replay_failed_selector_fallback(self) -> None:
         app_control = FakeAppControl(

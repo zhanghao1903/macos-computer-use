@@ -4313,6 +4313,36 @@ compileall computer-use-macos source/tests: passed
 git diff --check: passed
 ```
 
+## R7 Semantically Coherent Action Recovery
+
+Status: implementation and deterministic package verification complete.
+
+The shared WeChat recovery policy now validates no-effect meaning after typed
+and duplicate-consistent proof collection. The strict request-bound native
+unsupported pairs remain unchanged. For legacy explicit-unsupported and
+retryable pre-dispatch results, a present effect must be exactly `none` and no
+native error code may be present. Therefore a legacy status or
+`requestDispatched=false` cannot override `performed`, `unknown`, `-25204`, or
+another native result elsewhere in a known evidence container.
+
+The regression reproduces all four counterexamples from `PRR-026`: result
+evidence reporting `performed`, `ToolError.evidence` reporting `unknown`, a
+nested action payload carrying `-25204`, and a contradictory pre-dispatch
+result. It exercises all three shared policy entry points and an actual
+click-node caller; every unsafe case records only the original
+`accessibility_action`. Existing explicit-unsupported, complete native
+unsupported, and pre-dispatch compatibility paths still use exactly one
+configured fallback.
+
+```text
+targeted safe/unsafe recovery tests: 6 passed
+dispatched/strict-proof regression tests: 3 passed
+wechat-desktop-tool package suite: 150 passed
+```
+
+No live Accessibility action, click, keypress, contact switch, draft, or send
+was executed.
+
 ## R3 Review Remediation: Trusted WeChat Boundaries
 
 Status: implementation and full WeChat package verification complete;
