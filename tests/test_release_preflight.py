@@ -1973,6 +1973,19 @@ class TestPyPIInstallReportTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, snippet)
 
+    def test_computer_use_api_smoke_covers_frontmost_failure_contract(self) -> None:
+        script = _load_testpypi_script()
+        snippet = script.PACKAGE_SMOKE_SNIPPETS["computer-use-macos"]
+
+        for expected in (
+            "ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST",
+            "TARGET_APP_NOT_FRONTMOST",
+            "ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST",
+            "set(COMPUTER_USE_FAILURE_KINDS)",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, snippet)
+
     def test_protocol_api_smoke_covers_observer_surface(self) -> None:
         script = _load_testpypi_script()
         snippet = script.PACKAGE_SMOKE_SNIPPETS["app-control-protocol"]

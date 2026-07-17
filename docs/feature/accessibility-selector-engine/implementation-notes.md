@@ -4301,7 +4301,9 @@ named constants, top-level package exports, and one entry each in
 The generated-script regression executes both bundle-first and name-only paths
 and counts AX application creation and background lookup. Contract tests also
 execute all three mismatch producers and require every emitted value to be
-publicly importable and registry-routable. No real Accessibility operation or
+publicly importable and registry-routable. The shared TestPyPI/wheel API smoke
+imports all three named constants from the installed package and asserts their
+membership in the installed registry. No real Accessibility operation or
 desktop mutation is part of this slice.
 
 Deterministic verification at the slice worktree:
