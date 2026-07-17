@@ -4564,3 +4564,40 @@ wechat-desktop-tool package suite: 154 passed
 ```
 
 No live Accessibility or WeChat mutation was executed.
+
+## R10-C Verified WeChat Contact Targets
+
+Status: implementation and full WeChat package verification complete;
+independent re-review remains pending.
+
+This slice completes candidate remediation for `PRR-039` and `PRR-043`:
+
+- one presence-sensitive gate validates every contact-target query's schema,
+  availability, status, failure evidence, node collection, diagnostics,
+  Boolean truncation flag, and optional returned-node count;
+- multi-root targeting stops on the first failed, truncated, or invalid result;
+  only a valid complete empty root can advance;
+- a failed selector-visible query returns its structured permission, timeout,
+  or transport recovery instead of entering search;
+- search cardinality is decided before frame filtering, so an offscreen match
+  cannot hide same-name ambiguity;
+- zero candidates return `contact_not_found`; malformed or offscreen unique
+  targets return `wechat_action_target_unverified`; neither path presses
+  Return;
+- frame values must be native finite numbers with positive dimensions and lie
+  inside the verified query window;
+- Return remains available only after an exact candidate action returns the
+  existing request-bound definite-no-effect proof.
+
+The new contract suite covers five malformed-completeness variants on all
+three target paths, first-root truncation/failure/invalid evidence, direct and
+full-send visible-query failure, and seven empty/malformed/offscreen/ambiguous
+search sets. Every unsafe full-send case stops at its decision query and never
+types the sensitive message or submits it.
+
+```text
+contact target contract tests: 5 passed
+wechat-desktop-tool package suite: 159 passed
+```
+
+No live contact switch, draft, submit, or other desktop mutation was executed.

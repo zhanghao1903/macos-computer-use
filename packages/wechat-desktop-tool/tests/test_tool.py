@@ -4887,7 +4887,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["click"],
         )
 
-    def test_open_contact_ignores_offscreen_search_candidate_and_uses_return(
+    def test_open_contact_rejects_offscreen_search_candidate_without_return(
         self,
     ) -> None:
         app_control = FakeAppControl(
@@ -4915,16 +4915,13 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
         result = WeChatDesktopTool(app_control).open_contact("Ada")
 
-        self.assertTrue(result.success)
-        self.assertEqual(result.observation["currentChat"]["title"], "Ada")
-        self.assertIn(
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_kind, "wechat_action_target_unverified")
+        self.assertNotIn(
             "press_key",
             [command.operation for command in app_control.commands],
         )
-        self.assertNotIn(
-            "coordinates",
-            app_control.commands[-2].input,
-        )
+        self.assertEqual(app_control.commands[-1].operation, "accessibility_query")
 
     def test_read_contact_messages_stops_when_opened_chat_title_mismatches(
         self,

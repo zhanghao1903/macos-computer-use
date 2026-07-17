@@ -123,6 +123,14 @@ class _IntegerEvidence:
     value: int | None = None
 
 
+@dataclass(frozen=True)
+class _ContactQueryFailureContext:
+    failure_kind: str
+    cause_failure_kind: str
+    message: str
+    retryable: bool | None
+
+
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -1255,8 +1263,8 @@ class WeChatDesktopTool:
                 evidence=evidence,
                 phase_events=phase_events,
             )
-            if not result.success:
-                continue
+            if _contact_target_query_issue(result) is not None:
+                return result, collection, []
             rows = _conversation_rows_from_cells(_query_nodes(result))
             if rows:
                 return result, collection, rows
@@ -1423,36 +1431,19 @@ class WeChatDesktopTool:
             evidence=evidence,
             phase_events=phase_events,
         )
-        if not results.success:
-            return _from_app_control_failure(
-                command,
-                _contact_target_query_failure_kind(results),
-                results,
-                evidence=evidence,
-            )
-        truncation_failure = _contact_target_query_truncation_failure(
+        query_failure = _contact_target_query_validation_failure(
             command,
             contact,
             results,
             evidence=evidence,
         )
-        if truncation_failure is not None:
-            return truncation_failure
-        candidates = (
-            _search_candidates_from_nodes(
-                _query_nodes(results),
-                contact,
-                snapshot_id=_query_snapshot_id(_query_payload(results)),
-            )
-            if results.success
-            else []
+        if query_failure is not None:
+            return query_failure
+        candidates = _search_candidates_from_nodes(
+            _query_nodes(results),
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(results)),
         )
-        candidates = [
-            candidate
-            for candidate in candidates
-            if isinstance(candidate.get("element"), Mapping)
-            and _node_frame_within_query_window(candidate["element"], results)
-        ]
         if len(candidates) > 1:
             return _contact_candidates_ambiguity_failure(
                 command,
@@ -1460,40 +1451,47 @@ class WeChatDesktopTool:
                 candidates,
                 evidence=evidence,
             )
-        if candidates:
-            selected = self._click_node_phase(
+        if not candidates:
+            return _contact_target_not_found_failure(
                 command,
-                candidates[0]["element"],
-                phase="open_search_result",
+                contact,
                 evidence=evidence,
-                snapshot_id=_query_snapshot_id(_query_payload(results)),
-                phase_events=phase_events,
             )
-            if not selected.success and _should_press_return_for_search_result(
-                selected,
-                expected_action="AXPress",
-            ):
-                return_selected = self._app_control_command(
-                    command,
-                    phase="open_search_result:return_fallback",
-                    operation="press_key",
-                    input=self._target_app_input(key=self._config.submit_key),
-                    phase_events=phase_events,
-                )
-                evidence["open_search_result:return_fallback"] = (
-                    _safe_app_control_observation(return_selected)
-                )
-                if return_selected.success:
-                    selected = return_selected
-        else:
-            selected = self._app_control_command(
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping) or not _node_frame_within_query_window(
+            element,
+            results,
+        ):
+            return _contact_target_unverified_failure(
                 command,
-                phase="open_search_result",
+                contact,
+                reason="search_candidate_frame_invalid",
+                evidence=evidence,
+            )
+        selected = self._click_node_phase(
+            command,
+            element,
+            phase="open_search_result",
+            evidence=evidence,
+            snapshot_id=_query_snapshot_id(_query_payload(results)),
+            phase_events=phase_events,
+        )
+        if not selected.success and _should_press_return_for_search_result(
+            selected,
+            expected_action="AXPress",
+        ):
+            return_selected = self._app_control_command(
+                command,
+                phase="open_search_result:return_fallback",
                 operation="press_key",
                 input=self._target_app_input(key=self._config.submit_key),
                 phase_events=phase_events,
             )
-            evidence["open_search_result"] = _safe_app_control_observation(selected)
+            evidence["open_search_result:return_fallback"] = (
+                _safe_app_control_observation(return_selected)
+            )
+            if return_selected.success:
+                selected = return_selected
         if not selected.success:
             return _from_app_control_failure(
                 command,
@@ -1540,16 +1538,14 @@ class WeChatDesktopTool:
             evidence=evidence,
             phase_events=phase_events,
         )
-        if not visible_rows.success:
-            return None
-        truncation_failure = _contact_target_query_truncation_failure(
+        query_failure = _contact_target_query_validation_failure(
             command,
             contact,
             visible_rows,
             evidence=evidence,
         )
-        if truncation_failure is not None:
-            return truncation_failure
+        if query_failure is not None:
+            return query_failure
         candidates = _visible_contact_candidates_from_nodes(
             _query_nodes(visible_rows),
             contact,
@@ -1566,9 +1562,19 @@ class WeChatDesktopTool:
             return None
         element = candidates[0].get("element")
         if not isinstance(element, Mapping):
-            return None
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="visible_candidate_element_invalid",
+                evidence=evidence,
+            )
         if not _node_frame_within_query_window(element, visible_rows):
-            return None
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="visible_candidate_frame_invalid",
+                evidence=evidence,
+            )
         action_ref = candidates[0].get("actionRef")
         expected_action = "AXPress"
         if isinstance(action_ref, Mapping):
@@ -1637,14 +1643,14 @@ class WeChatDesktopTool:
         if collection_query is None:
             return None
         query_result, _collection, nodes = collection_query
-        truncation_failure = _contact_target_query_truncation_failure(
+        query_failure = _contact_target_query_validation_failure(
             command,
             contact,
             query_result,
             evidence=evidence,
         )
-        if truncation_failure is not None:
-            return truncation_failure
+        if query_failure is not None:
+            return query_failure
         candidates = _visible_contact_candidates_from_nodes(
             nodes,
             contact,
@@ -1666,9 +1672,19 @@ class WeChatDesktopTool:
             return None
         element = candidates[0].get("element")
         if not isinstance(element, Mapping):
-            return None
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="mapped_candidate_element_invalid",
+                evidence=evidence,
+            )
         if not _node_frame_within_query_window(element, query_result):
-            return None
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="mapped_candidate_frame_invalid",
+                evidence=evidence,
+            )
         action_ref = candidates[0].get("actionRef")
         expected_action = "AXPress"
         if isinstance(action_ref, Mapping):
@@ -3903,12 +3919,14 @@ def _element_from_query_node(
         "role": str(node.get("role") or "AXUnknown"),
     }
     frame = node.get("frame")
-    if isinstance(frame, Mapping):
+    frame_values = _frame_numbers(frame)
+    if frame_values is not None:
+        x, y, width, height = frame_values
         element["frame"] = {
-            "x": _number_value(frame.get("x")) or 0,
-            "y": _number_value(frame.get("y")) or 0,
-            "width": _number_value(frame.get("width")) or 0,
-            "height": _number_value(frame.get("height")) or 0,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
         }
     node_label = label or _node_label(node)
     if node_label:
@@ -4229,17 +4247,13 @@ def _query_matches_target_app_window(
 def _frame_numbers(value: object) -> tuple[float, float, float, float] | None:
     if not isinstance(value, Mapping):
         return None
-    raw_values = tuple(
-        _number_value(value.get(key))
-        for key in ("x", "y", "width", "height")
-    )
-    if any(item is None for item in raw_values):
+    raw_values = tuple(value.get(key) for key in ("x", "y", "width", "height"))
+    if any(
+        isinstance(item, bool) or not isinstance(item, int | float)
+        for item in raw_values
+    ):
         return None
-    x, y, width, height = raw_values
-    assert x is not None
-    assert y is not None
-    assert width is not None
-    assert height is not None
+    x, y, width, height = (float(item) for item in raw_values)
     if not all(math.isfinite(item) for item in (x, y, width, height)):
         return None
     if width <= 0 or height <= 0:
@@ -5279,17 +5293,144 @@ def _query_truncated(observation: ToolObservation) -> bool:
     return bool(isinstance(diagnostics, Mapping) and diagnostics.get("truncated"))
 
 
-def _contact_target_query_failure_kind(observation: ToolObservation) -> str:
+def _contact_target_query_issue(
+    observation: ToolObservation,
+) -> tuple[str, str | None] | None:
+    if not observation.success:
+        return "failed", None
+    payload = _query_payload(observation)
+    invalid_reason = _contact_target_query_invalid_reason(payload)
+    if invalid_reason is not None:
+        return "invalid", invalid_reason
+    diagnostics = payload["diagnostics"]
+    assert isinstance(diagnostics, Mapping)
+    if diagnostics["truncated"] is True:
+        return "truncated", None
+    return None
+
+
+def _contact_target_query_invalid_reason(
+    payload: Mapping[str, Any],
+) -> str | None:
+    if payload.get("schema") != "macos.accessibility.query.v1":
+        return "schema_invalid"
+    if payload.get("available") is not True:
+        return "available_invalid"
+    if "status" in payload and payload.get("status") != "ok":
+        return "status_invalid"
+    if any(key in payload for key in ("failureKind", "failure_kind", "error")):
+        return "failure_evidence_conflict"
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, list):
+        return "nodes_invalid"
+    if any(not isinstance(node, Mapping) for node in nodes):
+        return "node_member_invalid"
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, Mapping):
+        return "diagnostics_invalid"
+    if "truncated" not in diagnostics or not isinstance(
+        diagnostics.get("truncated"),
+        bool,
+    ):
+        return "truncation_invalid"
+    if any(
+        key in diagnostics
+        for key in ("failureKind", "failure_kind")
+    ):
+        return "diagnostics_failure_conflict"
+    if "returnedNodes" in diagnostics:
+        returned_nodes = diagnostics.get("returnedNodes")
+        if (
+            not isinstance(returned_nodes, int)
+            or isinstance(returned_nodes, bool)
+            or returned_nodes != len(nodes)
+        ):
+            return "returned_nodes_invalid"
+    return None
+
+
+def _contact_target_query_validation_failure(
+    command: ToolCommand,
+    contact: str,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation | None:
+    issue = _contact_target_query_issue(observation)
+    if issue is None:
+        return None
+    issue_kind, reason = issue
+    if issue_kind == "failed":
+        return _failure_from_contact_target_query(
+            command,
+            observation,
+            evidence=evidence,
+        )
+    if issue_kind == "truncated":
+        return _contact_target_query_truncation_failure(
+            command,
+            contact,
+            observation,
+            evidence=evidence,
+        )
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="accessibility_query_failed",
+        message=(
+            "WeChat contact target query returned an invalid response and "
+            "cannot establish a safe target."
+        ),
+        recovery_hint="Retry after WeChat and the local control service settle.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "query_invalid",
+            "diagnostics": {"reason": reason or "query_invalid"},
+        },
+        evidence=evidence,
+    )
+
+
+def _failure_from_contact_target_query(
+    command: ToolCommand,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
     cause = observation.failure_kind or "accessibility_query_failed"
-    if cause in _SELECTOR_PERMISSION_FAILURES:
-        return "missing_accessibility"
-    if cause in _SELECTOR_TIMEOUT_FAILURES:
-        return "accessibility_query_timeout"
-    if cause in _SELECTOR_TRANSPORT_FAILURES:
-        return "app_control_transport_failed"
-    if cause in _SELECTOR_TRUNCATION_FAILURES:
-        return "wechat_query_truncated"
-    return "accessibility_query_failed"
+    message = observation.message or observation.summary
+    selector_failure_kind = "selector_query_failed"
+    diagnostics = _ContactQueryFailureContext(
+        failure_kind=selector_failure_kind,
+        cause_failure_kind=cause,
+        message=message,
+        retryable=observation.retryable,
+    )
+    return _failure_from_selector_query(
+        command,
+        diagnostics,
+        message="WeChat contact target query failed.",
+        observation_key="selector",
+        semantic_payload={
+            "id": "wechat.contactTarget",
+            "status": "failed",
+            "profileId": "wechat.contactTarget",
+            "profileVersion": "1",
+            "diagnostics": {
+                "failureKind": selector_failure_kind,
+                "causeFailureKind": cause,
+                "retryable": (
+                    observation.retryable
+                    if observation.retryable is not None
+                    else True
+                ),
+                "message": message,
+            },
+        },
+        evidence=evidence,
+    )
 
 
 def _contact_target_query_truncation_failure(
@@ -5299,7 +5440,8 @@ def _contact_target_query_truncation_failure(
     *,
     evidence: dict[str, JsonValue],
 ) -> ToolObservation | None:
-    if not observation.success or not _query_truncated(observation):
+    issue = _contact_target_query_issue(observation)
+    if issue is None or issue[0] != "truncated":
         return None
     raw_diagnostics = _query_payload(observation).get("diagnostics")
     diagnostics: dict[str, JsonValue] = {"truncated": True}
@@ -5327,6 +5469,52 @@ def _contact_target_query_truncation_failure(
             "target": contact,
             "status": "query_truncated",
             "diagnostics": diagnostics,
+        },
+        evidence=evidence,
+    )
+
+
+def _contact_target_not_found_failure(
+    command: ToolCommand,
+    contact: str,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=ToolStatus.NOT_FOUND,
+        failure_kind="contact_not_found",
+        message=f"Could not find a unique search result for {contact}.",
+        recovery_hint="Use a contact name that produces one visible result.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "not_found",
+        },
+        evidence=evidence,
+    )
+
+
+def _contact_target_unverified_failure(
+    command: ToolCommand,
+    contact: str,
+    *,
+    reason: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_target_unverified",
+        message="WeChat contact target geometry could not be verified.",
+        recovery_hint="Restore the target row inside the visible WeChat window.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "target_unverified",
+            "diagnostics": {"reason": reason},
         },
         evidence=evidence,
     )
