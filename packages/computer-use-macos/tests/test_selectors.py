@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import tomllib
 import unittest
 
 from computer_use_macos.selectors.collections import CollectionExtractor
 from computer_use_macos.selectors.profile import parse_selector_profile
 from computer_use_macos.selectors.resolver import SelectorResolver
-from computer_use_macos.selectors.validation import SelectorProfileValidationError
+from computer_use_macos.selectors.validation import (
+    SelectorProfileValidationError,
+    validate_selector_profile,
+)
 
 
 def _valid_profile() -> dict[str, object]:
@@ -181,6 +186,128 @@ class SelectorProfileTests(unittest.TestCase):
             "unknown alias",
         ):
             parse_selector_profile(profile)
+
+    def test_attribute_any_of_preserves_absence_and_valid_values(self) -> None:
+        profile = _valid_profile()
+        selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        attributes = selector["steps"][0]["match"]["attributes"]  # type: ignore[index]
+        attributes["AXDescription"] = {"any_of": ["Contacts", "通讯录"]}
+
+        parsed = parse_selector_profile(profile)
+
+        matcher = parsed.selectors["navigation.contacts"].steps[0].match.attributes[
+            "AXDescription"
+        ]
+        self.assertEqual(matcher.any_of, ("Contacts", "通讯录"))
+
+        absent = _valid_profile()
+        absent_selector = absent["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+        absent_attributes = absent_selector["steps"][0]["match"]["attributes"]  # type: ignore[index]
+        absent_attributes["AXDescription"] = {"equals": "Contacts"}
+
+        absent_matcher = (
+            parse_selector_profile(absent)
+            .selectors["navigation.contacts"]
+            .steps[0]
+            .match.attributes["AXDescription"]
+        )
+        self.assertIsNone(absent_matcher.any_of)
+
+    def test_attribute_any_of_rejects_empty_and_wrong_type_values(self) -> None:
+        for value in ([], False, 0, "", {}, None):
+            with self.subTest(value=value):
+                profile = _valid_profile()
+                selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+                attributes = selector["steps"][0]["match"]["attributes"]  # type: ignore[index]
+                attributes["AXDescription"] = {"any_of": value}
+
+                with self.assertRaises(ValueError):
+                    parse_selector_profile(profile)
+
+    def test_non_finite_scalar_profile_values_are_rejected(self) -> None:
+        toml_nan = tomllib.loads("value = nan")["value"]
+        for value in (toml_nan, float("inf"), float("-inf")):
+            for field in (
+                "minimum",
+                "attribute_weight",
+                "action_weight",
+                "structure_weight",
+                "geometry_weight",
+                "cache_weight",
+            ):
+                with self.subTest(value=value, field=field):
+                    profile = _valid_profile()
+                    selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+                    selector["confidence"] = {field: value}  # type: ignore[index]
+
+                    with self.assertRaisesRegex(ValueError, "finite"):
+                        parse_selector_profile(profile)
+
+            with self.subTest(value=value, field="relation.max_distance"):
+                profile = _valid_profile()
+                step = profile["selectors"]["navigation"]["contacts"]["steps"][0]  # type: ignore[index]
+                step["relation"] = {  # type: ignore[index]
+                    "anchor_selector_id": "fallback",
+                    "relation": "near",
+                    "max_distance": value,
+                }
+
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    parse_selector_profile(profile)
+
+            with self.subTest(value=value, field="constraint.weight"):
+                profile = _valid_profile()
+                selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+                selector["constraints"] = [  # type: ignore[index]
+                    {
+                        "kind": "selected",
+                        "value": True,
+                        "weight": value,
+                    }
+                ]
+
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    parse_selector_profile(profile)
+
+    def test_non_finite_frame_constraint_members_are_rejected(self) -> None:
+        for value in (float("nan"), float("inf"), float("-inf")):
+            for field in ("x", "y", "width", "height"):
+                with self.subTest(value=value, field=field):
+                    frame = {"x": 0, "y": 0, "width": 100, "height": 100}
+                    frame[field] = value
+                    profile = _valid_profile()
+                    selector = profile["selectors"]["navigation"]["contacts"]  # type: ignore[index]
+                    selector["constraints"] = [  # type: ignore[index]
+                        {
+                            "kind": "frameWithin",
+                            "value": frame,
+                            "required": True,
+                        }
+                    ]
+
+                    with self.assertRaisesRegex(
+                        SelectorProfileValidationError,
+                        "must be finite",
+                    ):
+                        parse_selector_profile(profile)
+
+    def test_validation_rejects_non_finite_direct_dataclass_values(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        selector = profile.selectors["navigation.contacts"]
+        invalid_selector = replace(
+            selector,
+            confidence=replace(selector.confidence, minimum=float("nan")),
+        )
+        invalid_profile = replace(
+            profile,
+            selectors={**profile.selectors, selector.selector_id: invalid_selector},
+        )
+
+        with self.assertRaisesRegex(
+            SelectorProfileValidationError,
+            "must be finite",
+        ):
+            validate_selector_profile(invalid_profile)
 
     def test_unbounded_selector_step_is_rejected(self) -> None:
         profile = _valid_profile()

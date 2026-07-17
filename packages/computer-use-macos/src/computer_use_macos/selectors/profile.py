@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 from .models import (
@@ -180,10 +181,13 @@ def _parse_match(data: Mapping[str, Any]) -> MatchRule:
 
 def _parse_attribute_matcher(data: Any, field_name: str) -> AttributeMatcher:
     matcher = _mapping(data, field_name)
-    any_of = matcher.get("any_of")
     return AttributeMatcher(
         equals=matcher.get("equals"),
-        any_of=tuple(_sequence(any_of, f"{field_name}.any_of")) if any_of else None,
+        any_of=(
+            tuple(_sequence(matcher["any_of"], f"{field_name}.any_of"))
+            if "any_of" in matcher
+            else None
+        ),
         contains=_optional_string(matcher.get("contains"), f"{field_name}.contains"),
         regex=_optional_string(matcher.get("regex"), f"{field_name}.regex"),
         exists=_optional_bool(matcher.get("exists"), f"{field_name}.exists"),
@@ -436,7 +440,10 @@ def _integer(value: Any, field_name: str) -> int:
 def _float(value: Any, field_name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"{field_name} must be a number")
-    return float(value)
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite number")
+    return parsed
 
 
 def _optional_float(value: Any, field_name: str) -> float | None:

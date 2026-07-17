@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 
@@ -259,6 +260,8 @@ def _validate_relation(
         )
     if relation.relation not in RELATION_KINDS:
         raise SelectorProfileValidationError(f"{field_name}.relation is invalid")
+    if relation.max_distance is not None:
+        _require_finite_number(relation.max_distance, f"{field_name}.max_distance")
     if relation.max_distance is not None and relation.max_distance <= 0:
         raise SelectorProfileValidationError(
             f"{field_name}.max_distance must be > 0"
@@ -275,6 +278,7 @@ def _validate_constraint(
 ) -> None:
     if constraint.kind not in CONSTRAINT_KINDS:
         raise SelectorProfileValidationError(f"{field_name}.kind is invalid")
+    _require_finite_number(constraint.weight, f"{field_name}.weight")
     if constraint.weight < 0:
         raise SelectorProfileValidationError(f"{field_name}.weight must be >= 0")
     if constraint.kind == "minChildren":
@@ -306,6 +310,7 @@ def _validate_confidence(
     *,
     pick: str,
 ) -> None:
+    _require_finite_number(confidence.minimum, f"{field_name}.minimum")
     if not 0 <= confidence.minimum <= 1:
         raise SelectorProfileValidationError(f"{field_name}.minimum must be 0..1")
     weights = (
@@ -315,6 +320,8 @@ def _validate_confidence(
         confidence.geometry_weight,
         confidence.cache_weight,
     )
+    for index, weight in enumerate(weights):
+        _require_finite_number(weight, f"{field_name}.weights[{index}]")
     if any(weight < 0 for weight in weights):
         raise SelectorProfileValidationError(f"{field_name} weights must be >= 0")
     if pick == "best" and all(weight == 0 for weight in weights):
@@ -332,10 +339,16 @@ def _validate_frame_value(value: object, field_name: str) -> None:
             raise SelectorProfileValidationError(
                 f"{field_name}.{key} must be a number"
             )
+        _require_finite_number(field_value, f"{field_name}.{key}")
     if value["width"] < 0 or value["height"] < 0:
         raise SelectorProfileValidationError(
             f"{field_name}.width and height must be >= 0"
         )
+
+
+def _require_finite_number(value: int | float, field_name: str) -> None:
+    if not math.isfinite(float(value)):
+        raise SelectorProfileValidationError(f"{field_name} must be finite")
 
 
 def _validate_cache(cache: CachePolicy, field_name: str) -> None:

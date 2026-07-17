@@ -4507,3 +4507,31 @@ mechanically mergeable, and `CLEAN`.
 No live desktop mutation was performed. Exact commands, timings, environment,
 CI links, and remaining external-release limitations are recorded in
 `verification.md` under "R5 Full Remediation Verification".
+
+## R10-A Strict Selector Profile Inputs
+
+Status: implementation and owning-package verification complete; independent
+re-review remains pending.
+
+This slice addresses `PRR-040` and `PRR-041`:
+
+- `AttributeMatcher.any_of` is parsed by key presence. An absent key remains
+  `None`; a present list becomes a tuple; an empty or wrong-type value reaches
+  validation and is rejected instead of disappearing through truthiness.
+- Every parser-owned floating-point value must be finite before an immutable
+  profile is constructed.
+- Defensive dataclass validation also rejects non-finite relation distances,
+  constraint weights, confidence values, and frame members, so callers cannot
+  bypass the parser by constructing models directly.
+
+The regression matrix covers absent and valid `any_of`, six empty/falsey or
+wrong-type values, TOML `nan`, mapping `inf` and `-inf`, all confidence fields,
+relation distance, constraint weight, all four frame members, and a directly
+constructed non-finite profile.
+
+```text
+SelectorProfileTests: 32 passed
+computer-use-macos package suite: 163 passed, 1 skipped
+```
+
+No AX query, Accessibility action, or live desktop operation was executed.
