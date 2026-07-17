@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import math
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -22,6 +24,9 @@ from app_control_protocol import (
 from app_control_protocol.json_types import JsonValue
 
 from .commands import WECHAT_TOOL, wechat_command
+from .control_map import WeChatMappedCollection
+from .control_map import WeChatMappedControl
+from .control_map import WeChatRootResolver
 from .models import (
     WECHAT_WINDOW_SCHEMA,
     WeChatDesktopConfig,
@@ -29,6 +34,9 @@ from .models import (
     WeChatVisibleMessage,
     wechat_message_hash,
 )
+from .profiles import build_packaged_collection_extractor
+from .profiles import build_packaged_selector_resolver
+from .profiles import load_selector_assets
 from .window_model import build_wechat_window_model
 
 if TYPE_CHECKING:
@@ -44,6 +52,85 @@ _INCOMING_LABELS = {"incoming", "received", "you"}
 _OUTGOING_LABELS = {"outgoing", "sent", "me"}
 _REDACTED = "[redacted]"
 _SENSITIVE_INPUT_KEYS = {"text", "message"}
+_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS = 2_000
+_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS = 800
+_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
+_MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS = 1.0
+_MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS = 450
+_SEARCH_FOCUS_QUERY_TIMEOUT_MS = 500
+_DEFINITE_UNSUPPORTED_NATIVE_ERRORS = {
+    "AXPress": -25206,
+    "AXSetFocus": -25205,
+}
+_SELECTOR_PERMISSION_FAILURES = frozenset(
+    {
+        "missing_accessibility",
+        "accessibility_not_trusted",
+        "accessibility_permission_missing",
+        "accessibility_query_permission_missing",
+    }
+)
+_SELECTOR_TIMEOUT_FAILURES = frozenset(
+    {
+        "timeout",
+        "accessibility_query_timeout",
+        "accessibility_snapshot_timeout",
+        "accessibility_tree_snapshot_timeout",
+    }
+)
+_SELECTOR_TRANSPORT_FAILURES = frozenset(
+    {
+        "helper_transport_failed",
+        "app_control_transport_failed",
+        "local_service_failed",
+        "local_service_unavailable",
+        "socket_unavailable",
+        "connection_failed",
+        "accessibility_query_worker_failed",
+        "accessibility_query_worker_empty_response",
+        "accessibility_query_invalid_json",
+        "accessibility_query_invalid_payload",
+    }
+)
+_SELECTOR_TRUNCATION_FAILURES = frozenset(
+    {
+        "selector_query_truncated",
+        "accessibility_query_truncated",
+        "query_limit_reached",
+        "query_time_budget_reached",
+    }
+)
+
+
+@dataclass(frozen=True)
+class _BooleanEvidence:
+    present: bool
+    valid: bool
+    value: bool | None = None
+
+
+@dataclass(frozen=True)
+class _StringEvidence:
+    present: bool
+    valid: bool
+    value: str | None = None
+
+
+@dataclass(frozen=True)
+class _IntegerEvidence:
+    present: bool
+    valid: bool
+    value: int | None = None
+
+
+@dataclass(frozen=True)
+class _ContactQueryFailureContext:
+    failure_kind: str
+    cause_failure_kind: str
+    message: str
+    retryable: bool | None
+
+
 _LOGIN_REQUIRED_MARKERS = (
     "not logged in",
     "log in to wechat",
@@ -73,6 +160,7 @@ _CHAT_INPUT_MARKERS = (
     "聊天输入",
     "消息输入",
 )
+_ACTION_REF_TTL_SECONDS = 300
 _QUERY_ATTRIBUTES: list[str] = [
     "AXRole",
     "AXSubrole",
@@ -106,6 +194,17 @@ class WeChatDesktopTool:
     ) -> None:
         self._app_control = app_control
         self._config = config or WeChatDesktopConfig()
+        if self._config.computer_use_backend.casefold() == "helper":
+            raise ValueError(
+                "wechat-desktop-tool selector APIs do not support "
+                "computer_use.backend=helper in version 0.2.0; use direct or "
+                "a direct-backed local service"
+            )
+        self._selector_assets = load_selector_assets(
+            self._config.selector_profile_path
+        )
+        self._control_map = self._selector_assets.control_map
+        self._selector_profile = self._selector_assets.selector_profile
 
     @classmethod
     def from_config(
@@ -353,33 +452,14 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        opened = self._app_control_command(
+        evidence: dict[str, JsonValue] = {}
+        observed = self._open_wechat_phase(
             command,
-            phase="open_wechat",
-            operation="open_app",
-            input=self._open_app_input(),
+            evidence,
             phase_events=phase_events,
         )
-        if not opened.success:
-            return _from_app_control_failure(command, "wechat_open_failed", opened)
-        observed = self._app_control_command(
-            command,
-            phase="verify_wechat_window",
-            operation="observe",
-            input=self._target_app_input(),
-            phase_events=phase_events,
-        )
-        evidence: dict[str, JsonValue] = {
-            "open": _safe_app_control_observation(opened),
-            "observe": _safe_app_control_observation(observed),
-        }
         if not observed.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_not_ready",
-                observed,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, observed, evidence)
         identity_failure = _wechat_identity_failure(
             command,
             self._config,
@@ -425,7 +505,7 @@ class WeChatDesktopTool:
                 ),
                 "wechatEnvironment": _wechat_environment(self._config, observed),
                 "windowReady": True,
-                "appControlObservation": _safe_app_control_observation(opened),
+                "appControlObservation": evidence.get("open_wechat"),
                 "observeObservation": _safe_app_control_observation(observed),
             },
             evidence=evidence,
@@ -445,24 +525,9 @@ class WeChatDesktopTool:
             default=True,
         )
         evidence: dict[str, JsonValue] = {}
-        opened = self._app_control_command(
-            command,
-            phase="open_wechat",
-            operation="open_app",
-            input=self._open_app_input(),
-            phase_events=phase_events,
-        )
-        evidence["open_wechat"] = _inspect_window_observe_evidence(
-            opened,
-            include_raw=False,
-        )
+        opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
+            return _open_wechat_phase_failure(command, opened, evidence)
         top_level = self._app_control_command(
             command,
             phase="inspect_window",
@@ -589,10 +654,13 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        return self._list_row_items(
+        return self._list_row_items_with_selector_profile(
             command,
             section="contacts",
             schema="wechat.contacts.v1",
+            collection_id="contacts",
+            navigation_selector_id="navigation.contacts",
+            summary="Listed visible WeChat contacts.",
             phase_events=phase_events,
         )
 
@@ -602,56 +670,105 @@ class WeChatDesktopTool:
         *,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
-        return self._list_row_items(
+        return self._list_row_items_with_selector_profile(
             command,
             section="chats",
             schema="wechat.conversations.v1",
+            collection_id="conversations",
+            navigation_selector_id="navigation.chats",
+            summary="Listed visible WeChat conversations.",
             phase_events=phase_events,
         )
 
-    def _list_row_items(
+    def _list_row_items_with_selector_profile(
         self,
         command: ToolCommand,
         *,
         section: str,
         schema: str,
+        collection_id: str,
+        navigation_selector_id: str,
+        summary: str,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         limit = _positive_int(command.input.get("limit"), default=30)
         page_token = _optional_string_input(command, "pageToken", "page_token")
+        if page_token is not None:
+            return _failure(
+                command,
+                status=ToolStatus.FAILED,
+                failure_kind="pagination_not_supported",
+                message=(
+                    "WeChat visible-window lists do not support continuation "
+                    "page tokens. Request a larger limit or refresh the list."
+                ),
+                recovery_hint="Retry without pageToken.",
+                retryable=False,
+                observation={
+                    "schema": schema,
+                    "section": section,
+                    "pagination": {
+                        "mode": "visibleWindow",
+                        "limit": limit,
+                        "pageToken": page_token,
+                        "hasMore": False,
+                        "nextPageToken": None,
+                    },
+                },
+            )
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
+            return _open_wechat_phase_failure(command, opened, evidence)
+
+        fast_result = self._list_row_items_with_control_map(
+            command,
+            section=section,
+            schema=schema,
+            collection_id=collection_id,
+            summary=summary,
+            limit=limit,
+            page_token=page_token,
+            active_window_title=_string_from_observation(
                 opened,
-                evidence=evidence,
-            )
-        top_level = self._query_top_level(command, evidence, phase_events=phase_events)
-        if not top_level.success:
-            return _from_app_control_failure(
+                "windowTitle",
+                "window_title",
+                "title",
+            ),
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if fast_result is not None:
+            return fast_result
+
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
+            command,
+            evidence=evidence,
+            phase_prefix=f"selectors.{section}",
+            phase_events=phase_events,
+        )
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+            selector_profile=self._selector_profile,
+        )
+        navigation = resolver.resolve(navigation_selector_id)
+        if navigation.status != "resolved" or not navigation.elements:
+            return _failure_from_selector_result(
                 command,
-                "wechat_not_ready",
-                top_level,
+                navigation,
+                failure_kind="wechat_navigation_failed",
+                message=f"Could not locate WeChat {section} navigation item.",
                 evidence=evidence,
             )
-        top_snapshot_id = _query_snapshot_id(_query_payload(top_level))
-        navigation = _navigation_from_query_nodes(
-            _query_nodes(top_level),
-            snapshot_id=top_snapshot_id,
-        )
-        nav_item = next(
-            (item for item in navigation if item.get("label") == section),
-            None,
-        )
-        if nav_item is not None and nav_item.get("selected") is not True:
+        if not _selector_element_selected(navigation.elements[0]):
             clicked = self._click_node_phase(
                 command,
-                nav_item["element"],
+                _node_from_selector_element(navigation.elements[0]),
                 phase=f"switch_{section}",
                 evidence=evidence,
-                snapshot_id=top_snapshot_id,
+                snapshot_id=navigation.snapshot_id,
                 phase_events=phase_events,
             )
             if not clicked.success:
@@ -661,62 +778,43 @@ class WeChatDesktopTool:
                     clicked,
                     evidence=evidence,
                 )
-            top_level = self._query_top_level(
-                command,
-                evidence,
-                phase=f"{section}:top_level",
-                phase_events=phase_events,
-            )
-        main_content = _main_content_node(_query_nodes(top_level))
-        if main_content is None:
-            return _failure(
-                command,
-                status=ToolStatus.NOT_FOUND,
-                failure_kind="main_content_not_found",
-                message="Could not locate WeChat main content region.",
-                retryable=True,
-                evidence=evidence,
-            )
-        rows_result = self._query_descendants(
-            command,
-            root_node=main_content,
-            phase=f"{section}:rows",
-            role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=max(limit * 4, 60),
-            evidence=evidence,
-            phase_events=phase_events,
+
+        collection_limit = _collection_extraction_limit(section, limit)
+        collection = build_packaged_collection_extractor(resolver).extract(
+            collection_id,
+            limit=collection_limit,
         )
-        if not rows_result.success:
-            return _from_app_control_failure(
+        if collection.status == "failed":
+            return _failure_from_collection_result(
                 command,
-                "wechat_list_failed",
-                rows_result,
+                collection,
+                failure_kind="wechat_list_failed",
+                message=f"Could not list WeChat {section} items.",
                 evidence=evidence,
             )
-        rows = _row_items_from_nodes(
-            _query_nodes(rows_result),
+        page_rows = _row_items_from_collection_items(
+            collection.items,
             section=section,
-            limit=limit,
-            snapshot_id=_query_snapshot_id(_query_payload(rows_result)),
+            limit=limit + 1,
+            snapshot_id=collection.snapshot_id,
         )
+        rows = page_rows[:limit]
+        semantic_has_more = len(page_rows) > limit
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
             operation=command.operation,
-            summary=(
-                "Listed visible WeChat contacts."
-                if section == "contacts"
-                else "Listed visible WeChat conversations."
-            ),
+            summary=summary,
             observation={
                 "schema": schema,
                 "section": section,
                 "items": rows,
                 "pagination": {
+                    "mode": "visibleWindow",
                     "limit": limit,
                     "pageToken": page_token,
-                    "hasMore": _query_truncated(rows_result),
-                    "nextPageToken": _next_page_token(section, rows_result),
+                    "hasMore": semantic_has_more or _collection_has_more(collection),
+                    "nextPageToken": None,
                 },
                 "availableActions": [
                     {
@@ -729,6 +827,479 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
+    def _list_row_items_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        section: str,
+        schema: str,
+        collection_id: str,
+        summary: str,
+        limit: int,
+        page_token: str | None,
+        active_window_title: str | None,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        navigation_key = "contacts" if section == "contacts" else "chats"
+        switched = self._press_mapped_navigation(
+            command,
+            navigation_key,
+            active_window_title=active_window_title,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if switched is None:
+            return None
+        if not switched.success:
+            return _from_app_control_failure(
+                command,
+                "wechat_navigation_failed",
+                switched,
+                evidence=evidence,
+            )
+        collection_query = self._query_mapped_collection(
+            command,
+            collection_id,
+            semantic_limit=limit + 1,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, collection, nodes = collection_query
+        page_rows = _row_items_from_nodes(
+            nodes,
+            section=section,
+            limit=limit + 1,
+            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+        )
+        if not page_rows and nodes:
+            return None
+        rows = page_rows[:limit]
+        semantic_has_more = len(page_rows) > limit
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary=summary,
+            observation={
+                "schema": schema,
+                "section": section,
+                "items": rows,
+                "pagination": {
+                    "mode": "visibleWindow",
+                    "limit": limit,
+                    "pageToken": page_token,
+                    "hasMore": semantic_has_more or _query_truncated(query_result),
+                    "nextPageToken": None,
+                },
+                "source": {
+                    "mode": "control_map",
+                    "mapId": self._control_map.map_id,
+                    "mapVersion": self._control_map.map_version,
+                    "collection": collection.collection_id,
+                },
+                "availableActions": [
+                    {
+                        "id": "wechat.open_contact",
+                        "status": "needs_input",
+                        "operation": "open_contact",
+                    }
+                ],
+            },
+            evidence=evidence,
+        )
+
+    def _press_mapped_navigation(
+        self,
+        command: ToolCommand,
+        navigation_key: str,
+        *,
+        active_window_title: str | None = None,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        control = self._control_map.navigation.get(navigation_key)
+        if control is None:
+            return None
+        if _window_title_matches_navigation(active_window_title, control):
+            phase = f"control_map_switch_{navigation_key}_skipped"
+            skipped = ToolObservation.ok(
+                command_id=f"{command.command_id}:{phase}",
+                tool=WECHAT_TOOL,
+                operation=command.operation,
+                summary=f"WeChat is already on {navigation_key}.",
+                observation={
+                    "schema": "wechat.control_map.navigation.v1",
+                    "status": "already_selected",
+                    "navigation": navigation_key,
+                    "control": control.control_id,
+                    "source": {
+                        "mode": "control_map",
+                        "mapId": self._control_map.map_id,
+                        "mapVersion": self._control_map.map_version,
+                    },
+                },
+            )
+            evidence[phase] = _safe_app_control_observation(skipped)
+            return skipped
+        return self._execute_mapped_control(
+            command,
+            control,
+            action_id=f"nav.{navigation_key}.press",
+            target_summary=f"Switch to {navigation_key}",
+            phase=f"control_map_switch_{navigation_key}",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _execute_mapped_control(
+        self,
+        command: ToolCommand,
+        control: WeChatMappedControl,
+        *,
+        action_id: str,
+        target_summary: str,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        for index, ax_path in enumerate(control.ax_paths):
+            query_phase = f"{phase}:target_{index}"
+            target_query = self._app_control_command(
+                command,
+                phase=query_phase,
+                operation="accessibility_query",
+                input=self._accessibility_query_input(
+                    root={"kind": "axPath", "axPath": ax_path},
+                    query={
+                        "scope": "self",
+                        "maxDepth": 0,
+                        "limit": 1,
+                        "timeBudgetMs": _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+                        "attributes": [
+                            "AXRole",
+                            "AXDescription",
+                            "AXTitle",
+                            "AXValue",
+                            "AXEnabled",
+                            "AXSelected",
+                            "AXFrame",
+                            "AXPosition",
+                            "AXSize",
+                        ],
+                        "actions": True,
+                        "includeChildrenCount": False,
+                        "match": {"roleIn": [control.role]},
+                    },
+                ),
+                timeout_ms=_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+                phase_events=phase_events,
+            )
+            evidence[query_phase] = _safe_app_control_observation(target_query)
+            if not target_query.success:
+                continue
+            if not _query_matches_target_app_window(target_query, self._config):
+                continue
+            nodes = _query_nodes(target_query)
+            if not nodes:
+                continue
+            target_node = nodes[0]
+            if not _mapped_control_node_matches(target_node, control):
+                continue
+            if not _node_frame_within_query_window(target_node, target_query):
+                continue
+            if _node_selected(target_node):
+                selected_phase = f"{phase}:already_selected_{index}"
+                selected = ToolObservation.ok(
+                    command_id=f"{command.command_id}:{selected_phase}",
+                    tool=WECHAT_TOOL,
+                    operation=command.operation,
+                    summary=(
+                        f"WeChat navigation control {control.control_id} "
+                        "is already selected."
+                    ),
+                    observation={
+                        "schema": "wechat.control_map.navigation.v1",
+                        "status": "already_selected",
+                        "control": control.control_id,
+                        "axPath": ax_path,
+                    },
+                )
+                evidence[selected_phase] = _safe_app_control_observation(selected)
+                return selected
+
+            if control.action in _node_actions(target_node):
+                action_ref = _action_ref_from_node(
+                    target_node,
+                    action_id=action_id,
+                    kind=control.kind,
+                    risk=control.risk,
+                    target_summary=target_summary,
+                    snapshot_id=_query_snapshot_id(_query_payload(target_query)),
+                )
+                if action_ref is not None:
+                    action_result = self._execute_action_ref(
+                        command,
+                        action_ref,
+                        phase=f"{phase}:action_{index}",
+                        evidence=evidence,
+                        timeout_ms=_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS,
+                        phase_events=phase_events,
+                    )
+                    if action_result.success:
+                        return self._verify_mapped_navigation_postcondition(
+                            command,
+                            control,
+                            ax_path=ax_path,
+                            phase=f"{phase}:verify_{index}",
+                            evidence=evidence,
+                            phase_events=phase_events,
+                        )
+                    if not _should_try_coordinate_click_after_accessibility_action(
+                        action_result,
+                        expected_action=(
+                            _optional_string_from_mapping(action_ref, "action")
+                            or control.action
+                        ),
+                    ):
+                        return action_result
+
+            coordinates = _node_center_coordinates(target_node)
+            if coordinates is None:
+                continue
+            coordinate_phase = f"{phase}:coordinate_{index}"
+            coordinate_result = self._app_control_command(
+                command,
+                phase=coordinate_phase,
+                operation="click",
+                input=self._target_app_input(coordinates=coordinates),
+                timeout_ms=_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS,
+                command_metadata={
+                    "coordinateSource": "accessibility_frame",
+                },
+                phase_events=phase_events,
+            )
+            evidence[coordinate_phase] = _safe_app_control_observation(
+                coordinate_result
+            )
+            if coordinate_result.success:
+                return self._verify_mapped_navigation_postcondition(
+                    command,
+                    control,
+                    ax_path=ax_path,
+                    phase=f"{phase}:verify_{index}",
+                    evidence=evidence,
+                    phase_events=phase_events,
+                )
+            if not _coordinate_click_disabled(coordinate_result):
+                return coordinate_result
+
+        return _failure(
+            command,
+            status=ToolStatus.FAILED,
+            failure_kind="wechat_navigation_target_unverified",
+            message=(
+                "Could not verify a current Accessibility target for "
+                f"WeChat navigation control {control.control_id}."
+            ),
+            recovery_hint="Refresh the WeChat window and retry navigation.",
+            retryable=True,
+            evidence=evidence,
+        )
+
+    def _verify_mapped_navigation_postcondition(
+        self,
+        command: ToolCommand,
+        control: WeChatMappedControl,
+        *,
+        ax_path: str,
+        phase: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        verification = self._app_control_command(
+            command,
+            phase=phase,
+            operation="accessibility_query",
+            input=self._accessibility_query_input(
+                root={"kind": "axPath", "axPath": ax_path},
+                query={
+                    "scope": "self",
+                    "maxDepth": 0,
+                    "limit": 1,
+                    "timeBudgetMs": _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+                    "attributes": [
+                        "AXRole",
+                        "AXDescription",
+                        "AXTitle",
+                        "AXValue",
+                        "AXEnabled",
+                        "AXSelected",
+                    ],
+                    "actions": False,
+                    "includeChildrenCount": False,
+                    "match": {"roleIn": [control.role]},
+                },
+            ),
+            timeout_ms=_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
+            phase_events=phase_events,
+        )
+        evidence[phase] = _safe_app_control_observation(verification)
+        nodes = _query_nodes(verification) if verification.success else []
+        if _query_matches_target_app_window(
+            verification,
+            self._config,
+        ) and nodes and _mapped_control_node_matches(
+            nodes[0],
+            control,
+        ) and _node_selected(nodes[0]):
+            return ToolObservation.ok(
+                command_id=f"{command.command_id}:{phase}",
+                tool=WECHAT_TOOL,
+                operation=command.operation,
+                summary=f"Selected WeChat navigation control {control.control_id}.",
+                observation={
+                    "schema": "wechat.control_map.navigation.v1",
+                    "status": "selected",
+                    "control": control.control_id,
+                    "axPath": ax_path,
+                },
+                evidence=evidence,
+            )
+        return _failure(
+            command,
+            status=ToolStatus.FAILED,
+            failure_kind="wechat_navigation_postcondition_failed",
+            message=(
+                f"WeChat navigation control {control.control_id} is not "
+                "selected after the action."
+            ),
+            recovery_hint="Restore the expected WeChat view and retry.",
+            retryable=True,
+            evidence=evidence,
+        )
+
+    def _query_mapped_collection(
+        self,
+        command: ToolCommand,
+        collection_id: str,
+        *,
+        semantic_limit: int,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
+        collection = self._control_map.collections.get(collection_id)
+        if collection is None:
+            return None
+        query_limit = max(
+            collection.minimum_limit,
+            semantic_limit * collection.limit_multiplier,
+        )
+        for index, root_ax_path in enumerate(collection.root_ax_paths):
+            result = self._query_accessibility_nodes(
+                command,
+                root_node={"axPath": root_ax_path},
+                phase=f"control_map_{collection_id}_{index}",
+                scope="descendants",
+                max_depth=collection.max_depth,
+                role_in=list(collection.roles),
+                limit=query_limit,
+                time_budget_ms=collection.time_budget_ms,
+                attributes=list(collection.attributes) or None,
+                actions=collection.actions,
+                root_resolver=collection.root_resolvers.get(root_ax_path),
+                prefer_visible_rows=collection.prefer_visible_rows,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if not result.success:
+                continue
+            nodes = _query_nodes(result)
+            if nodes:
+                return result, collection, nodes
+        return None
+
+    def _query_mapped_conversation_target(
+        self,
+        command: ToolCommand,
+        contact: str,
+        *,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
+        collection = self._control_map.collections.get("conversations")
+        if collection is None:
+            return None
+        successful_query: tuple[
+            ToolObservation,
+            WeChatMappedCollection,
+            list[dict[str, Any]],
+        ] | None = None
+        for index, root_ax_path in enumerate(collection.root_ax_paths):
+            result = self._query_accessibility_nodes(
+                command,
+                root_node={"axPath": root_ax_path},
+                phase=f"control_map_conversation_target_{index}",
+                scope="descendants",
+                max_depth=2,
+                role_in=["AXCell"],
+                limit=2,
+                time_budget_ms=min(
+                    collection.time_budget_ms,
+                    _MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS,
+                ),
+                attributes=[
+                    "AXRole",
+                    "AXDescription",
+                    "AXPosition",
+                    "AXSize",
+                    "AXFrame",
+                ],
+                actions=False,
+                match={"descriptionContains": f"{contact},"},
+                prefer_visible_rows=True,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            if _contact_target_query_issue(result) is not None:
+                return result, collection, []
+            rows = _conversation_rows_from_cells(_query_nodes(result))
+            if rows:
+                return result, collection, rows
+            successful_query = (result, collection, [])
+        return successful_query
+
+    def _mapped_region_node(
+        self,
+        region_id: str,
+        *,
+        reference_ax_path: str | None = None,
+    ) -> dict[str, Any] | None:
+        region = self._control_map.regions.get(region_id)
+        if region is None or not region.ax_paths:
+            return None
+        ax_path = region.ax_paths[0]
+        if reference_ax_path is not None:
+            reference_root = "/".join(reference_ax_path.split("/")[:2])
+            ax_path = next(
+                (
+                    candidate
+                    for candidate in region.ax_paths
+                    if "/".join(candidate.split("/")[:2]) == reference_root
+                ),
+                ax_path,
+            )
+        node: dict[str, Any] = {
+            "axPath": ax_path,
+            "role": region.role,
+        }
+        label = _first_concrete_label(region.labels)
+        if label is not None:
+            node["label"] = label
+        return node
+
     def _open_contact(
         self,
         command: ToolCommand,
@@ -739,60 +1310,97 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
+            return _open_wechat_phase_failure(command, opened, evidence)
+        chats_ready = self._press_mapped_navigation(
+            command,
+            "chats",
+            active_window_title=_string_from_observation(
                 opened,
-                evidence=evidence,
-            )
-        top_level = self._query_top_level(command, evidence, phase_events=phase_events)
-        if not top_level.success:
+                "windowTitle",
+                "window_title",
+                "title",
+            ),
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if chats_ready is not None and not chats_ready.success:
             return _from_app_control_failure(
                 command,
-                "wechat_not_ready",
-                top_level,
+                "wechat_navigation_failed",
+                chats_ready,
                 evidence=evidence,
             )
-        main_content = _main_content_node(_query_nodes(top_level))
-        search_node = None
-        if main_content is not None:
-            main_result = self._query_children(
+        visible_opened = self._open_visible_contact_with_control_map(
+            command,
+            contact=contact,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if visible_opened is not None:
+            return visible_opened
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
+            command,
+            evidence=evidence,
+            phase_prefix="selectors.open_contact",
+            phase_events=phase_events,
+        )
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+            selector_profile=self._selector_profile,
+        )
+        main_content = resolver.resolve("regions.mainContent")
+        if main_content.status != "resolved" or not main_content.elements:
+            return _failure_from_selector_result(
                 command,
-                root_node=main_content,
-                phase="open_contact:main_content",
-                role_in=["AXTextArea", "AXTextField", "AXScrollArea", "AXTable", "AXRow"],
+                main_content,
+                failure_kind="main_content_not_found",
+                message="Could not locate WeChat main content region.",
                 evidence=evidence,
-                phase_events=phase_events,
             )
-            if main_result.success:
-                search_node = _search_node(_query_nodes(main_result))
-        if search_node is not None:
-            focused = self._click_node_phase(
+        visible_opened = self._open_visible_contact_phase(
+            command,
+            contact=contact,
+            main_content=_node_from_selector_element(main_content.elements[0]),
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if visible_opened is not None:
+            return visible_opened
+        search_box = resolver.resolve("regions.searchBox")
+        if search_box.status != "resolved" or not search_box.elements:
+            return _failure_from_selector_result(
                 command,
-                search_node,
-                phase="focus_search",
+                search_box,
+                failure_kind="search_focus_failed",
+                message="Could not locate WeChat search box.",
                 evidence=evidence,
-                snapshot_id=(
-                    _query_snapshot_id(_query_payload(main_result))
-                    if main_result.success
-                    else None
-                ),
-                phase_events=phase_events,
             )
-        else:
-            focused = self._app_control_command(
-                command,
-                phase="focus_search",
-                operation="hotkey",
-                input=self._target_app_input(keys=list(self._config.search_hotkey)),
-                phase_events=phase_events,
-            )
-            evidence["focus_search"] = _safe_app_control_observation(focused)
-        if not focused.success:
+        verified_search = self._focus_search_box_phase(
+            command,
+            contact=contact,
+            search_box=search_box,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if not verified_search.success:
+            return verified_search
+        selected_search_text = self._app_control_command(
+            command,
+            phase="select_search_text",
+            operation="hotkey",
+            input=self._target_app_input(keys=["Command", "A"]),
+            phase_events=phase_events,
+        )
+        evidence["select_search_text"] = _safe_app_control_observation(
+            selected_search_text
+        )
+        if not selected_search_text.success:
             return _from_app_control_failure(
                 command,
-                "search_focus_failed",
-                focused,
+                "contact_search_failed",
+                selected_search_text,
                 evidence=evidence,
             )
         typed = self._app_control_command(
@@ -810,56 +1418,80 @@ class WeChatDesktopTool:
                 typed,
                 evidence=evidence,
             )
-        results = self._query_descendants(
+        results = self._query_accessibility_nodes(
             command,
-            root_node=main_content,
+            root_node=_node_from_selector_element(main_content.elements[0]),
             phase="search_results",
+            scope="descendants",
+            max_depth=4,
             role_in=["AXRow", "AXCell", "AXStaticText"],
-            limit=80,
+            limit=40,
+            time_budget_ms=350,
+            prefer_visible_rows=True,
             evidence=evidence,
             phase_events=phase_events,
-        ) if main_content is not None else typed
-        candidates = (
-            _search_candidates_from_nodes(
-                _query_nodes(results),
-                contact,
-                snapshot_id=_query_snapshot_id(_query_payload(results)),
-            )
-            if results.success
-            else []
+        )
+        query_failure = _contact_target_query_validation_failure(
+            command,
+            contact,
+            results,
+            evidence=evidence,
+        )
+        if query_failure is not None:
+            return query_failure
+        candidates = _search_candidates_from_nodes(
+            _query_nodes(results),
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(results)),
         )
         if len(candidates) > 1:
-            return ToolObservation.ok(
-                command_id=command.command_id,
-                tool=WECHAT_TOOL,
-                operation=command.operation,
-                summary="Multiple WeChat contacts matched the requested contact.",
-                observation={
-                    "schema": "wechat.open_contact.v1",
-                    "target": contact,
-                    "status": "needs_disambiguation",
-                    "candidates": candidates,
-                },
+            return _contact_candidates_ambiguity_failure(
+                command,
+                contact,
+                candidates,
                 evidence=evidence,
             )
-        if candidates:
-            selected = self._click_node_phase(
+        if not candidates:
+            return _contact_target_not_found_failure(
                 command,
-                candidates[0]["element"],
-                phase="open_search_result",
+                contact,
                 evidence=evidence,
-                snapshot_id=_query_snapshot_id(_query_payload(results)),
-                phase_events=phase_events,
             )
-        else:
-            selected = self._app_control_command(
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping) or not _node_frame_within_query_window(
+            element,
+            results,
+        ):
+            return _contact_target_unverified_failure(
                 command,
-                phase="open_search_result",
+                contact,
+                reason="search_candidate_frame_invalid",
+                evidence=evidence,
+            )
+        selected = self._click_node_phase(
+            command,
+            element,
+            phase="open_search_result",
+            evidence=evidence,
+            snapshot_id=_query_snapshot_id(_query_payload(results)),
+            phase_events=phase_events,
+        )
+        if not selected.success and _should_press_return_for_search_result(
+            selected,
+            expected_action="AXPress",
+        ):
+            return_selected = self._app_control_command(
+                command,
+                phase="open_search_result:return_fallback",
                 operation="press_key",
                 input=self._target_app_input(key=self._config.submit_key),
                 phase_events=phase_events,
             )
-            evidence["open_search_result"] = _safe_app_control_observation(selected)
+            evidence["open_search_result:return_fallback"] = (
+                _safe_app_control_observation(return_selected)
+            )
+            if return_selected.success:
+                selected = return_selected
         if not selected.success:
             return _from_app_control_failure(
                 command,
@@ -867,16 +1499,341 @@ class WeChatDesktopTool:
                 selected,
                 evidence=evidence,
             )
-        verification = self._query_descendants(
+        return self._opened_contact_observation(
             command,
-            root_node=main_content,
-            phase="verify_contact",
-            role_in=["AXStaticText"],
-            limit=40,
+            contact=contact,
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(
+                        _node_from_selector_element(main_content.elements[0])
+                    ),
+                )
+                or _node_from_selector_element(main_content.elements[0])
+            ),
+            open_method="search",
             evidence=evidence,
             phase_events=phase_events,
-        ) if main_content is not None else selected
-        chat_title = _chat_title_from_query_nodes(_query_nodes(verification))
+        )
+
+    def _open_visible_contact_phase(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        main_content: Mapping[str, Any],
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        visible_rows = self._query_accessibility_nodes(
+            command,
+            root_node=main_content,
+            phase="visible_contact_rows",
+            scope="descendants",
+            max_depth=4,
+            role_in=["AXRow", "AXCell", "AXStaticText"],
+            limit=40,
+            time_budget_ms=350,
+            prefer_visible_rows=True,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        query_failure = _contact_target_query_validation_failure(
+            command,
+            contact,
+            visible_rows,
+            evidence=evidence,
+        )
+        if query_failure is not None:
+            return query_failure
+        candidates = _visible_contact_candidates_from_nodes(
+            _query_nodes(visible_rows),
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
+        )
+        if len(candidates) > 1:
+            return _contact_candidates_ambiguity_failure(
+                command,
+                contact,
+                candidates,
+                evidence=evidence,
+            )
+        if not candidates:
+            return None
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping):
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="visible_candidate_element_invalid",
+                evidence=evidence,
+            )
+        if not _node_frame_within_query_window(element, visible_rows):
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="visible_candidate_frame_invalid",
+                evidence=evidence,
+            )
+        action_ref = candidates[0].get("actionRef")
+        expected_action = "AXPress"
+        if isinstance(action_ref, Mapping):
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
+            opened = self._execute_action_ref(
+                command,
+                action_ref,
+                phase="open_visible_contact",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+        else:
+            opened = self._click_node_phase(
+                command,
+                element,
+                phase="open_visible_contact",
+                evidence=evidence,
+                snapshot_id=_query_snapshot_id(_query_payload(visible_rows)),
+                phase_events=phase_events,
+            )
+        if not opened.success:
+            if _should_fallback_from_accessibility_action(
+                opened,
+                expected_action=expected_action,
+            ):
+                return None
+            if opened.tool == WECHAT_TOOL:
+                return opened
+            return _from_app_control_failure(
+                command,
+                _execute_action_failure_kind(opened),
+                opened,
+                evidence=evidence,
+            )
+        return self._opened_contact_observation(
+            command,
+            contact=contact,
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(main_content),
+                )
+                or main_content
+            ),
+            open_method="visible_action_ref",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _open_visible_contact_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        collection_query = self._query_mapped_conversation_target(
+            command,
+            contact,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, _collection, nodes = collection_query
+        query_failure = _contact_target_query_validation_failure(
+            command,
+            contact,
+            query_result,
+            evidence=evidence,
+        )
+        if query_failure is not None:
+            return query_failure
+        candidates = _visible_contact_candidates_from_nodes(
+            nodes,
+            contact,
+            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+        )
+        if len(candidates) > 1:
+            return _contact_candidates_ambiguity_failure(
+                command,
+                contact,
+                candidates,
+                evidence=evidence,
+                source={
+                    "mode": "control_map",
+                    "mapId": self._control_map.map_id,
+                    "mapVersion": self._control_map.map_version,
+                },
+            )
+        if not candidates:
+            return None
+        element = candidates[0].get("element")
+        if not isinstance(element, Mapping):
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="mapped_candidate_element_invalid",
+                evidence=evidence,
+            )
+        if not _node_frame_within_query_window(element, query_result):
+            return _contact_target_unverified_failure(
+                command,
+                contact,
+                reason="mapped_candidate_frame_invalid",
+                evidence=evidence,
+            )
+        action_ref = candidates[0].get("actionRef")
+        expected_action = "AXPress"
+        if isinstance(action_ref, Mapping):
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
+            opened = self._execute_action_ref(
+                command,
+                action_ref,
+                phase="control_map_open_visible_contact",
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+        else:
+            opened = self._click_node_phase(
+                command,
+                element,
+                phase="control_map_open_visible_contact",
+                evidence=evidence,
+                snapshot_id=_query_snapshot_id(_query_payload(query_result)),
+                phase_events=phase_events,
+            )
+        if not opened.success:
+            if _should_fallback_from_accessibility_action(
+                opened,
+                expected_action=expected_action,
+            ):
+                return None
+            if opened.tool == WECHAT_TOOL:
+                return opened
+            return _from_app_control_failure(
+                command,
+                _execute_action_failure_kind(opened),
+                opened,
+                evidence=evidence,
+            )
+        return self._opened_contact_observation(
+            command,
+            contact=contact,
+            main_content=(
+                self._mapped_region_node(
+                    "chatPanel",
+                    reference_ax_path=_node_ax_path(element),
+                )
+                or {"axPath": "0/12/4"}
+            ),
+            open_method="control_map_visible_action_ref",
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+
+    def _opened_contact_observation(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        main_content: Mapping[str, Any],
+        open_method: str,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        verification_roots: list[dict[str, Any]] = [dict(main_content)]
+        chat_panel = self._control_map.regions.get("chatPanel")
+        known_paths = {_node_ax_path(main_content)}
+        if chat_panel is not None:
+            for ax_path in chat_panel.ax_paths:
+                if ax_path in known_paths:
+                    continue
+                known_paths.add(ax_path)
+                verification_roots.append(
+                    {
+                        "axPath": ax_path,
+                        "role": chat_panel.role,
+                    }
+                )
+
+        verification: ToolObservation | None = None
+        successful_verification: ToolObservation | None = None
+        chat_title: str | None = None
+        for index, root_node in enumerate(verification_roots):
+            phase = "verify_contact" if index == 0 else f"verify_contact:{index}"
+            candidate = self._query_accessibility_nodes(
+                command,
+                root_node=root_node,
+                phase=phase,
+                scope="descendants",
+                max_depth=2,
+                role_in=["AXStaticText"],
+                limit=20,
+                time_budget_ms=1_200,
+                attributes=[
+                    "AXRole",
+                    "AXDescription",
+                    "AXTitle",
+                    "AXValue",
+                    "AXFrame",
+                ],
+                actions=False,
+                evidence=evidence,
+                phase_events=phase_events,
+            )
+            verification = candidate
+            if not candidate.success:
+                continue
+            successful_verification = candidate
+            chat_title = _chat_title_from_query_nodes(_query_nodes(candidate))
+            if chat_title is not None:
+                break
+
+        verification = successful_verification or verification
+        if verification is None or not verification.success:
+            return _from_app_control_failure(
+                command,
+                "contact_not_found",
+                verification
+                or _failure(
+                    command,
+                    status=ToolStatus.NOT_FOUND,
+                    failure_kind="query_root_not_found",
+                    message="Could not locate a WeChat chat panel.",
+                    retryable=True,
+                ),
+                evidence=evidence,
+            )
+        confidence = _contact_confidence(contact, chat_title)
+        if chat_title is None or confidence < 0.9:
+            actual_title = chat_title or "unknown"
+            return _failure(
+                command,
+                status=ToolStatus.NOT_FOUND,
+                failure_kind="contact_not_found",
+                message=(
+                    "Verified WeChat chat title does not match requested contact: "
+                    f"{actual_title}"
+                ),
+                recovery_hint=(
+                    "Return to the WeChat chats view and retry opening the target "
+                    "contact."
+                ),
+                retryable=True,
+                observation={
+                    "schema": "wechat.open_contact.v1",
+                    "target": contact,
+                    "status": "not_opened",
+                    "openMethod": open_method,
+                    "currentChat": {"title": chat_title},
+                },
+                evidence=evidence,
+            )
         return ToolObservation.ok(
             command_id=command.command_id,
             tool=WECHAT_TOOL,
@@ -886,13 +1843,275 @@ class WeChatDesktopTool:
                 "schema": "wechat.open_contact.v1",
                 "target": contact,
                 "status": "opened",
-                "currentChat": {"title": chat_title or contact},
+                "openMethod": open_method,
+                "currentChat": {"title": chat_title},
+                "confidence": confidence,
                 "availableActions": [
                     {"id": "wechat.read_visible_messages", "status": "available"},
                     {"id": "wechat.draft_message", "status": "needs_input"},
                 ],
             },
             evidence=evidence,
+        )
+
+    def _focus_search_box_phase(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_box: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        search_element = search_box.elements[0]
+        coordinate_verified = self._focus_search_box_coordinate_fallback(
+            command,
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if coordinate_verified is not None:
+            return coordinate_verified
+
+        action_verified = self._focus_search_box_accessibility_action(
+            command,
+            contact=contact,
+            search_element=search_element,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if action_verified is not None:
+            return action_verified
+
+        clicked = self._app_control_command(
+            command,
+            phase="click_search_box",
+            operation="click",
+            input=self._target_app_input(
+                selector={
+                    "role": search_element.role,
+                    "name": search_element.label or "搜索",
+                },
+            ),
+            phase_events=phase_events,
+        )
+        evidence["click_search_box"] = _safe_app_control_observation(clicked)
+        if clicked.success:
+            verified_after_click = self._verify_search_focus_phase(
+                command,
+                phase="verify_search_focus_after_click",
+                search_element=search_element,
+                phase_events=phase_events,
+            )
+            evidence["verify_search_focus_after_click"] = (
+                _safe_app_control_observation(verified_after_click)
+            )
+            if verified_after_click.success:
+                click_focus_failure = _search_focus_failure(
+                    command,
+                    contact,
+                    verified_after_click,
+                    evidence=evidence,
+                )
+                if click_focus_failure is None:
+                    return verified_after_click
+                return click_focus_failure
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified_after_click,
+                evidence=evidence,
+            )
+        return _from_app_control_failure(
+            command,
+            "search_focus_failed",
+            clicked,
+            evidence=evidence,
+        )
+
+    def _focus_search_box_accessibility_action(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_element: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        element_ref = getattr(search_element, "element_ref", None)
+        ax_path = getattr(element_ref, "ax_path", None)
+        if not isinstance(ax_path, str) or not ax_path:
+            return None
+        preconditions: dict[str, JsonValue] = {
+            "roleIn": [str(search_element.role)],
+            "actionIn": ["AXSetFocus"],
+        }
+        if search_element.label:
+            preconditions["labelIn"] = [str(search_element.label)]
+        input_payload = self._target_app_input(
+            target={"kind": "axPath", "axPath": ax_path},
+            action="AXSetFocus",
+            preconditions=preconditions,
+        )
+        snapshot_id = getattr(element_ref, "snapshot_id", None)
+        if isinstance(snapshot_id, str) and snapshot_id:
+            input_payload["snapshotId"] = snapshot_id
+        focused = self._app_control_command(
+            command,
+            phase="focus_search_box_accessibility_action",
+            operation="accessibility_action",
+            input=input_payload,
+            phase_events=phase_events,
+        )
+        evidence["focus_search_box_accessibility_action"] = (
+            _safe_app_control_observation(focused)
+        )
+        if not focused.success:
+            if _should_fallback_from_accessibility_action(
+                focused,
+                expected_action="AXSetFocus",
+            ):
+                return None
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                focused,
+                evidence=evidence,
+            )
+        verified = self._verify_search_focus_phase(
+            command,
+            phase="verify_search_focus_after_accessibility_action",
+            search_element=search_element,
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus_after_accessibility_action"] = (
+            _safe_app_control_observation(verified)
+        )
+        if not verified.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified,
+                evidence=evidence,
+            )
+        focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified,
+            evidence=evidence,
+        )
+        if focus_failure is not None:
+            return focus_failure
+        return verified
+
+    def _focus_search_box_coordinate_fallback(
+        self,
+        command: ToolCommand,
+        *,
+        contact: str,
+        search_element: Any,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        coordinates = _selector_element_center_coordinates(search_element)
+        if coordinates is None:
+            return None
+        clicked = self._app_control_command(
+            command,
+            phase="click_search_box_coordinate",
+            operation="click",
+            input=self._target_app_input(coordinates=coordinates),
+            command_metadata={
+                "coordinateSource": "accessibility_frame",
+            },
+            phase_events=phase_events,
+        )
+        evidence["click_search_box_coordinate"] = _safe_app_control_observation(clicked)
+        if not clicked.success:
+            if _coordinate_click_disabled(clicked):
+                return None
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                clicked,
+                evidence=evidence,
+            )
+        verified = self._verify_search_focus_phase(
+            command,
+            phase="verify_search_focus_after_coordinate",
+            search_element=search_element,
+            phase_events=phase_events,
+        )
+        evidence["verify_search_focus_after_coordinate"] = (
+            _safe_app_control_observation(verified)
+        )
+        if not verified.success:
+            return _from_app_control_failure(
+                command,
+                "search_focus_failed",
+                verified,
+                evidence=evidence,
+            )
+        coordinate_focus_failure = _search_focus_failure(
+            command,
+            contact,
+            verified,
+            evidence=evidence,
+        )
+        if coordinate_focus_failure is not None:
+            return coordinate_focus_failure
+        return verified
+
+    def _verify_search_focus_phase(
+        self,
+        command: ToolCommand,
+        *,
+        phase: str,
+        search_element: Any,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        element_ref = getattr(search_element, "element_ref", None)
+        ax_path = getattr(element_ref, "ax_path", None)
+        if isinstance(ax_path, str) and ax_path:
+            return self._app_control_command(
+                command,
+                phase=phase,
+                operation="accessibility_query",
+                input=self._accessibility_query_input(
+                    root={"kind": "axPath", "axPath": ax_path},
+                    query={
+                        "scope": "self",
+                        "maxDepth": 0,
+                        "limit": 1,
+                        "timeBudgetMs": _SEARCH_FOCUS_QUERY_TIMEOUT_MS,
+                        "attributes": [
+                            "AXRole",
+                            "AXDescription",
+                            "AXTitle",
+                            "AXValue",
+                            "AXPlaceholderValue",
+                            "AXFocused",
+                            "AXEnabled",
+                            "AXFrame",
+                        ],
+                        "actions": False,
+                        "includeChildrenCount": False,
+                        "match": {"roleIn": [str(search_element.role)]},
+                    },
+                ),
+                timeout_ms=_SEARCH_FOCUS_QUERY_TIMEOUT_MS,
+                phase_events=phase_events,
+            )
+        return self._app_control_command(
+            command,
+            phase=phase,
+            operation="observe",
+            input=self._target_app_input(
+                includeAccessibility=True,
+                includeVisibleText=True,
+            ),
+            phase_events=phase_events,
         )
 
     def _execute_action(
@@ -912,9 +2131,11 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         if not result.success:
+            if result.tool == WECHAT_TOOL:
+                return result
             return _from_app_control_failure(
                 command,
-                "wechat_action_failed",
+                _execute_action_failure_kind(result),
                 result,
                 evidence=evidence,
             )
@@ -928,7 +2149,7 @@ class WeChatDesktopTool:
                 "status": "ok",
                 "actionId": action_id,
                 "method": _executed_action_method(action_ref, result),
-                "result": result.observation,
+                "result": _safe_executed_action_result(result),
             },
             evidence=evidence,
         )
@@ -975,6 +2196,58 @@ class WeChatDesktopTool:
         )
 
     def _focus_contact(
+        self,
+        command: ToolCommand,
+        *,
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation:
+        contact = _required_input(command, "contact")
+        opened = self._open_contact(
+            self._command("open_contact", {"contact": contact}, parent=command),
+            phase_events=phase_events,
+        )
+        if not opened.success:
+            return _nested_failure(command, "open_contact", opened)
+
+        current_chat = opened.observation.get("currentChat")
+        current_chat_title = (
+            _string_value(current_chat.get("title"))
+            if isinstance(current_chat, Mapping)
+            else None
+        )
+        confidence = opened.observation.get("confidence")
+        if not isinstance(confidence, int | float) or isinstance(confidence, bool):
+            confidence = _contact_confidence(contact, current_chat_title)
+        environment: dict[str, JsonValue] = {
+            "configuredAppName": self._config.app_name,
+            "frontmostApp": self._config.app_name,
+        }
+        if self._config.bundle_id is not None:
+            environment["configuredBundleId"] = self._config.bundle_id
+            environment["frontmostBundleId"] = self._config.bundle_id
+        if current_chat_title is not None:
+            environment["windowTitle"] = current_chat_title
+
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Focused WeChat contact through verified open_contact.",
+            observation={
+                "focusedContact": contact,
+                "confidence": float(confidence),
+                "appName": self._config.app_name,
+                "bundleId": self._config.bundle_id,
+                "frontmostApp": self._config.app_name,
+                "windowTitle": current_chat_title,
+                "currentChatTitle": current_chat_title,
+                "wechatEnvironment": environment,
+                "openContact": opened.observation,
+            },
+            evidence={"openContact": opened.to_dict()},
+        )
+
+    def _focus_contact_legacy(
         self,
         command: ToolCommand,
         *,
@@ -1264,38 +2537,39 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue] = {}
         opened = self._open_wechat_phase(command, evidence, phase_events=phase_events)
         if not opened.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_open_failed",
-                opened,
-                evidence=evidence,
-            )
-        top_level = self._query_top_level(
+            return _open_wechat_phase_failure(command, opened, evidence)
+        fast_messages = self._read_visible_messages_with_control_map(
             command,
-            evidence,
-            phase="read_visible_messages:top_level",
+            limit=limit,
+            evidence=evidence,
             phase_events=phase_events,
         )
-        if not top_level.success:
-            return _from_app_control_failure(
+        if fast_messages is not None:
+            return fast_messages
+        selector_runner = _WeChatSelectorQueryRunner(
+            self,
+            command,
+            evidence=evidence,
+            phase_prefix="selectors.messages",
+            phase_events=phase_events,
+        )
+        resolver = build_packaged_selector_resolver(
+            selector_runner,
+            app_bundle_id=self._config.bundle_id or "",
+            selector_profile=self._selector_profile,
+        )
+        chat_panel = resolver.resolve("regions.chatPanel")
+        if chat_panel.status != "resolved" or not chat_panel.elements:
+            return _failure_from_selector_result(
                 command,
-                "wechat_not_ready",
-                top_level,
-                evidence=evidence,
-            )
-        main_content = _main_content_node(_query_nodes(top_level))
-        if main_content is None:
-            return _failure(
-                command,
-                status=ToolStatus.NOT_FOUND,
+                chat_panel,
                 failure_kind="message_region_not_found",
-                message="Could not locate WeChat main content region.",
-                retryable=True,
+                message="Could not locate WeChat chat panel region.",
                 evidence=evidence,
             )
         messages_result = self._query_descendants(
             command,
-            root_node=main_content,
+            root_node=_node_from_selector_element(chat_panel.elements[0]),
             phase="read_visible_messages:rows",
             role_in=["AXRow", "AXCell", "AXStaticText"],
             limit=max(limit * 4, 80),
@@ -1331,6 +2605,57 @@ class WeChatDesktopTool:
                     ),
                 },
                 "truncated": _query_truncated(messages_result),
+            },
+            evidence=evidence,
+        )
+
+    def _read_visible_messages_with_control_map(
+        self,
+        command: ToolCommand,
+        *,
+        limit: int,
+        evidence: dict[str, JsonValue],
+        phase_events: "_PhaseEventCollector | None" = None,
+    ) -> ToolObservation | None:
+        collection_query = self._query_mapped_collection(
+            command,
+            "visibleMessages",
+            semantic_limit=limit,
+            evidence=evidence,
+            phase_events=phase_events,
+        )
+        if collection_query is None:
+            return None
+        query_result, collection, nodes = collection_query
+        messages = _messages_from_query_nodes(nodes, limit=limit)
+        if not messages and nodes:
+            return None
+        chat_title = _chat_title_from_query_nodes(nodes)
+        return ToolObservation.ok(
+            command_id=command.command_id,
+            tool=WECHAT_TOOL,
+            operation=command.operation,
+            summary="Read visible WeChat messages.",
+            observation={
+                "schema": "wechat.messages.v1",
+                "chat": {"title": chat_title},
+                "messages": messages,
+                "pagination": {
+                    "limit": limit,
+                    "canReadOlder": _query_truncated(query_result),
+                    "olderPageToken": _next_page_token(
+                        "messages",
+                        query_result,
+                        direction="older",
+                    ),
+                },
+                "source": {
+                    "mode": "control_map",
+                    "mapId": self._control_map.map_id,
+                    "mapVersion": self._control_map.map_version,
+                    "collection": collection.collection_id,
+                },
+                "truncated": _query_truncated(query_result),
             },
             evidence=evidence,
         )
@@ -1522,20 +2847,29 @@ class WeChatDesktopTool:
         phase: str,
         operation: str,
         input: dict[str, JsonValue],
+        timeout_ms: int | None = None,
+        command_metadata: Mapping[str, JsonValue] | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        metadata: dict[str, JsonValue] = {
+            "sourceTool": WECHAT_TOOL,
+            "parentCommandId": parent.command_id,
+            "phase": phase,
+        }
+        if command_metadata is not None:
+            metadata.update(command_metadata)
         observation = self._app_control.run_command(
             ToolCommand(
                 command_id=f"{parent.command_id}:{phase}",
                 tool=self._config.app_control_tool,
                 operation=operation,
                 input=input,
-                timeout_ms=parent.timeout_ms or self._config.default_timeout_ms,
-                metadata={
-                    "sourceTool": WECHAT_TOOL,
-                    "parentCommandId": parent.command_id,
-                    "phase": phase,
-                },
+                timeout_ms=(
+                    timeout_ms
+                    if timeout_ms is not None
+                    else parent.timeout_ms or self._config.default_timeout_ms
+                ),
+                metadata=metadata,
             )
         )
         if phase_events is not None:
@@ -1562,7 +2896,89 @@ class WeChatDesktopTool:
             phase_events=phase_events,
         )
         evidence["open_wechat"] = _safe_app_control_observation(opened)
-        return opened
+        if not opened.success:
+            return opened
+        ready = self._app_control_command(
+            command,
+            phase="verify_wechat_window",
+            operation="observe",
+            input=self._target_app_input(),
+            phase_events=phase_events,
+        )
+        evidence["verify_wechat_window"] = _safe_app_control_observation(ready)
+        if not ready.success or not _wechat_observation_has_window_title(ready):
+            focused = self._app_control_command(
+                command,
+                phase="focus_wechat",
+                operation="focus_app",
+                input=self._open_app_input(),
+                phase_events=phase_events,
+            )
+            evidence["focus_wechat"] = _safe_app_control_observation(focused)
+            if not focused.success:
+                return focused
+            ready = self._app_control_command(
+                command,
+                phase="verify_wechat_window_after_focus",
+                operation="observe",
+                input=self._target_app_input(),
+                phase_events=phase_events,
+            )
+            evidence["verify_wechat_window_after_focus"] = (
+                _safe_app_control_observation(ready)
+            )
+        if not ready.success:
+            return ready
+        if not _wechat_observation_has_window_title(ready):
+            verified_window = self._app_control_command(
+                command,
+                phase="verify_wechat_accessibility_window",
+                operation="accessibility_query",
+                input=self._accessibility_query_input(
+                    root={"kind": "focusedWindow"},
+                    query={
+                        "scope": "self",
+                        "maxDepth": 0,
+                        "limit": 1,
+                        "timeBudgetMs": 2_000,
+                        "attributes": ["AXRole", "AXTitle"],
+                        "actions": False,
+                        "includeChildrenCount": False,
+                    },
+                ),
+                phase_events=phase_events,
+            )
+            evidence["verify_wechat_accessibility_window"] = (
+                _safe_app_control_observation(verified_window)
+            )
+            ready = _ready_observation_with_accessibility_window_title(
+                ready,
+                verified_window,
+                self._config.app_name,
+            )
+        if not _wechat_observation_has_window_title(ready):
+            return _wechat_not_ready_failure(
+                command,
+                "WeChat is frontmost but no focused window is available.",
+                evidence=evidence,
+            )
+        identity_failure = _wechat_identity_failure(
+            command,
+            self._config,
+            ready,
+            evidence=evidence,
+        )
+        if identity_failure is not None:
+            return identity_failure
+        login_failure = _wechat_login_failure(
+            command,
+            self._config,
+            ready,
+            evidence=evidence,
+        )
+        if login_failure is not None:
+            return login_failure
+        return ready
 
     def _accessibility_query_input(
         self,
@@ -1671,6 +3087,12 @@ class WeChatDesktopTool:
         role_in: list[str],
         limit: int,
         evidence: dict[str, JsonValue],
+        time_budget_ms: int | None = None,
+        attributes: list[str] | None = None,
+        actions: bool = True,
+        match: Mapping[str, JsonValue] | None = None,
+        root_resolver: WeChatRootResolver | None = None,
+        prefer_visible_rows: bool = False,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
         ax_path = _node_ax_path(root_node)
@@ -1683,22 +3105,37 @@ class WeChatDesktopTool:
                 retryable=True,
                 evidence=evidence,
             )
+        root_payload: dict[str, JsonValue] = {"kind": "axPath", "axPath": ax_path}
+        if root_resolver is not None:
+            root_payload["resolver"] = _root_resolver_payload(root_resolver)
+        query_attributes: list[JsonValue] = [
+            str(attribute) for attribute in (attributes or _QUERY_ATTRIBUTES)
+        ]
+        query_roles: list[JsonValue] = [str(role) for role in role_in]
+        query_match: dict[str, JsonValue] = {"roleIn": query_roles}
+        if match is not None:
+            query_match.update(dict(match))
+        query_payload: dict[str, JsonValue] = {
+            "scope": scope,
+            "maxDepth": max_depth,
+            "limit": limit,
+            "timeBudgetMs": time_budget_ms
+            if time_budget_ms is not None
+            else (8_000 if scope == "descendants" else 5_000),
+            "attributes": query_attributes,
+            "actions": actions,
+            "includeChildrenCount": False,
+            "match": query_match,
+        }
+        if prefer_visible_rows:
+            query_payload["preferVisibleRows"] = True
         result = self._app_control_command(
             command,
             phase=phase,
             operation="accessibility_query",
             input=self._accessibility_query_input(
-                root={"kind": "axPath", "axPath": ax_path},
-                query={
-                    "scope": scope,
-                    "maxDepth": max_depth,
-                    "limit": limit,
-                    "timeBudgetMs": 8_000 if scope == "descendants" else 5_000,
-                    "attributes": _QUERY_ATTRIBUTES,
-                    "actions": True,
-                    "includeChildrenCount": False,
-                    "match": {"roleIn": role_in},
-                },
+                root=root_payload,
+                query=query_payload,
             ),
             phase_events=phase_events,
         )
@@ -1715,8 +3152,44 @@ class WeChatDesktopTool:
         snapshot_id: str | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        role = str(node.get("role") or "")
+        node_label = _node_label(node)
+        if role == "AXRow" and node_label is None:
+            return _failure(
+                command,
+                status=ToolStatus.FAILED,
+                failure_kind="wechat_action_target_unverified",
+                message="Could not verify the identity of the WeChat row target.",
+                recovery_hint="Refresh the WeChat list and retry the semantic action.",
+                retryable=True,
+                evidence=evidence,
+            )
+        if role == "AXRow" and "AXPress" not in _node_actions(node):
+            coordinates = _node_center_coordinates(node)
+            if coordinates is not None:
+                coordinate_phase = f"{phase}:coordinate"
+                coordinate_result = self._app_control_command(
+                    command,
+                    phase=coordinate_phase,
+                    operation="click",
+                    input=self._target_app_input(coordinates=coordinates),
+                    command_metadata={
+                        "coordinateSource": "accessibility_frame",
+                    },
+                    phase_events=phase_events,
+                )
+                evidence[coordinate_phase] = _safe_app_control_observation(
+                    coordinate_result
+                )
+                if coordinate_result.success:
+                    return coordinate_result
+                if not _coordinate_click_disabled(coordinate_result):
+                    return coordinate_result
         action_ref = _action_ref_from_node(node, snapshot_id=snapshot_id)
         if action_ref is not None:
+            expected_action = (
+                _optional_string_from_mapping(action_ref, "action") or "AXPress"
+            )
             result = self._execute_action_ref(
                 command,
                 action_ref,
@@ -1724,18 +3197,47 @@ class WeChatDesktopTool:
                 evidence=evidence,
                 phase_events=phase_events,
             )
-            if result.success or not _should_fallback_from_accessibility_action(result):
+            if result.success:
+                return result
+            if _should_try_coordinate_click_after_accessibility_action(
+                result,
+                expected_action=expected_action,
+            ):
+                coordinates = _node_center_coordinates(node)
+                if coordinates is not None:
+                    coordinate_phase = f"{phase}:coordinate_fallback"
+                    coordinate_result = self._app_control_command(
+                        command,
+                        phase=coordinate_phase,
+                        operation="click",
+                        input=self._target_app_input(coordinates=coordinates),
+                        command_metadata={
+                            "coordinateSource": "accessibility_frame",
+                        },
+                        phase_events=phase_events,
+                    )
+                    evidence[coordinate_phase] = _safe_app_control_observation(
+                        coordinate_result
+                    )
+                    if coordinate_result.success:
+                        return coordinate_result
+                    if not _coordinate_click_disabled(coordinate_result):
+                        return coordinate_result
+            if not _should_fallback_from_accessibility_action(
+                result,
+                expected_action=expected_action,
+            ):
                 return result
 
         input_payload = self._target_app_input()
-        if _node_label(node) is not None:
+        if node_label is not None:
             input_payload["selector"] = {
-                "role": str(node.get("role") or ""),
-                "name": str(_node_label(node) or ""),
+                "role": role,
+                "name": node_label,
             }
         else:
             input_payload["selector"] = {
-                "role": str(node.get("role") or ""),
+                "role": role,
                 "index": 1,
             }
         result = self._app_control_command(
@@ -1755,18 +3257,39 @@ class WeChatDesktopTool:
         *,
         phase: str,
         evidence: dict[str, JsonValue],
+        timeout_ms: int | None = None,
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation:
+        expiry_failure = _action_ref_expiry_failure(command, action_ref)
+        if expiry_failure is not None:
+            evidence[phase] = {
+                "failureKind": "action_ref_expired",
+                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
+                "expiresAt": _action_ref_expiry_value(action_ref),
+            }
+            return expiry_failure
+        identity_failure = _action_ref_identity_failure(command, action_ref)
+        if identity_failure is not None:
+            evidence[phase] = {
+                "failureKind": "action_ref_identity_unverified",
+                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
+            }
+            return identity_failure
         input_payload = self._accessibility_action_input(action_ref)
+        expected_action = str(input_payload["action"])
         result = self._app_control_command(
             command,
             phase=phase,
             operation="accessibility_action",
             input=input_payload,
+            timeout_ms=timeout_ms,
             phase_events=phase_events,
         )
         evidence[phase] = _safe_app_control_observation(result)
-        if result.success or not _should_fallback_from_accessibility_action(result):
+        if result.success or not _should_fallback_from_accessibility_action(
+            result,
+            expected_action=expected_action,
+        ):
             return result
         selector = _selector_fallback_from_action_ref(action_ref)
         if selector is None:
@@ -1776,14 +3299,13 @@ class WeChatDesktopTool:
             phase=f"{phase}:selector_fallback",
             operation="click",
             input=self._target_app_input(selector=selector),
+            timeout_ms=timeout_ms,
             phase_events=phase_events,
         )
         evidence[f"{phase}:selector_fallback"] = _safe_app_control_observation(
             fallback_result
         )
-        if fallback_result.success:
-            return fallback_result
-        return result
+        return fallback_result
 
     def _accessibility_action_input(
         self,
@@ -1847,10 +3369,326 @@ class WeChatDesktopTool:
         )
 
 
+class _WeChatSelectorQueryRunner:
+    def __init__(
+        self,
+        tool: WeChatDesktopTool,
+        command: ToolCommand,
+        *,
+        evidence: dict[str, JsonValue],
+        phase_prefix: str,
+        phase_events: "_PhaseEventCollector | None",
+    ) -> None:
+        self._tool = tool
+        self._command = command
+        self._evidence = evidence
+        self._phase_prefix = phase_prefix
+        self._phase_events = phase_events
+        self._count = 0
+
+    def __call__(
+        self,
+        *,
+        root: Mapping[str, JsonValue],
+        query: Mapping[str, JsonValue],
+        include_raw: bool = False,
+    ) -> Mapping[str, Any]:
+        self._count += 1
+        phase = f"{self._phase_prefix}:{self._count}"
+        result = self._tool._app_control_command(
+            self._command,
+            phase=phase,
+            operation="accessibility_query",
+            input=self._tool._accessibility_query_input(
+                root=root,
+                query=query,
+                include_raw=include_raw,
+            ),
+            phase_events=self._phase_events,
+        )
+        self._evidence[phase] = _safe_app_control_observation(result)
+        if result.success:
+            return _query_payload(result)
+        return {
+            "schema": "macos.accessibility.query.v1",
+            "available": False,
+            "failureKind": result.failure_kind or "accessibility_query_failed",
+            "message": result.message or result.summary,
+            "retryable": result.retryable,
+            "nodes": [],
+            "diagnostics": {
+                "truncated": False,
+                "failureKind": result.failure_kind or "accessibility_query_failed",
+                "message": result.message or result.summary,
+                "retryable": result.retryable,
+            },
+        }
+
+
 def _coerce_command(command: ToolCommand | Mapping[str, Any]) -> ToolCommand:
     if isinstance(command, Mapping):
         return ToolCommand.from_dict(dict(command))
     return command
+
+
+def _root_resolver_payload(resolver: WeChatRootResolver) -> dict[str, JsonValue]:
+    steps: list[JsonValue] = []
+    for step in resolver.steps:
+        step_payload: dict[str, JsonValue] = {
+            "attribute": step.attribute,
+            "index": step.index,
+        }
+        if step.path_index is not None:
+            step_payload["pathIndex"] = step.path_index
+        steps.append(step_payload)
+    return {
+        "strategy": resolver.strategy,
+        "steps": steps,
+    }
+
+
+def _node_from_selector_element(element: Any) -> dict[str, Any]:
+    element_ref = element.element_ref
+    node: dict[str, Any] = {
+        "axPath": element_ref.ax_path,
+        "role": element.role,
+        "actions": list(element.actions),
+    }
+    if element.label is not None:
+        node["description"] = element.label
+    if element.frame is not None:
+        node["frame"] = {
+            "x": element.frame.x,
+            "y": element.frame.y,
+            "width": element.frame.width,
+            "height": element.frame.height,
+        }
+    return node
+
+
+def _selector_element_selected(element: Any) -> bool:
+    value = element.evidence.matched_attributes.get("AXValue")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "selected"}
+    return False
+
+
+def _failure_from_selector_result(
+    command: ToolCommand,
+    result: Any,
+    *,
+    failure_kind: str,
+    message: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    if result.diagnostics.failure_kind in {
+        "selector_query_failed",
+        "selector_query_truncated",
+    }:
+        return _failure_from_selector_query(
+            command,
+            result.diagnostics,
+            message=message,
+            observation_key="selector",
+            semantic_payload={
+                "id": result.selector_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            },
+            evidence=evidence,
+        )
+    status = (
+        ToolStatus.NOT_FOUND
+        if result.status in {"not_found", "failed"}
+        else ToolStatus.FAILED
+    )
+    return _failure(
+        command,
+        status=status,
+        failure_kind=failure_kind,
+        message=message,
+        retryable=True,
+        observation={
+            "selector": {
+                "id": result.selector_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            }
+        },
+        evidence=evidence,
+    )
+
+
+def _failure_from_collection_result(
+    command: ToolCommand,
+    result: Any,
+    *,
+    failure_kind: str,
+    message: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    if result.diagnostics.failure_kind in {
+        "selector_query_failed",
+        "selector_query_truncated",
+    }:
+        return _failure_from_selector_query(
+            command,
+            result.diagnostics,
+            message=message,
+            observation_key="collection",
+            semantic_payload={
+                "id": result.collection_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            },
+            evidence=evidence,
+        )
+    return _failure(
+        command,
+        status=ToolStatus.NOT_FOUND,
+        failure_kind=failure_kind,
+        message=message,
+        retryable=True,
+        observation={
+            "collection": {
+                "id": result.collection_id,
+                "status": result.status,
+                "profileId": result.profile_id,
+                "profileVersion": result.profile_version,
+                "diagnostics": _selector_diagnostics_payload(result.diagnostics),
+            }
+        },
+        evidence=evidence,
+    )
+
+
+def _failure_from_selector_query(
+    command: ToolCommand,
+    diagnostics: Any,
+    *,
+    message: str,
+    observation_key: str,
+    semantic_payload: dict[str, JsonValue],
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    diagnostic_kind = diagnostics.failure_kind or "selector_query_failed"
+    cause = diagnostics.cause_failure_kind
+    cause_text = cause.casefold() if isinstance(cause, str) else ""
+    diagnostic_kind_text = diagnostic_kind.casefold()
+    diagnostic_message = diagnostics.message or message
+    category: str | None = None
+    if (
+        diagnostic_kind_text in _SELECTOR_TRUNCATION_FAILURES
+        or cause_text in _SELECTOR_TRUNCATION_FAILURES
+    ):
+        category = "truncation"
+    elif cause_text in _SELECTOR_PERMISSION_FAILURES:
+        category = "permission"
+    elif cause_text in _SELECTOR_TIMEOUT_FAILURES:
+        category = "timeout"
+    elif cause_text in _SELECTOR_TRANSPORT_FAILURES:
+        category = "transport"
+
+    if category is None:
+        context = f"{cause_text} {diagnostic_message.casefold()}"
+        if any(
+            token in context
+            for token in ("permission", "accessibility_not_trusted")
+        ):
+            category = "permission"
+        elif "timeout" in context or "timed_out" in context:
+            category = "timeout"
+        elif any(
+            token in context
+            for token in (
+                "transport",
+                "socket",
+                "connection",
+                "local_service",
+                "helper",
+            )
+        ):
+            category = "transport"
+        else:
+            category = "query"
+
+    if category == "permission":
+        status = ToolStatus.NOT_READY
+        mapped_failure_kind = "missing_accessibility"
+        default_retryable = False
+        recovery_hint = (
+            "Grant Accessibility permission to the process or helper that runs "
+            "app-control, then retry."
+        )
+    elif category == "timeout":
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "accessibility_query_timeout"
+        default_retryable = True
+        recovery_hint = (
+            "Retry the bounded Accessibility query after app state settles."
+        )
+    elif category == "transport":
+        status = ToolStatus.NOT_READY
+        mapped_failure_kind = "app_control_transport_failed"
+        default_retryable = True
+        recovery_hint = "Restore the configured app-control transport, then retry."
+    elif category == "truncation":
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "wechat_query_truncated"
+        default_retryable = True
+        recovery_hint = (
+            "Retry with a narrower selector or smaller page after app state settles."
+        )
+    else:
+        status = ToolStatus.FAILED
+        mapped_failure_kind = "accessibility_query_failed"
+        default_retryable = True
+        recovery_hint = "Restore Accessibility query readiness and retry."
+    return _failure(
+        command,
+        status=status,
+        failure_kind=mapped_failure_kind,
+        message=diagnostic_message,
+        recovery_hint=recovery_hint,
+        retryable=(
+            diagnostics.retryable
+            if diagnostics.retryable is not None
+            else default_retryable
+        ),
+        observation={observation_key: semantic_payload},
+        evidence=evidence,
+    )
+
+
+def _selector_diagnostics_payload(diagnostics: Any) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {
+        "triedSelectors": list(diagnostics.tried_selectors),
+        "queryCount": diagnostics.query_count,
+        "nodeCount": diagnostics.node_count,
+        "truncated": diagnostics.truncated,
+        "cacheStatus": diagnostics.cache_status,
+    }
+    if diagnostics.truncation_reason is not None:
+        payload["truncationReason"] = diagnostics.truncation_reason
+    if diagnostics.failure_kind is not None:
+        payload["failureKind"] = diagnostics.failure_kind
+    if diagnostics.cause_failure_kind is not None:
+        payload["causeFailureKind"] = diagnostics.cause_failure_kind
+    if diagnostics.retryable is not None:
+        payload["retryable"] = diagnostics.retryable
+    if diagnostics.message is not None:
+        payload["message"] = diagnostics.message
+    return payload
 
 
 def _query_payload(observation: ToolObservation) -> dict[str, Any]:
@@ -2081,12 +3919,14 @@ def _element_from_query_node(
         "role": str(node.get("role") or "AXUnknown"),
     }
     frame = node.get("frame")
-    if isinstance(frame, Mapping):
+    frame_values = _frame_numbers(frame)
+    if frame_values is not None:
+        x, y, width, height = frame_values
         element["frame"] = {
-            "x": _number_value(frame.get("x")) or 0,
-            "y": _number_value(frame.get("y")) or 0,
-            "width": _number_value(frame.get("width")) or 0,
-            "height": _number_value(frame.get("height")) or 0,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
         }
     node_label = label or _node_label(node)
     if node_label:
@@ -2109,6 +3949,122 @@ def _node_ax_path(node: Mapping[str, Any]) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _utc_now_datetime() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _isoformat_utc(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _action_ref_time_bounds() -> tuple[str, str]:
+    created_at = _utc_now_datetime()
+    expires_at = created_at + timedelta(seconds=_ACTION_REF_TTL_SECONDS)
+    return _isoformat_utc(created_at), _isoformat_utc(expires_at)
+
+
+def _action_ref_expiry_value(action_ref: Mapping[str, Any]) -> str | None:
+    return _optional_string_from_mapping(action_ref, "expiresAt", "expires_at")
+
+
+def _parse_action_ref_time(value: str) -> datetime | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _action_ref_expiry_failure(
+    command: ToolCommand,
+    action_ref: Mapping[str, Any],
+) -> ToolObservation | None:
+    raw_expires_at = _action_ref_expiry_value(action_ref)
+    if raw_expires_at is None:
+        return None
+    expires_at = _parse_action_ref_time(raw_expires_at)
+    if expires_at is not None and _utc_now_datetime() < expires_at:
+        return None
+    action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
+    message = f"WeChat actionRef is expired or invalid: {action_id}"
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_ref_expired",
+        message=message,
+        recovery_hint="Re-run inspect_window or list operation to get a fresh actionRef.",
+        retryable=True,
+        observation={
+            "schema": "wechat.execute_action.v1",
+            "status": "failed",
+            "actionId": action_id,
+            "failureKind": "wechat_action_ref_expired",
+            "expiresAt": raw_expires_at,
+        },
+        evidence={
+            "actionRef": {
+                "id": action_id,
+                "expiresAt": raw_expires_at,
+            }
+        },
+    )
+
+
+def _action_ref_identity_failure(
+    command: ToolCommand,
+    action_ref: Mapping[str, Any],
+) -> ToolObservation | None:
+    target = action_ref.get("target")
+    if not isinstance(target, Mapping):
+        return None
+    role = _optional_string_from_mapping(target, "role")
+    if role is None or role.casefold() not in {"axrow", "row"}:
+        return None
+    target_label = _optional_string_from_mapping(target, "label", "name")
+    preconditions = action_ref.get("preconditions")
+    label_values = (
+        preconditions.get("labelIn")
+        if isinstance(preconditions, Mapping)
+        else None
+    )
+    identity_verified = (
+        target_label is not None
+        and isinstance(label_values, list | tuple)
+        and target_label in label_values
+    )
+    if identity_verified:
+        return None
+
+    action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_precondition_failed",
+        message=(
+            "WeChat row actionRef does not contain a verifiable target "
+            f"identity: {action_id}"
+        ),
+        recovery_hint=(
+            "Re-run list_conversations or use open_contact(displayName) to "
+            "resolve the current row."
+        ),
+        retryable=True,
+        observation={
+            "schema": "wechat.execute_action.v1",
+            "status": "failed",
+            "actionId": action_id,
+            "failureKind": "wechat_action_precondition_failed",
+        },
+    )
+
+
 def _action_ref_from_node(
     node: Mapping[str, Any],
     *,
@@ -2119,10 +4075,14 @@ def _action_ref_from_node(
     snapshot_id: str | None = None,
 ) -> dict[str, JsonValue] | None:
     ax_path = _node_ax_path(node)
-    if ax_path is None or "AXPress" not in _node_actions(node):
+    role = str(node.get("role") or "AXUnknown")
+    if ax_path is None:
+        return None
+    if "AXPress" not in _node_actions(node):
         return None
     label = _node_label(node)
-    role = str(node.get("role") or "AXUnknown")
+    if role == "AXRow" and label is None:
+        return None
     target: dict[str, JsonValue] = {
         "axPath": ax_path,
         "role": role,
@@ -2138,6 +4098,7 @@ def _action_ref_from_node(
         preconditions["labelIn"] = _label_precondition_values(label)
     if isinstance(node.get("enabled"), bool):
         preconditions["enabled"] = bool(node["enabled"])
+    created_at, expires_at = _action_ref_time_bounds()
     action_ref: dict[str, JsonValue] = {
         "schema": "wechat.action_ref.v1",
         "id": action_id or f"ui.{_stable_id(label or ax_path, 0)}.press",
@@ -2148,6 +4109,8 @@ def _action_ref_from_node(
         "preconditions": preconditions,
         "risk": risk,
         "targetSummary": target_summary or f"Press {label or ax_path}",
+        "createdAt": created_at,
+        "expiresAt": expires_at,
     }
     if snapshot_id is not None:
         action_ref["snapshotId"] = snapshot_id
@@ -2157,6 +4120,149 @@ def _action_ref_from_node(
             {"method": "selector_click", "selector": selector},
         ]
     return action_ref
+
+
+def _first_concrete_label(labels: tuple[str, ...]) -> str | None:
+    for label in labels:
+        if label and not label.startswith("__"):
+            return label
+    return None
+
+
+def _window_title_matches_navigation(
+    window_title: str | None,
+    control: WeChatMappedControl,
+) -> bool:
+    if window_title is None:
+        return False
+    expected = {
+        label.casefold()
+        for label in control.labels
+        if label and not label.startswith("__")
+    }
+    if not expected:
+        return False
+    normalized_title = window_title.casefold()
+    return any(label in normalized_title for label in expected)
+
+
+def _mapped_control_node_matches(
+    node: Mapping[str, Any],
+    control: WeChatMappedControl,
+) -> bool:
+    if str(node.get("role") or "") != control.role:
+        return False
+    if node.get("enabled") is not True:
+        return False
+    concrete_labels = {
+        label.casefold()
+        for label in control.labels
+        if label and not label.startswith("__")
+    }
+    if not concrete_labels:
+        return True
+    label = _node_label(node)
+    return label is not None and label.casefold() in concrete_labels
+
+
+def _node_center_coordinates(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
+    frame = node.get("frame")
+    if not isinstance(frame, Mapping):
+        return None
+    x = _number_value(frame.get("x"))
+    y = _number_value(frame.get("y"))
+    width = _number_value(frame.get("width"))
+    height = _number_value(frame.get("height"))
+    if x is None or y is None or width is None or height is None:
+        return None
+    if not all(math.isfinite(item) for item in (x, y, width, height)):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {
+        "x": int(round(x + width / 2)),
+        "y": int(round(y + height / 2)),
+    }
+
+
+def _node_frame_within_query_window(
+    node: Mapping[str, Any],
+    query: ToolObservation,
+) -> bool:
+    node_frame = _frame_numbers(node.get("frame"))
+    payload = _query_payload(query)
+    window = payload.get("window")
+    window_frame = (
+        _frame_numbers(window.get("frame")) if isinstance(window, Mapping) else None
+    )
+    if node_frame is None or window_frame is None:
+        return False
+    node_x, node_y, node_width, node_height = node_frame
+    window_x, window_y, window_width, window_height = window_frame
+    node_right = node_x + node_width
+    node_bottom = node_y + node_height
+    window_right = window_x + window_width
+    window_bottom = window_y + window_height
+    node_center_x = node_x + node_width / 2
+    node_center_y = node_y + node_height / 2
+    tolerance = _MAPPED_NAVIGATION_FRAME_EDGE_TOLERANCE_POINTS
+    return (
+        window_x < node_center_x < window_right
+        and window_y < node_center_y < window_bottom
+        and node_x >= window_x - tolerance
+        and node_y >= window_y - tolerance
+        and node_right <= window_right + tolerance
+        and node_bottom <= window_bottom + tolerance
+    )
+
+
+def _query_matches_target_app_window(
+    query: ToolObservation,
+    config: WeChatDesktopConfig,
+) -> bool:
+    payload = _query_payload(query)
+    if payload.get("available") is not True:
+        return False
+    app = payload.get("app")
+    if not isinstance(app, Mapping):
+        return False
+    observed_bundle_id = _string_value(app.get("bundleId"))
+    observed_name = _string_value(app.get("name"))
+    if config.bundle_id is not None:
+        if observed_bundle_id != config.bundle_id:
+            return False
+    elif (
+        observed_name is None
+        or observed_name.casefold() != config.app_name.casefold()
+    ):
+        return False
+    window = payload.get("window")
+    if not isinstance(window, Mapping):
+        return False
+    if _string_value(window.get("role")) != "AXWindow":
+        return False
+    return _frame_numbers(window.get("frame")) is not None
+
+
+def _frame_numbers(value: object) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, Mapping):
+        return None
+    raw_values = tuple(value.get(key) for key in ("x", "y", "width", "height"))
+    if any(
+        isinstance(item, bool) or not isinstance(item, int | float)
+        for item in raw_values
+    ):
+        return None
+    x, y, width, height = (float(item) for item in raw_values)
+    if not all(math.isfinite(item) for item in (x, y, width, height)):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return x, y, width, height
+
+
+def _coordinate_click_disabled(result: ToolObservation) -> bool:
+    return result.failure_kind == "coordinate_click_disabled"
 
 
 def _selector_from_node(node: Mapping[str, Any]) -> dict[str, JsonValue] | None:
@@ -2189,25 +4295,388 @@ def _stable_id(label: str, fallback_index: int) -> str:
     return normalized or f"item-{fallback_index}"
 
 
-def _should_fallback_from_accessibility_action(result: ToolObservation) -> bool:
-    failure_kind = result.failure_kind
-    if failure_kind in {
+def _should_fallback_from_accessibility_action(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    if result.success or result.operation != "accessibility_action":
+        return False
+    if not _accessibility_action_proof_is_consistent(
+        result,
+        expected_action=expected_action,
+    ):
+        return False
+    attempted = _accessibility_action_attempted(result)
+    dispatched = _accessibility_action_request_dispatched(result)
+    if not attempted.valid or not dispatched.valid:
+        return False
+    failure_kind = _accessibility_action_failure_kind(result)
+    if failure_kind == "accessibility_action_unsupported":
+        return _accessibility_action_has_definite_no_effect(
+            result,
+            expected_action=expected_action,
+        )
+    if not _accessibility_action_has_safe_non_native_effect(result):
+        return False
+    if attempted.value is True:
+        return False
+    unsupported = failure_kind in {
         "unsupported_operation",
         "unsupported_accessibility_action",
-    }:
-        return True
+    }
     metadata = result.metadata if isinstance(result.metadata, Mapping) else {}
     legacy_status = metadata.get("legacyStatus")
     observation = result.observation
-    if legacy_status == "failed" and isinstance(observation, Mapping):
+    if (
+        not unsupported
+        and legacy_status == "failed"
+        and isinstance(observation, Mapping)
+    ):
         nested = observation.get("accessibilityAction")
         if isinstance(nested, Mapping):
             nested_kind = nested.get("failureKind")
-            return nested_kind in {
+            unsupported = nested_kind in {
                 "unsupported_operation",
                 "unsupported_accessibility_action",
             }
-    return False
+    if unsupported:
+        return True
+    if result.retryable is not True:
+        return False
+    return dispatched.present and dispatched.value is False
+
+
+def _should_try_coordinate_click_after_accessibility_action(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    return _should_fallback_from_accessibility_action(
+        result,
+        expected_action=expected_action,
+    )
+
+
+def _should_press_return_for_search_result(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    return _should_fallback_from_accessibility_action(
+        result,
+        expected_action=expected_action,
+    )
+
+
+def _accessibility_action_attempted(result: ToolObservation) -> _BooleanEvidence:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return _BooleanEvidence(present=True, valid=False)
+    return _consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
+
+
+def _accessibility_action_has_definite_no_effect(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    if result.failure_kind != "accessibility_action_unsupported":
+        return False
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    failure_kind = _required_consistent_string_evidence(
+        payloads,
+        ("failureKind", "failure_kind"),
+    )
+    action = _required_consistent_string_evidence(payloads, ("action",))
+    attempted = _required_consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
+    effect = _required_consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _required_consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    expected_native_error = _DEFINITE_UNSUPPORTED_NATIVE_ERRORS.get(action or "")
+    return (
+        failure_kind == "accessibility_action_unsupported"
+        and action == expected_action
+        and expected_native_error is not None
+        and attempted is True
+        and effect == "none"
+        and native_error_code == expected_native_error
+    )
+
+
+def _accessibility_action_has_safe_non_native_effect(
+    result: ToolObservation,
+) -> bool:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    effect = _consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    if not effect.valid or not native_error_code.valid:
+        return False
+    if effect.present and effect.value != "none":
+        return False
+    # A native code means the request reached native action evaluation. Only
+    # the complete action-bound unsupported proof above can establish no effect.
+    return not native_error_code.present
+
+
+def _accessibility_action_proof_payloads(
+    result: ToolObservation,
+) -> tuple[Mapping[str, Any], ...] | None:
+    if not all(
+        isinstance(payload, Mapping)
+        for payload in (result.metadata, result.observation, result.evidence)
+    ):
+        return None
+
+    top_level: dict[str, Any] = {}
+    if result.failure_kind is not None:
+        top_level["failureKind"] = result.failure_kind
+    if result.retryable is not None:
+        top_level["retryable"] = result.retryable
+
+    roots: list[Mapping[str, Any]] = [
+        top_level,
+        result.metadata,
+        result.observation,
+        result.evidence,
+    ]
+    if result.error is not None:
+        if isinstance(result.error, ToolError):
+            roots.append(result.error.to_dict())
+            roots.append(result.error.evidence)
+        elif isinstance(result.error, Mapping):
+            roots.append(result.error)
+            if "evidence" in result.error:
+                error_evidence = result.error.get("evidence")
+                if not isinstance(error_evidence, Mapping):
+                    return None
+                roots.append(error_evidence)
+        else:
+            return None
+
+    nested_container_keys = (
+        "metadata",
+        "accessibilityAction",
+        "accessibility_action",
+        "diagnostics",
+        "transport",
+        "accessibilityActionTransport",
+        "accessibility_action_transport",
+    )
+    payloads: list[Mapping[str, Any]] = []
+    pending = list(roots)
+    seen: set[int] = set()
+    while pending:
+        payload = pending.pop(0)
+        identity = id(payload)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        payloads.append(payload)
+        for key in nested_container_keys:
+            if key not in payload:
+                continue
+            nested = payload.get(key)
+            if not isinstance(nested, Mapping):
+                return None
+            pending.append(nested)
+    return tuple(payloads)
+
+
+def _required_consistent_string_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> str | None:
+    evidence = _consistent_string_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_string_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _StringEvidence:
+    values: list[str] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, str) or not value:
+                return _StringEvidence(present=True, valid=False)
+            values.append(value)
+    if not values:
+        return _StringEvidence(present=False, valid=True)
+    if any(value != values[0] for value in values[1:]):
+        return _StringEvidence(present=True, valid=False)
+    return _StringEvidence(present=True, valid=True, value=values[0])
+
+
+def _required_consistent_bool_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> bool | None:
+    evidence = _consistent_bool_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_bool_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _BooleanEvidence:
+    values: list[bool] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, bool):
+                return _BooleanEvidence(present=True, valid=False)
+            values.append(value)
+    if not values:
+        return _BooleanEvidence(present=False, valid=True)
+    if any(value is not values[0] for value in values[1:]):
+        return _BooleanEvidence(present=True, valid=False)
+    return _BooleanEvidence(present=True, valid=True, value=values[0])
+
+
+def _required_consistent_int_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> int | None:
+    evidence = _consistent_int_evidence(payloads, keys)
+    if not evidence.present or not evidence.valid:
+        return None
+    return evidence.value
+
+
+def _consistent_int_evidence(
+    payloads: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+) -> _IntegerEvidence:
+    values: list[int] = []
+    for payload in payloads:
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if not isinstance(value, int) or isinstance(value, bool):
+                return _IntegerEvidence(present=True, valid=False)
+            values.append(value)
+    if not values:
+        return _IntegerEvidence(present=False, valid=True)
+    if any(value != values[0] for value in values[1:]):
+        return _IntegerEvidence(present=True, valid=False)
+    return _IntegerEvidence(present=True, valid=True, value=values[0])
+
+
+def _accessibility_action_proof_is_consistent(
+    result: ToolObservation,
+    *,
+    expected_action: str,
+) -> bool:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return False
+    failure_kind = _consistent_string_evidence(
+        payloads,
+        ("failureKind", "failure_kind"),
+    )
+    action = _consistent_string_evidence(payloads, ("action",))
+    effect = _consistent_string_evidence(
+        payloads,
+        ("actionEffect", "action_effect"),
+    )
+    native_error_code = _consistent_int_evidence(
+        payloads,
+        ("nativeErrorCode", "native_error_code"),
+    )
+    attempted = _consistent_bool_evidence(
+        payloads,
+        ("actionAttempted", "action_attempted"),
+    )
+    dispatched = _consistent_bool_evidence(
+        payloads,
+        ("requestDispatched", "request_dispatched"),
+    )
+    retryable = _consistent_bool_evidence(payloads, ("retryable",))
+    if not all(
+        item.valid
+        for item in (
+            failure_kind,
+            action,
+            effect,
+            native_error_code,
+            attempted,
+            dispatched,
+            retryable,
+        )
+    ):
+        return False
+    return not action.present or action.value == expected_action
+
+
+def _accessibility_action_request_dispatched(
+    result: ToolObservation,
+) -> _BooleanEvidence:
+    payloads = _accessibility_action_proof_payloads(result)
+    if payloads is None:
+        return _BooleanEvidence(present=True, valid=False)
+    return _consistent_bool_evidence(
+        payloads,
+        ("requestDispatched", "request_dispatched"),
+    )
+
+
+def _execute_action_failure_kind(result: ToolObservation) -> str:
+    failure_kind = _accessibility_action_failure_kind(result)
+    if failure_kind == "wechat_action_ref_expired":
+        return "wechat_action_ref_expired"
+    if failure_kind in {
+        "precondition_failed",
+        "wechat_action_precondition_failed",
+    }:
+        return "wechat_action_precondition_failed"
+    return "wechat_action_failed"
+
+
+def _accessibility_action_failure_kind(result: ToolObservation) -> str | None:
+    if result.failure_kind is not None:
+        return result.failure_kind
+    observation = result.observation
+    if isinstance(observation, Mapping):
+        for key in ("accessibilityAction", "accessibility_action"):
+            nested = observation.get(key)
+            if not isinstance(nested, Mapping):
+                continue
+            failure_kind = nested.get("failureKind") or nested.get("failure_kind")
+            if isinstance(failure_kind, str) and failure_kind:
+                return failure_kind
+    return None
 
 
 def _selector_fallback_from_action_ref(
@@ -2241,6 +4710,9 @@ def _node_label(node: Mapping[str, Any]) -> str | None:
 
 
 def _node_selected(node: Mapping[str, Any]) -> bool:
+    selected = node.get("selected")
+    if isinstance(selected, bool):
+        return selected
     value = node.get("value")
     if isinstance(value, bool):
         return value
@@ -2260,6 +4732,138 @@ def _frame_area(node: Mapping[str, Any]) -> float:
     return width * height
 
 
+def _row_items_from_collection_items(
+    collection_items: tuple[dict[str, JsonValue], ...],
+    *,
+    section: str,
+    limit: int,
+    snapshot_id: str | None = None,
+) -> list[dict[str, JsonValue]]:
+    items: list[dict[str, JsonValue]] = []
+    for item in collection_items:
+        if len(items) >= limit:
+            break
+        element_node = _node_from_collection_element(item.get("element"))
+        if element_node is None:
+            continue
+        if section == "contacts":
+            display_name = _string_value(item.get("displayName"))
+            if display_name is None:
+                continue
+            if not _is_contact_collection_item(item):
+                continue
+            parsed: dict[str, Any] = {
+                "displayName": display_name,
+                "badges": [],
+            }
+        else:
+            raw_label = _string_value(item.get("rawLabel"))
+            if raw_label is None:
+                continue
+            parsed = _parse_row_label(raw_label)
+
+        item_id = f"{section}.visible.{len(items)}"
+        payload: dict[str, JsonValue] = {
+            "id": item_id,
+            "displayName": parsed["displayName"],
+            "actionId": f"{item_id}.open",
+            "element": _element_from_query_node(
+                element_node,
+                label=parsed["displayName"],
+            ),
+            "confidence": 0.88,
+        }
+        action_ref = _action_ref_from_node(
+            element_node,
+            action_id=f"{item_id}.open",
+            kind=f"{section}.open",
+            risk="changes_current_chat",
+            target_summary=f"Open {parsed['displayName']}",
+            snapshot_id=snapshot_id,
+        )
+        if action_ref is not None:
+            payload["actionRef"] = action_ref
+        if section == "contacts":
+            payload["kind"] = "contact"
+        else:
+            if parsed.get("preview") is not None:
+                payload["preview"] = parsed["preview"]
+            if parsed.get("timestamp") is not None:
+                payload["timestamp"] = parsed["timestamp"]
+            payload["badges"] = parsed["badges"]
+            badges = " ".join(parsed["badges"]).casefold()
+            payload["pinned"] = "置顶" in badges or "pinned" in badges
+            payload["muted"] = "免打扰" in badges or "muted" in badges
+        items.append(payload)
+    return items
+
+
+def _collection_extraction_limit(section: str, limit: int) -> int:
+    if section != "contacts":
+        return limit
+    return max(limit, min(limit + 10, 40))
+
+
+def _is_contact_collection_item(item: Mapping[str, JsonValue]) -> bool:
+    element = item.get("element")
+    if not isinstance(element, Mapping):
+        return True
+    frame = element.get("frame")
+    if not isinstance(frame, Mapping):
+        return True
+    height = _number_value(frame.get("height"))
+    if height is None:
+        return True
+    return height >= 50
+
+
+def _selector_element_center_coordinates(element: Any) -> dict[str, JsonValue] | None:
+    frame = getattr(element, "frame", None)
+    if frame is None:
+        return None
+    x = getattr(frame, "x", None)
+    y = getattr(frame, "y", None)
+    width = getattr(frame, "width", None)
+    height = getattr(frame, "height", None)
+    if not all(isinstance(value, int | float) for value in (x, y, width, height)):
+        return None
+    return {
+        "x": int(round(float(x) + float(width) / 2)),
+        "y": int(round(float(y) + float(height) / 2)),
+    }
+
+
+def _node_from_collection_element(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    ax_path = value.get("axPath")
+    if not isinstance(ax_path, str) or not ax_path.strip():
+        return None
+    role = value.get("role")
+    node: dict[str, Any] = {
+        "axPath": ax_path.strip(),
+        "role": role if isinstance(role, str) and role.strip() else "AXUnknown",
+    }
+    label = value.get("label")
+    if isinstance(label, str) and label.strip():
+        node["label"] = label.strip()
+    frame = value.get("frame")
+    if isinstance(frame, Mapping):
+        node["frame"] = {
+            "x": _number_value(frame.get("x")) or 0,
+            "y": _number_value(frame.get("y")) or 0,
+            "width": _number_value(frame.get("width")) or 0,
+            "height": _number_value(frame.get("height")) or 0,
+        }
+    actions = value.get("actions")
+    if isinstance(actions, list):
+        node["actions"] = [str(action) for action in actions]
+    for key in ("enabled", "focused"):
+        if isinstance(value.get(key), bool):
+            node[key] = value[key]
+    return node
+
+
 def _row_items_from_nodes(
     nodes: list[dict[str, Any]],
     *,
@@ -2267,15 +4871,29 @@ def _row_items_from_nodes(
     limit: int,
     snapshot_id: str | None = None,
 ) -> list[dict[str, JsonValue]]:
+    if section == "contacts":
+        nodes = _nodes_with_synthesized_contact_rows(nodes)
     labels_by_row = _row_labels_by_path(nodes)
+    contact_labels_by_row = (
+        _contact_row_labels_by_path(nodes) if section == "contacts" else {}
+    )
     items: list[dict[str, JsonValue]] = []
     for index, row in enumerate(node for node in nodes if node.get("role") == "AXRow"):
         if len(items) >= limit:
             break
-        label = labels_by_row.get(str(row.get("axPath"))) or _node_label(row)
-        if not label:
-            continue
-        parsed = _parse_row_label(label)
+        row_path = str(row.get("axPath") or "")
+        label = contact_labels_by_row.get(row_path) or labels_by_row.get(row_path)
+        label = label or _node_label(row)
+        if section == "contacts":
+            if not _is_contact_row_node(row):
+                continue
+            if not label or _is_contact_non_name_label(label):
+                continue
+            parsed = {"displayName": label, "badges": []}
+        else:
+            if not label:
+                continue
+            parsed = _parse_row_label(label)
         item_id = f"{section}.visible.{len(items)}"
         payload: dict[str, JsonValue] = {
             "id": item_id,
@@ -2312,6 +4930,7 @@ def _row_items_from_nodes(
 
 def _row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
     labels: dict[str, str] = {}
+    row_paths = _row_path_set(nodes)
     for node in nodes:
         path = str(node.get("axPath") or "")
         label = _node_label(node)
@@ -2320,9 +4939,216 @@ def _row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
         if node.get("role") == "AXRow":
             labels[path] = label
         else:
-            parent_path = path.rsplit("/", 1)[0]
-            labels.setdefault(parent_path, label)
+            row_path = _nearest_row_path(path, row_paths) or path.rsplit("/", 1)[0]
+            labels.setdefault(row_path, label)
     return labels
+
+
+def _nodes_with_synthesized_contact_rows(
+    nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if any(node.get("role") == "AXRow" for node in nodes):
+        return nodes
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes:
+        if node.get("role") != "AXStaticText":
+            continue
+        path = str(node.get("axPath") or "")
+        row_path = _contact_row_path_from_static_text_path(path)
+        if row_path is None:
+            continue
+        groups.setdefault(row_path, []).append(node)
+
+    synthesized_rows: list[dict[str, Any]] = []
+    for row_path, text_nodes in groups.items():
+        labels = [
+            (node, label)
+            for node in text_nodes
+            if (label := _node_label(node)) is not None
+        ]
+        if any(_is_contact_whole_row_special_label(label) for _node, label in labels):
+            continue
+        candidates = [
+            (node, label)
+            for node, label in labels
+            if not _is_contact_non_name_label(label)
+        ]
+        if not candidates:
+            continue
+        label_node, label = sorted(
+            candidates,
+            key=lambda item: _node_frame_sort_key(item[0]),
+        )[0]
+        synthesized_rows.append(
+            _synthesized_contact_row_node(row_path, label_node, label),
+        )
+    if not synthesized_rows:
+        return nodes
+    return [*synthesized_rows, *nodes]
+
+
+def _contact_row_path_from_static_text_path(path: str) -> str | None:
+    if not path or "/" not in path:
+        return None
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[-2] == "0":
+        return "/".join(parts[:-2])
+    if len(parts) >= 2:
+        return "/".join(parts[:-1])
+    return None
+
+
+def _synthesized_contact_row_node(
+    row_path: str,
+    text_node: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "axPath": row_path,
+        "role": "AXRow",
+        "label": label,
+    }
+    frame = text_node.get("frame")
+    if isinstance(frame, Mapping):
+        x = _number_value(frame.get("x")) or 0.0
+        y = _number_value(frame.get("y")) or 0.0
+        width = _number_value(frame.get("width")) or 0.0
+        row["frame"] = {
+            "x": max(0.0, x - 76.0),
+            "y": max(0.0, y - 18.0),
+            "width": max(256.0, width + 76.0),
+            "height": 58.0,
+        }
+    return row
+
+
+def _node_frame_sort_key(node: Mapping[str, Any]) -> tuple[float, float]:
+    frame = node.get("frame")
+    if not isinstance(frame, Mapping):
+        return (0.0, 0.0)
+    return (
+        _number_value(frame.get("y")) or 0.0,
+        _number_value(frame.get("x")) or 0.0,
+    )
+
+
+def _contact_row_labels_by_path(nodes: list[dict[str, Any]]) -> dict[str, str]:
+    row_paths = _row_path_set(nodes)
+    candidates: dict[str, list[tuple[float, float, str]]] = {}
+    for node in nodes:
+        if node.get("role") != "AXStaticText":
+            continue
+        path = str(node.get("axPath") or "")
+        row_path = _nearest_row_path(path, row_paths)
+        if row_path is None:
+            continue
+        label = _node_label(node)
+        if not label or _is_contact_non_name_label(label):
+            continue
+        frame = node.get("frame")
+        y = _number_value(frame.get("y")) if isinstance(frame, Mapping) else None
+        x = _number_value(frame.get("x")) if isinstance(frame, Mapping) else None
+        candidates.setdefault(row_path, []).append((y or 0.0, x or 0.0, label))
+    return {
+        row_path: sorted(values, key=lambda item: (item[0], item[1]))[0][2]
+        for row_path, values in candidates.items()
+        if values
+    }
+
+
+def _row_path_set(nodes: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(node.get("axPath"))
+        for node in nodes
+        if node.get("role") == "AXRow" and isinstance(node.get("axPath"), str)
+    }
+
+
+def _nearest_row_path(path: str, row_paths: set[str]) -> str | None:
+    current = path
+    while "/" in current:
+        current = current.rsplit("/", 1)[0]
+        if current in row_paths:
+            return current
+    return None
+
+
+def _is_contact_row_node(row: Mapping[str, Any]) -> bool:
+    frame = row.get("frame")
+    if not isinstance(frame, Mapping):
+        return True
+    height = _number_value(frame.get("height"))
+    return height is None or height >= 50
+
+
+def _is_contact_non_name_label(label: str) -> bool:
+    normalized = label.strip().casefold()
+    return normalized in {
+        "",
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h",
+        "i",
+        "j",
+        "k",
+        "l",
+        "m",
+        "n",
+        "o",
+        "p",
+        "q",
+        "r",
+        "s",
+        "t",
+        "u",
+        "v",
+        "w",
+        "x",
+        "y",
+        "z",
+        "#",
+        "新的朋友",
+        "new friends",
+        "群聊",
+        "group chats",
+        "标签",
+        "tags",
+        "公众号",
+        "official accounts",
+        "企业微信联系人",
+        "wecom contacts",
+        "联系人",
+        "contacts",
+        "通讯录管理",
+        "contacts management",
+        "已添加",
+        "added",
+    }
+
+
+def _is_contact_whole_row_special_label(label: str) -> bool:
+    normalized = label.strip().casefold()
+    return normalized in {
+        "新的朋友",
+        "new friends",
+        "群聊",
+        "group chats",
+        "标签",
+        "tags",
+        "公众号",
+        "official accounts",
+        "企业微信联系人",
+        "wecom contacts",
+        "联系人",
+        "contacts",
+        "通讯录管理",
+        "contacts management",
+    }
 
 
 def _parse_row_label(label: str) -> dict[str, Any]:
@@ -2367,6 +5193,66 @@ def _search_candidates_from_nodes(
     return candidates
 
 
+def _conversation_rows_from_cells(
+    nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for node in nodes:
+        role = str(node.get("role") or "")
+        ax_path = _node_ax_path(node)
+        if ax_path is None:
+            continue
+        if role == "AXRow":
+            row_path = ax_path
+            row = dict(node)
+        elif role == "AXCell" and "/" in ax_path:
+            row_path = ax_path.rsplit("/", 1)[0]
+            row = dict(node)
+            row["axPath"] = row_path
+            row["role"] = "AXRow"
+            row.pop("actions", None)
+        else:
+            continue
+        if row_path in seen_paths:
+            continue
+        seen_paths.add(row_path)
+        rows.append(row)
+    return rows
+
+
+def _visible_contact_candidates_from_nodes(
+    nodes: list[dict[str, Any]],
+    contact: str,
+    *,
+    snapshot_id: str | None = None,
+) -> list[dict[str, JsonValue]]:
+    normalized = _normalized_contact_name(contact)
+    candidates: list[dict[str, JsonValue]] = []
+    for item in _row_items_from_nodes(
+        nodes,
+        section="chats",
+        limit=40,
+        snapshot_id=snapshot_id,
+    ):
+        display_name = str(item.get("displayName") or "")
+        if _normalized_contact_name(display_name) != normalized:
+            continue
+        action_id = f"visible.contact.{len(candidates)}.open"
+        item["actionId"] = action_id
+        action_ref = item.get("actionRef")
+        if isinstance(action_ref, dict):
+            action_ref["id"] = action_id
+            action_ref["kind"] = "visible_contact.open"
+            action_ref["targetSummary"] = f"Open visible contact {display_name}"
+        candidates.append(item)
+    return candidates
+
+
+def _normalized_contact_name(value: str) -> str:
+    return " ".join(value.strip().casefold().split())
+
+
 def _messages_from_query_nodes(
     nodes: list[dict[str, Any]],
     *,
@@ -2407,6 +5293,233 @@ def _query_truncated(observation: ToolObservation) -> bool:
     return bool(isinstance(diagnostics, Mapping) and diagnostics.get("truncated"))
 
 
+def _contact_target_query_issue(
+    observation: ToolObservation,
+) -> tuple[str, str | None] | None:
+    if not observation.success:
+        return "failed", None
+    payload = _query_payload(observation)
+    invalid_reason = _contact_target_query_invalid_reason(payload)
+    if invalid_reason is not None:
+        return "invalid", invalid_reason
+    diagnostics = payload["diagnostics"]
+    assert isinstance(diagnostics, Mapping)
+    if diagnostics["truncated"] is True:
+        return "truncated", None
+    return None
+
+
+def _contact_target_query_invalid_reason(
+    payload: Mapping[str, Any],
+) -> str | None:
+    if payload.get("schema") != "macos.accessibility.query.v1":
+        return "schema_invalid"
+    if payload.get("available") is not True:
+        return "available_invalid"
+    if "status" in payload and payload.get("status") != "ok":
+        return "status_invalid"
+    if any(key in payload for key in ("failureKind", "failure_kind", "error")):
+        return "failure_evidence_conflict"
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, list):
+        return "nodes_invalid"
+    if any(not isinstance(node, Mapping) for node in nodes):
+        return "node_member_invalid"
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, Mapping):
+        return "diagnostics_invalid"
+    if "truncated" not in diagnostics or not isinstance(
+        diagnostics.get("truncated"),
+        bool,
+    ):
+        return "truncation_invalid"
+    if any(
+        key in diagnostics
+        for key in ("failureKind", "failure_kind")
+    ):
+        return "diagnostics_failure_conflict"
+    if "returnedNodes" in diagnostics:
+        returned_nodes = diagnostics.get("returnedNodes")
+        if (
+            not isinstance(returned_nodes, int)
+            or isinstance(returned_nodes, bool)
+            or returned_nodes != len(nodes)
+        ):
+            return "returned_nodes_invalid"
+    return None
+
+
+def _contact_target_query_validation_failure(
+    command: ToolCommand,
+    contact: str,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation | None:
+    issue = _contact_target_query_issue(observation)
+    if issue is None:
+        return None
+    issue_kind, reason = issue
+    if issue_kind == "failed":
+        return _failure_from_contact_target_query(
+            command,
+            observation,
+            evidence=evidence,
+        )
+    if issue_kind == "truncated":
+        return _contact_target_query_truncation_failure(
+            command,
+            contact,
+            observation,
+            evidence=evidence,
+        )
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="accessibility_query_failed",
+        message=(
+            "WeChat contact target query returned an invalid response and "
+            "cannot establish a safe target."
+        ),
+        recovery_hint="Retry after WeChat and the local control service settle.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "query_invalid",
+            "diagnostics": {"reason": reason or "query_invalid"},
+        },
+        evidence=evidence,
+    )
+
+
+def _failure_from_contact_target_query(
+    command: ToolCommand,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    cause = observation.failure_kind or "accessibility_query_failed"
+    message = observation.message or observation.summary
+    selector_failure_kind = "selector_query_failed"
+    diagnostics = _ContactQueryFailureContext(
+        failure_kind=selector_failure_kind,
+        cause_failure_kind=cause,
+        message=message,
+        retryable=observation.retryable,
+    )
+    return _failure_from_selector_query(
+        command,
+        diagnostics,
+        message="WeChat contact target query failed.",
+        observation_key="selector",
+        semantic_payload={
+            "id": "wechat.contactTarget",
+            "status": "failed",
+            "profileId": "wechat.contactTarget",
+            "profileVersion": "1",
+            "diagnostics": {
+                "failureKind": selector_failure_kind,
+                "causeFailureKind": cause,
+                "retryable": (
+                    observation.retryable
+                    if observation.retryable is not None
+                    else True
+                ),
+                "message": message,
+            },
+        },
+        evidence=evidence,
+    )
+
+
+def _contact_target_query_truncation_failure(
+    command: ToolCommand,
+    contact: str,
+    observation: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation | None:
+    issue = _contact_target_query_issue(observation)
+    if issue is None or issue[0] != "truncated":
+        return None
+    raw_diagnostics = _query_payload(observation).get("diagnostics")
+    diagnostics: dict[str, JsonValue] = {"truncated": True}
+    if isinstance(raw_diagnostics, Mapping):
+        returned_nodes = raw_diagnostics.get("returnedNodes")
+        if isinstance(returned_nodes, int) and not isinstance(returned_nodes, bool):
+            diagnostics["returnedNodes"] = returned_nodes
+        truncation_reason = raw_diagnostics.get("truncationReason")
+        if isinstance(truncation_reason, str) and truncation_reason:
+            diagnostics["truncationReason"] = truncation_reason
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_query_truncated",
+        message=(
+            "WeChat contact target query was truncated before uniqueness could "
+            "be established."
+        ),
+        recovery_hint=(
+            "Retry after WeChat settles or use a narrower contact identifier."
+        ),
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "query_truncated",
+            "diagnostics": diagnostics,
+        },
+        evidence=evidence,
+    )
+
+
+def _contact_target_not_found_failure(
+    command: ToolCommand,
+    contact: str,
+    *,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=ToolStatus.NOT_FOUND,
+        failure_kind="contact_not_found",
+        message=f"Could not find a unique search result for {contact}.",
+        recovery_hint="Use a contact name that produces one visible result.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "not_found",
+        },
+        evidence=evidence,
+    )
+
+
+def _contact_target_unverified_failure(
+    command: ToolCommand,
+    contact: str,
+    *,
+    reason: str,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=ToolStatus.FAILED,
+        failure_kind="wechat_action_target_unverified",
+        message="WeChat contact target geometry could not be verified.",
+        recovery_hint="Restore the target row inside the visible WeChat window.",
+        retryable=True,
+        observation={
+            "schema": "wechat.open_contact.v1",
+            "target": contact,
+            "status": "target_unverified",
+            "diagnostics": {"reason": reason},
+        },
+        evidence=evidence,
+    )
+
+
 def _next_page_token(
     section: str,
     observation: ToolObservation,
@@ -2417,6 +5530,10 @@ def _next_page_token(
         return None
     snapshot_id = _query_snapshot_id(_query_payload(observation)) or "snapshot"
     return f"{section}:{direction}:{snapshot_id}"
+
+
+def _collection_has_more(result: Any) -> bool:
+    return bool(result.pagination.has_more or result.diagnostics.truncated)
 
 
 def _string_value(value: object) -> str | None:
@@ -2465,80 +5582,277 @@ def _with_timing(
     return ToolObservation.from_dict(payload)
 
 
-def _inspect_window_observe_evidence(
+def _safe_app_control_observation(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    if observation.operation == "accessibility_query":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Accessibility query completed."
+                if observation.success
+                else "Accessibility query failed."
+            ),
+        )
+        payload["observation"] = {
+            "accessibilityQuery": _safe_accessibility_query_payload(observation)
+        }
+        return payload
+    if observation.operation == "accessibility_action":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Accessibility action completed."
+                if observation.success
+                else "Accessibility action failed."
+            ),
+        )
+        payload["observation"] = {
+            "accessibilityAction": _safe_accessibility_action_payload(observation)
+        }
+        return payload
+    if observation.operation == "click":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Click completed." if observation.success else "Click failed."
+            ),
+        )
+        payload["observation"] = {
+            "action": {
+                "operation": "click",
+                "available": observation.success,
+            }
+        }
+        return payload
+    if observation.operation == "observe":
+        payload = _safe_app_control_envelope(
+            observation,
+            summary=(
+                "Observed application state."
+                if observation.success
+                else "Application observation failed."
+            ),
+        )
+        safe_observation: dict[str, JsonValue] = {}
+        for output_key, source_keys in (
+            (
+                "frontmostApp",
+                ("frontmostApp", "frontmost_app", "appName", "app_name"),
+            ),
+            (
+                "frontmostBundleId",
+                (
+                    "frontmostBundleId",
+                    "frontmost_bundle_id",
+                    "bundleId",
+                    "bundle_id",
+                ),
+            ),
+        ):
+            value = _string_from_observation(observation, *source_keys)
+            if value is not None:
+                safe_observation[output_key] = value
+        accessibility = _mapping_from_observation(observation, "accessibility")
+        if accessibility is not None:
+            safe_observation["accessibility"] = _safe_accessibility_status(
+                accessibility
+            )
+        payload["observation"] = safe_observation
+        return payload
+    return _redact_input_text(observation.to_dict())
+
+
+def _safe_app_control_envelope(
     observation: ToolObservation,
     *,
-    include_raw: bool,
+    summary: str,
 ) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
+        "schema": observation.schema,
         "commandId": observation.command_id,
         "tool": observation.tool,
         "operation": observation.operation,
         "status": observation.status.value,
         "success": observation.success,
-        "summary": observation.summary,
+        "summary": summary,
     }
     if observation.failure_kind is not None:
         payload["failureKind"] = observation.failure_kind
-    if include_raw:
-        payload["observation"] = observation.observation
-        if observation.evidence:
-            payload["evidence"] = observation.evidence
-        return payload
-
-    for output_key, source_keys in (
-        ("frontmostApp", ("frontmostApp", "frontmost_app", "appName", "app_name")),
-        (
-            "frontmostBundleId",
-            ("frontmostBundleId", "frontmost_bundle_id", "bundleId", "bundle_id"),
-        ),
-        ("windowTitle", ("windowTitle", "window_title", "title")),
-        ("snapshotId", ("snapshotId", "snapshot_id")),
-    ):
-        value = _string_from_observation(observation, *source_keys)
-        if value is not None:
-            payload[output_key] = value
-
-    accessibility = _mapping_from_observation(observation, "accessibility")
-    if accessibility is not None:
-        payload["accessibility"] = _public_accessibility_status(accessibility)
+    if observation.retryable is not None:
+        payload["retryable"] = observation.retryable
+    safe_timing: dict[str, JsonValue] = {}
+    for key in ("startedAt", "durationMs", "endedAt", "timeoutMs"):
+        value = observation.timing.get(key)
+        if isinstance(value, str | int | float) and not isinstance(value, bool):
+            safe_timing[key] = value
+    if safe_timing:
+        payload["timing"] = safe_timing
     return payload
 
 
-def _public_accessibility_status(
-    accessibility: dict[str, JsonValue],
+def _safe_accessibility_query_payload(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    source = _query_payload(observation)
+    payload: dict[str, JsonValue] = {}
+    schema = source.get("schema")
+    if isinstance(schema, str):
+        payload["schema"] = schema
+    available = source.get("available")
+    payload["available"] = (
+        available if isinstance(available, bool) else observation.success
+    )
+    for key in ("status", "failureKind", "causeFailureKind"):
+        value = source.get(key)
+        if isinstance(value, str):
+            payload[key] = value
+    if "failureKind" not in payload and observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    retryable = source.get("retryable")
+    if isinstance(retryable, bool):
+        payload["retryable"] = retryable
+    elif observation.retryable is not None:
+        payload["retryable"] = observation.retryable
+
+    diagnostics = source.get("diagnostics")
+    if isinstance(diagnostics, Mapping):
+        safe_diagnostics: dict[str, JsonValue] = {}
+        for key in (
+            "returnedNodes",
+            "visitedNodes",
+            "matchedNodes",
+            "queryCount",
+            "nodeCount",
+            "durationMs",
+            "elapsedMs",
+            "timeBudgetMs",
+            "limit",
+            "maxDepth",
+            "truncated",
+            "truncationReason",
+            "failureKind",
+            "causeFailureKind",
+            "retryable",
+            "cacheStatus",
+            "preferVisibleRows",
+        ):
+            value = diagnostics.get(key)
+            if isinstance(value, str | int | float | bool):
+                safe_diagnostics[key] = value
+        if safe_diagnostics:
+            payload["diagnostics"] = safe_diagnostics
+    return payload
+
+
+def _safe_accessibility_action_payload(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    source = _mapping_from_observation(observation, "accessibilityAction") or {}
+    payload: dict[str, JsonValue] = {}
+    schema = source.get("schema")
+    if isinstance(schema, str):
+        payload["schema"] = schema
+    available = source.get("available")
+    payload["available"] = (
+        available if isinstance(available, bool) else observation.success
+    )
+    status = source.get("status")
+    if isinstance(status, str):
+        payload["status"] = status
+
+    proof_payloads = _accessibility_action_proof_payloads(observation)
+    if proof_payloads is not None:
+        for output_key, keys in (
+            ("failureKind", ("failureKind", "failure_kind")),
+            ("action", ("action",)),
+            ("actionEffect", ("actionEffect", "action_effect")),
+        ):
+            evidence = _consistent_string_evidence(proof_payloads, keys)
+            if evidence.present and evidence.valid and evidence.value is not None:
+                payload[output_key] = evidence.value
+        native_code = _consistent_int_evidence(
+            proof_payloads,
+            ("nativeErrorCode", "native_error_code"),
+        )
+        if native_code.present and native_code.valid and native_code.value is not None:
+            payload["nativeErrorCode"] = native_code.value
+        for output_key, keys in (
+            ("actionAttempted", ("actionAttempted", "action_attempted")),
+            ("requestDispatched", ("requestDispatched", "request_dispatched")),
+            ("retryable", ("retryable",)),
+        ):
+            evidence = _consistent_bool_evidence(proof_payloads, keys)
+            if evidence.present and evidence.valid and evidence.value is not None:
+                payload[output_key] = evidence.value
+    elif observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    return payload
+
+
+def _safe_executed_action_result(
+    observation: ToolObservation,
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {
+        "operation": observation.operation,
+        "status": observation.status.value,
+        "success": observation.success,
+    }
+    if observation.failure_kind is not None:
+        payload["failureKind"] = observation.failure_kind
+    if observation.operation == "accessibility_action":
+        payload["accessibilityAction"] = _safe_accessibility_action_payload(
+            observation
+        )
+    return payload
+
+
+def _safe_accessibility_status(
+    accessibility: Mapping[str, JsonValue],
 ) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {}
     available = accessibility.get("available")
     if isinstance(available, bool):
         payload["available"] = available
-    elif accessibility:
-        payload["available"] = True
     for key in (
         "failureKind",
-        "message",
         "timeoutSeconds",
         "treeFailureKind",
-        "treeMessage",
         "treeTimeoutSeconds",
+        "treeAvailable",
     ):
         value = accessibility.get(key)
         if isinstance(value, str | int | float | bool):
             payload[key] = value
-    tree_available = accessibility.get("treeAvailable")
-    if isinstance(tree_available, bool):
-        payload["treeAvailable"] = tree_available
     payload["focusedWindowAvailable"] = isinstance(
         accessibility.get("focusedWindow"),
-        dict,
+        Mapping,
     )
     return payload
 
 
-def _safe_app_control_observation(
-    observation: ToolObservation,
-) -> dict[str, JsonValue]:
-    return _redact_input_text(observation.to_dict())
+def _safe_app_control_event_summary(observation: ToolObservation) -> str:
+    if observation.operation == "accessibility_query":
+        return (
+            "Accessibility query completed."
+            if observation.success
+            else "Accessibility query failed."
+        )
+    if observation.operation == "accessibility_action":
+        return (
+            "Accessibility action completed."
+            if observation.success
+            else "Accessibility action failed."
+        )
+    if observation.operation == "click":
+        return "Click completed." if observation.success else "Click failed."
+    if observation.operation == "observe":
+        return (
+            "Observed application state."
+            if observation.success
+            else "Application observation failed."
+        )
+    return observation.summary
 
 
 def _redact_input_text(value: JsonValue, *, in_input: bool = False) -> JsonValue:
@@ -2582,19 +5896,20 @@ class _PhaseEventCollector:
         phase_name = phase
         if parent.command_id != self._command.command_id:
             phase_name = f"{parent.operation}.{phase}"
+        safe_observation = _safe_app_control_observation(observation)
         event = ToolEvent(
             command_id=self._command.command_id,
             seq=self.next_seq(),
             event_type=ToolEventType.PROGRESS,
             phase=phase_name,
             status=observation.status,
-            summary=observation.summary,
+            summary=_safe_app_control_event_summary(observation),
             data={
                 "phase": phase_name,
                 "appControlOperation": operation,
                 "parentCommandId": parent.command_id,
                 "appControlCommandId": observation.command_id,
-                "appControlObservation": _safe_app_control_observation(observation),
+                "appControlObservation": safe_observation,
             },
         )
         self.events.append(event)
@@ -2963,6 +6278,63 @@ def _wechat_login_failure(
     )
 
 
+def _wechat_observation_has_window_title(observation: ToolObservation) -> bool:
+    title = _string_from_observation(
+        observation,
+        "windowTitle",
+        "window_title",
+        "title",
+    )
+    return title is not None and bool(title.strip())
+
+
+def _ready_observation_with_accessibility_window_title(
+    ready: ToolObservation,
+    accessibility_query: ToolObservation,
+    app_name: str,
+) -> ToolObservation:
+    title = _accessibility_query_window_title(accessibility_query)
+    if title is None:
+        return ready
+    observation = dict(ready.observation)
+    observation["windowTitle"] = title
+    observation["snapshotId"] = (
+        _query_snapshot_id(_query_payload(accessibility_query))
+        or observation.get("snapshotId")
+        or f"frontmost:{app_name}:{title}"
+    )
+    metadata = observation.get("metadata")
+    if isinstance(metadata, Mapping):
+        updated_metadata = dict(metadata)
+        updated_metadata["window_title"] = title
+        observation["metadata"] = updated_metadata
+    summary = f"Frontmost app: {observation.get('frontmostApp') or app_name}. Window: {title}."
+    return ToolObservation.ok(
+        command_id=ready.command_id,
+        tool=ready.tool,
+        operation=ready.operation,
+        summary=summary,
+        observation=observation,
+        evidence=ready.evidence,
+        timing=ready.timing,
+        metadata=ready.metadata,
+    )
+
+
+def _accessibility_query_window_title(observation: ToolObservation) -> str | None:
+    if not observation.success:
+        return None
+    payload = _query_payload(observation)
+    window = payload.get("window")
+    if not isinstance(window, Mapping):
+        return None
+    role = window.get("role")
+    title = window.get("title")
+    if role != "AXWindow" or not isinstance(title, str) or not title.strip():
+        return None
+    return title.strip()
+
+
 def _observation_indicates_login_required(observation: ToolObservation) -> bool:
     truthy_fields = (
         "loginRequired",
@@ -3038,6 +6410,50 @@ def _contact_ambiguity_failure(
     )
 
 
+def _contact_candidates_ambiguity_failure(
+    command: ToolCommand,
+    contact: str,
+    candidates: list[dict[str, JsonValue]],
+    *,
+    evidence: dict[str, JsonValue],
+    source: Mapping[str, JsonValue] | None = None,
+) -> ToolObservation:
+    summaries: list[dict[str, JsonValue]] = []
+    for row_index, candidate in enumerate(candidates):
+        display_name = _string_value(candidate.get("displayName"))
+        if display_name is None:
+            continue
+        summary: dict[str, JsonValue] = {
+            "displayName": display_name,
+            "rowIndex": row_index,
+        }
+        secondary_text = _string_value(candidate.get("preview"))
+        if secondary_text is not None:
+            summary["secondaryText"] = secondary_text[:200]
+        action_ref = candidate.get("actionRef")
+        if isinstance(action_ref, Mapping):
+            summary["actionRef"] = dict(action_ref)
+        summaries.append(summary)
+    observation: dict[str, JsonValue] = {
+        "schema": "wechat.open_contact.v1",
+        "target": contact,
+        "status": "needs_disambiguation",
+        "candidates": summaries,
+    }
+    if source is not None:
+        observation["source"] = dict(source)
+    return _failure(
+        command,
+        status=ToolStatus.NOT_FOUND,
+        failure_kind="contact_ambiguous",
+        message="Multiple WeChat contacts matched the requested contact.",
+        recovery_hint="Use a more specific contact display name before retrying.",
+        retryable=True,
+        observation=observation,
+        evidence=evidence,
+    )
+
+
 def _search_focus_failure(
     command: ToolCommand,
     contact: str,
@@ -3047,7 +6463,7 @@ def _search_focus_failure(
 ) -> ToolObservation | None:
     assessment = _search_focus_assessment(observation)
     state = assessment.get("state")
-    if state in {"verified", "unknown"}:
+    if state == "verified":
         return None
     return _failure(
         command,
@@ -3068,6 +6484,59 @@ def _search_focus_failure(
 
 
 def _search_focus_assessment(observation: ToolObservation) -> dict[str, JsonValue]:
+    query_payload = _query_payload(observation)
+    if query_payload:
+        if query_payload.get("available") is False:
+            payload: dict[str, JsonValue] = {
+                "state": "unknown",
+                "reason": "search_focus_query_unavailable",
+            }
+            failure_kind = query_payload.get("failureKind")
+            if isinstance(failure_kind, str):
+                payload["failureKind"] = failure_kind
+            return payload
+        nodes = _query_nodes(observation)
+        if len(nodes) != 1:
+            return {
+                "state": "unknown",
+                "reason": "search_focus_query_target_missing",
+            }
+        search_element = nodes[0]
+        public_element = _public_accessibility_element(search_element)
+        if not _is_text_like_accessibility_element(search_element):
+            return {
+                "state": "not_search",
+                "reason": "search_focus_query_target_is_not_text_input",
+                "focusedElement": public_element,
+            }
+        if not _accessibility_element_contains(
+            search_element,
+            _SEARCH_FOCUS_MARKERS,
+        ):
+            return {
+                "state": "not_search",
+                "reason": "search_focus_query_target_has_no_search_marker",
+                "focusedElement": public_element,
+            }
+        focused = search_element.get("focused")
+        if focused is True:
+            return {
+                "state": "verified",
+                "reason": "targeted_search_element_focused",
+                "focusedElement": public_element,
+            }
+        if focused is False:
+            return {
+                "state": "not_search",
+                "reason": "targeted_search_element_not_focused",
+                "focusedElement": public_element,
+            }
+        return {
+            "state": "unknown",
+            "reason": "targeted_search_element_focus_unknown",
+            "focusedElement": public_element,
+        }
+
     accessibility = _mapping_from_observation(observation, "accessibility")
     if accessibility is None:
         return {"state": "unknown", "reason": "no_accessibility_snapshot"}
@@ -3352,6 +6821,26 @@ def _wechat_not_ready_failure(
         failure_kind="wechat_not_ready",
         message=message,
         retryable=True,
+        evidence=evidence,
+    )
+
+
+def _open_wechat_phase_failure(
+    command: ToolCommand,
+    result: ToolObservation,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    if result.tool == WECHAT_TOOL:
+        return result
+    failure_kind = (
+        "wechat_not_ready"
+        if result.operation in {"observe", "focus_app"}
+        else "wechat_open_failed"
+    )
+    return _from_app_control_failure(
+        command,
+        failure_kind,
+        result,
         evidence=evidence,
     )
 

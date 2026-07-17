@@ -469,7 +469,9 @@ entire tree.
         }
       ],
       "risk": "changes_current_chat",
-      "targetSummary": "Open conversation: File Transfer"
+      "targetSummary": "Open conversation: File Transfer",
+      "createdAt": "2026-07-08T10:00:00Z",
+      "expiresAt": "2026-07-08T10:05:00Z"
     }
   },
   "actionRef": {
@@ -481,6 +483,13 @@ entire tree.
   "risk": "changes_current_chat"
 }
 ```
+
+Generated `actionRef` payloads are time-bound. `createdAt` records when the
+window model produced the ref, and `expiresAt` marks the point after which the
+WeChat adapter rejects the ref as `wechat_action_ref_expired` before executing
+backend or fallback actions. Legacy caller-supplied refs without `expiresAt`
+remain accepted for compatibility, but new callers should treat actionRefs as
+short-lived and refresh them after window focus, navigation, or timeout.
 
 Allowed statuses:
 
@@ -566,8 +575,10 @@ read_visible_messages(limit=20) -> visible message rows
 read_contact_messages(contact, limit=30) -> open_contact + read_visible_messages
 ```
 
-The older keyboard-oriented `focus_contact`, `draft_message`, `submit_draft`,
-and `send_message` APIs remain available for compatibility and send workflows.
+The compatibility `focus_contact`, `draft_message`, `submit_draft`, and
+`send_message` APIs remain available for send workflows. `focus_contact` now
+delegates to verified `open_contact`; normal target switching is no longer a
+keyboard-search workflow.
 Future UI action APIs should prefer semantic action ids and fresh
 `accessibility_query` reads instead of raw AX tree paths.
 

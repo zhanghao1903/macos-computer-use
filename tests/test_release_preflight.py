@@ -16,6 +16,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SELECTOR_PROOF_HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 class ReleasePreflightTests(unittest.TestCase):
@@ -74,6 +75,11 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("dry-run-smoke:wechat-example-module-focus-draft", names)
         self.assertIn("local-service-smoke:computer-use-macos", names)
         self.assertIn("workflow:ci-verifies-sdist-contents", names)
+        self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", names)
+        self.assertIn(
+            "workflow:release-wechat-tests-include-workspace-deps",
+            names,
+        )
         self.assertIn("workflow:release-verifies-sdist-contents", names)
         self.assertIn("workflow:release-verifies-tag-version", names)
         self.assertIn("path:docs/quickstart.md", names)
@@ -189,6 +195,104 @@ class ReleasePreflightTests(unittest.TestCase):
 
         self.assertEqual(results[0].status, "fail")
         self.assertIn("definitely-not-in-help-output", results[0].summary)
+
+    def test_wechat_module_entrypoint_includes_workspace_dependency_paths(self) -> None:
+        preflight = _load_preflight()
+        original_checks = preflight.MODULE_ENTRYPOINT_CHECKS
+        original_run_help = preflight._run_help_command
+        captured_pythonpaths: list[str] = []
+        preflight.MODULE_ENTRYPOINT_CHECKS = (
+            (
+                "wechat-desktop-tool:root",
+                ("wechat_desktop_tool", "--help"),
+                (
+                    "packages/app-control-protocol/src",
+                    "packages/wechat-desktop-tool/src",
+                ),
+                ("examples",),
+            ),
+        )
+
+        def fake_run_help(
+            root: Path,
+            command: list[str],
+            *,
+            env_updates: dict[str, str],
+        ) -> str:
+            self.assertEqual(root, ROOT)
+            self.assertEqual(
+                command[:3],
+                [sys.executable, "-m", "wechat_desktop_tool"],
+            )
+            captured_pythonpaths.append(env_updates["PYTHONPATH"])
+            return "examples"
+
+        preflight._run_help_command = fake_run_help
+        try:
+            results = preflight._check_module_entrypoints(ROOT)
+        finally:
+            preflight.MODULE_ENTRYPOINT_CHECKS = original_checks
+            preflight._run_help_command = original_run_help
+
+        self.assertEqual(results[0].status, "ok")
+        pythonpath_entries = captured_pythonpaths[0].split(preflight.os.pathsep)
+        self.assertIn(
+            str(ROOT / "packages/app-control-protocol/src"),
+            pythonpath_entries,
+        )
+        self.assertIn(
+            str(ROOT / "packages/computer-use-macos/src"),
+            pythonpath_entries,
+        )
+        self.assertIn(
+            str(ROOT / "packages/wechat-desktop-tool/src"),
+            pythonpath_entries,
+        )
+
+    def test_wechat_dry_run_smokes_include_workspace_dependency_paths(self) -> None:
+        preflight = _load_preflight()
+        original_run_json = preflight._run_json_command
+        original_validate_textedit = preflight._validate_textedit_dry_run
+        original_validate_wechat = preflight._validate_wechat_dry_run
+        captured_wechat_pythonpaths: list[str] = []
+
+        def fake_run_json(
+            root: Path,
+            command: list[str],
+            *,
+            env_updates: dict[str, str],
+        ) -> dict[str, Any]:
+            self.assertEqual(root, ROOT)
+            if any("wechat_desktop_tool" in part for part in command):
+                captured_wechat_pythonpaths.append(env_updates["PYTHONPATH"])
+            return {"dryRun": True, "commands": []}
+
+        preflight._run_json_command = fake_run_json
+        preflight._validate_textedit_dry_run = lambda payload, root: None
+        preflight._validate_wechat_dry_run = lambda payload, root: None
+        try:
+            results = preflight._check_dry_run_smokes(ROOT)
+        finally:
+            preflight._run_json_command = original_run_json
+            preflight._validate_textedit_dry_run = original_validate_textedit
+            preflight._validate_wechat_dry_run = original_validate_wechat
+
+        self.assertTrue(all(result.status == "ok" for result in results))
+        self.assertEqual(len(captured_wechat_pythonpaths), 2)
+        for pythonpath in captured_wechat_pythonpaths:
+            pythonpath_entries = pythonpath.split(preflight.os.pathsep)
+            self.assertIn(
+                str(ROOT / "packages/app-control-protocol/src"),
+                pythonpath_entries,
+            )
+            self.assertIn(
+                str(ROOT / "packages/computer-use-macos/src"),
+                pythonpath_entries,
+            )
+            self.assertIn(
+                str(ROOT / "packages/wechat-desktop-tool/src"),
+                pythonpath_entries,
+            )
 
     def test_markdown_json_check_reports_invalid_example(self) -> None:
         preflight = _load_preflight()
@@ -347,6 +451,105 @@ class ReleasePreflightTests(unittest.TestCase):
         failures = [result.name for result in results if result.status == "fail"]
         self.assertIn("workflow:release-verifies-tag-version", failures)
 
+    def test_workflow_check_requires_wechat_test_dependency_path(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "ci.yml").write_text(
+                ci.replace(
+                    preflight.WECHAT_PACKAGE_TEST_PYTHONPATH,
+                    (
+                        "PYTHONPATH=packages/app-control-protocol/src:"
+                        "packages/wechat-desktop-tool/src"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            (workflow_dir / "release.yml").write_text(
+                (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn("workflow:ci-wechat-tests-include-workspace-deps", failures)
+
+    def test_workflow_check_requires_release_wechat_dependency_path(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "ci.yml").write_text(
+                (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "release.yml").write_text(
+                release.replace(
+                    preflight.WECHAT_PACKAGE_TEST_PYTHONPATH,
+                    (
+                        "PYTHONPATH=packages/app-control-protocol/src:"
+                        "packages/wechat-desktop-tool/src"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn(
+            "workflow:release-wechat-tests-include-workspace-deps",
+            failures,
+        )
+
+    def test_workflow_check_requires_selector_proof_source_sha(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "ci.yml").write_text(
+                (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+                encoding="utf-8"
+            )
+            (workflow_dir / "release.yml").write_text(
+                release.replace(
+                    '            --expected-source-sha "${{ github.sha }}" \\\n',
+                    "",
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "workflow:release-requires-external-proof-preflight",
+            failures,
+        )
+
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()
 
@@ -356,7 +559,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("external-proof:helper_app_doctor", failures)
         self.assertIn("external-proof:testpypi_install", failures)
 
-    def test_require_external_accepts_complete_proof_file(self) -> None:
+    def test_require_external_boolean_proof_still_requires_selector_v2(self) -> None:
         preflight = _load_preflight()
 
         with TemporaryDirectory() as tmpdir:
@@ -368,11 +571,15 @@ class ReleasePreflightTests(unittest.TestCase):
             results = preflight.run_preflight(
                 ROOT,
                 proof_path=proof_path,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
-        failures = [result for result in results if result.status == "fail"]
-        self.assertEqual(failures, [])
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertEqual(
+            failures,
+            {"external-proof:wechat_selector_engine_smoke"},
+        )
 
     def test_release_proof_file_rejects_unknown_keys(self) -> None:
         preflight = _load_preflight()
@@ -646,6 +853,7 @@ class ReleasePreflightTests(unittest.TestCase):
                         for key in preflight.EXTERNAL_PROOFS
                         if not key.startswith("wechat_")
                     }
+                    | {"wechat_selector_engine_smoke": True}
                 ),
                 encoding="utf-8",
             )
@@ -703,6 +911,200 @@ class ReleasePreflightTests(unittest.TestCase):
         failures = [result.name for result in results if result.status == "fail"]
         self.assertIn("external-proof:wechat_focus_draft_smoke", failures)
         self.assertIn("external-proof:wechat_submit_smoke", failures)
+        self.assertIn("external-proof:wechat_selector_engine_smoke", failures)
+
+    def test_wechat_selector_engine_report_supplies_external_proof(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            proof_path = Path(tmpdir) / "proof.json"
+            smoke_path = Path(tmpdir) / "wechat-selector-engine-smoke.json"
+            proof_path.write_text(
+                json.dumps(
+                    {
+                        key: True
+                        for key in preflight.EXTERNAL_PROOFS
+                        if key != "wechat_selector_engine_smoke"
+                    }
+                ),
+                encoding="utf-8",
+            )
+            smoke_path.write_text(
+                json.dumps(_wechat_selector_engine_smoke_report()),
+                encoding="utf-8",
+            )
+
+            results = preflight.run_preflight(
+                ROOT,
+                proof_path=proof_path,
+                wechat_smoke_report_paths=(smoke_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                require_external=True,
+            )
+
+        failures = [result for result in results if result.status == "fail"]
+        self.assertEqual(failures, [])
+
+    def test_failed_wechat_selector_engine_report_does_not_supply_proof(
+        self,
+    ) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            proof_path = Path(tmpdir) / "proof.json"
+            smoke_path = Path(tmpdir) / "wechat-selector-engine-smoke.json"
+            proof_path.write_text(
+                json.dumps({key: True for key in preflight.EXTERNAL_PROOFS}),
+                encoding="utf-8",
+            )
+            report = _wechat_selector_engine_smoke_report()
+            assert isinstance(report["checks"], dict)
+            report["checks"]["openContact"] = False
+            smoke_path.write_text(json.dumps(report), encoding="utf-8")
+
+            results = preflight.run_preflight(
+                ROOT,
+                proof_path=proof_path,
+                wechat_smoke_report_paths=(smoke_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                require_external=True,
+            )
+
+        failures = [result.name for result in results if result.status == "fail"]
+        self.assertIn("external-proof:wechat_selector_engine_smoke", failures)
+
+    def test_selector_proof_v2_rejects_invalid_structure_and_evidence(self) -> None:
+        preflight = _load_preflight()
+
+        invalid_reports: dict[str, dict[str, Any]] = {}
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["count"] = 0
+        report["collections"]["contacts"]["items"] = []
+        invalid_reports["zero-count"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        del report["collections"]["contacts"]["items"]
+        invalid_reports["missing-items"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["count"] = 2
+        invalid_reports["count-items-mismatch"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["requestedLimit"] = 1
+        report["collections"]["contacts"]["count"] = 2
+        report["collections"]["contacts"]["items"] = [
+            {"semanticFieldsPresent": True},
+            {"semanticFieldsPresent": True},
+        ]
+        invalid_reports["count-above-request"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["requestedLimit"] = 31
+        invalid_reports["request-above-limit"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["conversations"]["items"][0]["actionable"] = False
+        invalid_reports["structural-false"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["safety"]["sensitiveFieldScanPassed"] = False
+        invalid_reports["safety-false"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["failedStep"] = "openContact"
+        invalid_reports["failed-step"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["timingsMs"]["openContact"] = 3_001
+        invalid_reports["timing-above-contract"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["packageVersions"]["computer-use-macos"] = "0.1.1"
+        invalid_reports["mixed-package-version"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["unknown"] = True
+        invalid_reports["unknown-key"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["collections"]["contacts"]["items"][0]["text"] = "hello"
+        invalid_reports["forbidden-key"] = report
+
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["generatedAt"] = "/Users/example/private.json"
+        invalid_reports["absolute-path"] = report
+
+        for name, invalid in invalid_reports.items():
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    preflight._validate_wechat_selector_engine_proof(
+                        invalid,
+                        expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                    )
+
+    def test_selector_proof_v2_requires_exact_source_sha_and_no_canaries(
+        self,
+    ) -> None:
+        preflight = _load_preflight()
+
+        malformed = _wechat_selector_engine_smoke_report(head_sha="ABC")
+        with self.assertRaisesRegex(ValueError, "headSha"):
+            preflight._validate_wechat_selector_engine_proof(
+                malformed,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+            )
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            preflight._validate_wechat_selector_engine_proof(
+                _wechat_selector_engine_smoke_report(),
+                expected_source_sha="f" * 40,
+            )
+
+        canary = "release-private-contact-canary"
+        report = _wechat_selector_engine_smoke_report()
+        report["source"]["repository"] = canary
+        with self.assertRaisesRegex(ValueError, "sensitive canary"):
+            preflight._validate_wechat_selector_engine_proof(
+                report,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                sensitive_canaries=(canary,),
+            )
+
+    def test_selector_proof_v1_cannot_satisfy_strict_external_proof(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            proof_path = Path(tmpdir) / "proof.json"
+            selector_path = Path(tmpdir) / "selector-v1.json"
+            proof_path.write_text(
+                json.dumps({key: True for key in preflight.EXTERNAL_PROOFS}),
+                encoding="utf-8",
+            )
+            selector_path.write_text(
+                json.dumps(
+                    {
+                        "schema": (
+                            "macos_computer_use.sdk."
+                            "wechat_selector_engine_smoke_test.v1"
+                        ),
+                        "summary": {"success": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight.run_preflight(
+                ROOT,
+                proof_path=proof_path,
+                wechat_smoke_report_paths=(selector_path,),
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                require_external=True,
+            )
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("external-proof:wechat_selector_engine_smoke", failures)
 
     def test_wechat_focus_draft_report_supplies_focus_draft_external_proof(
         self,
@@ -1139,6 +1541,25 @@ class ReleasePreflightTests(unittest.TestCase):
             failures,
         )
 
+    def test_wheel_dir_rejects_compiled_bytecode_cache(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            wheel_dir = Path(tmpdir) / "dist"
+            wheel_dir.mkdir()
+            _write_fake_wheel_set(preflight, wheel_dir)
+            wheel_path = next(wheel_dir.glob("app_control_protocol-*.whl"))
+            with zipfile.ZipFile(wheel_path, "a") as wheel:
+                wheel.writestr(
+                    "app_control_protocol/__pycache__/config.cpython-312.pyc",
+                    b"compiled-bytecode",
+                )
+
+            results = preflight.run_preflight(ROOT, wheel_dir=wheel_dir)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("wheel-no-bytecode:app-control-protocol", failures)
+
     def test_wheel_dir_reports_missing_protocol_config_module(self) -> None:
         preflight = _load_preflight()
 
@@ -1470,10 +1891,10 @@ class ReleaseTagCheckScriptTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            result = script.main(["--root", str(ROOT), "--tag", "v0.1.1"])
+            result = script.main(["--root", str(ROOT), "--tag", "v0.2.0"])
 
         self.assertEqual(result, 0)
-        self.assertIn("release tag ok: v0.1.1", output.getvalue())
+        self.assertIn("release tag ok: v0.2.0", output.getvalue())
 
     def test_main_rejects_mismatched_tag(self) -> None:
         script = _load_release_tag_check_script()
@@ -1508,7 +1929,7 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertTrue(all(package["installed"] for package in packages))
         self.assertTrue(all(package["imported"] for package in packages))
         self.assertTrue(all(package["apiSmoke"] for package in packages))
-        self.assertTrue(all(package["version"] == "0.1.1" for package in packages))
+        self.assertTrue(all(package["version"] == "0.2.0" for package in packages))
         self.assertEqual(
             report["installPolicy"],
             _testpypi_install_policy(managed_virtualenv=False),
@@ -1548,6 +1969,19 @@ class TestPyPIInstallReportTests(unittest.TestCase):
             "HelperTransportClient",
             "ComputerUseClient.from_helper_manifest",
             "callable(helper.open_app)",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, snippet)
+
+    def test_computer_use_api_smoke_covers_frontmost_failure_contract(self) -> None:
+        script = _load_testpypi_script()
+        snippet = script.PACKAGE_SMOKE_SNIPPETS["computer-use-macos"]
+
+        for expected in (
+            "ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST",
+            "TARGET_APP_NOT_FRONTMOST",
+            "ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST",
+            "set(COMPUTER_USE_FAILURE_KINDS)",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, snippet)
@@ -1903,11 +2337,47 @@ class TrustedPublisherReportTests(unittest.TestCase):
 
 
 class WheelCheckScriptTests(unittest.TestCase):
+    def test_staged_package_source_excludes_generated_build_artifacts(self) -> None:
+        script = _load_wheel_check_script()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            package = root / "packages" / "example"
+            module = package / "src" / "example"
+            module.mkdir(parents=True)
+            (package / "pyproject.toml").write_text("[build-system]\n")
+            (module / "__init__.py").write_text("", encoding="utf-8")
+            cache = module / "__pycache__"
+            cache.mkdir()
+            (cache / "__init__.pyc").write_bytes(b"bytecode")
+            (package / "build" / "lib").mkdir(parents=True)
+            (package / "src" / "example.egg-info").mkdir()
+            (package / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+            staged = script._stage_package_source(
+                root,
+                Path("packages/example"),
+                root / "staged",
+            )
+
+            staged_files = {
+                path.relative_to(staged).as_posix()
+                for path in staged.rglob("*")
+                if path.is_file()
+            }
+
+        self.assertEqual(
+            staged_files,
+            {"pyproject.toml", "src/example/__init__.py"},
+        )
+
     def test_builds_all_wheels_then_runs_preflight_and_install_smoke(self) -> None:
         script = _load_wheel_check_script()
         calls: list[tuple[tuple[str, ...], Path]] = []
         original_run = script.subprocess.run
         original_env_builder = script.venv.EnvBuilder
+        original_incompatible_smoke = script._run_incompatible_dependency_smoke
+        incompatible_smokes: list[Path] = []
 
         class FakeEnvBuilder:
             def __init__(self, **kwargs: object) -> None:
@@ -1927,15 +2397,26 @@ class WheelCheckScriptTests(unittest.TestCase):
             cwd: Path,
             check: bool,
             env: dict[str, str] | None = None,
+            capture_output: bool = False,
+            text: bool = False,
         ) -> subprocess.CompletedProcess[object]:
+            del capture_output, text
             self.assertFalse(check)
             if env is not None:
                 self.assertNotIn("PYTHONPATH", env)
             calls.append((tuple(command), cwd))
-            return subprocess.CompletedProcess(command, 0)
+            stdout = (
+                "0.2.0\n"
+                if "-c" in command and "__version__" in command[-1]
+                else ""
+            )
+            return subprocess.CompletedProcess(command, 0, stdout, "")
 
         script.subprocess.run = fake_run
         script.venv.EnvBuilder = FakeEnvBuilder
+        script._run_incompatible_dependency_smoke = (
+            lambda wheel_dir: incompatible_smokes.append(wheel_dir) or 0
+        )
         try:
             with TemporaryDirectory() as tmpdir:
                 wheel_dir = Path(tmpdir) / "wheels"
@@ -1943,8 +2424,10 @@ class WheelCheckScriptTests(unittest.TestCase):
         finally:
             script.subprocess.run = original_run
             script.venv.EnvBuilder = original_env_builder
+            script._run_incompatible_dependency_smoke = original_incompatible_smoke
 
         self.assertEqual(result, 0)
+        self.assertEqual(incompatible_smokes, [wheel_dir])
         package_count = len(script.PACKAGE_PATHS)
         self.assertEqual(len(calls), package_count + 1 + 1 + len(script.DEFAULT_PACKAGES) * 2)
         for call, cwd in calls[:package_count]:
@@ -1971,6 +2454,104 @@ class WheelCheckScriptTests(unittest.TestCase):
             all(cwd == wheel_dir for _call, cwd in smoke_calls)
         )
 
+    def test_baseline_wheels_encode_incompatible_local_versions(self) -> None:
+        script = _load_wheel_check_script()
+
+        with TemporaryDirectory() as tmpdir:
+            wheel = script._write_baseline_wheel(
+                Path(tmpdir),
+                "computer-use-macos",
+                dependencies=("app-control-protocol>=0.1.0",),
+            )
+            with zipfile.ZipFile(wheel) as archive:
+                metadata_name = next(
+                    name for name in archive.namelist() if name.endswith("/METADATA")
+                )
+                metadata = archive.read(metadata_name).decode("utf-8")
+
+        self.assertIn("Version: 0.1.1", metadata)
+        self.assertIn("Requires-Dist: app-control-protocol>=0.1.0", metadata)
+
+    def test_mixed_dependency_smoke_requires_pip_rejection(self) -> None:
+        script = _load_wheel_check_script()
+        original_run = script.subprocess.run
+        original_env_builder = script.venv.EnvBuilder
+        calls: list[tuple[str, ...]] = []
+
+        class FakeEnvBuilder:
+            def __init__(self, **kwargs: object) -> None:
+                del kwargs
+
+            def create(self, venv_dir: Path) -> None:
+                bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+                bin_dir.mkdir(parents=True)
+                executable = bin_dir / (
+                    "python.exe" if sys.platform == "win32" else "python"
+                )
+                executable.write_text("", encoding="utf-8")
+
+        def fake_run(
+            command: tuple[str, ...],
+            **kwargs: object,
+        ) -> subprocess.CompletedProcess[str]:
+            del kwargs
+            calls.append(tuple(command))
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                "",
+                (
+                    "ERROR: Could not find a version that satisfies the "
+                    "requirement app-control-protocol>=0.2.0"
+                ),
+            )
+
+        script.subprocess.run = fake_run
+        script.venv.EnvBuilder = FakeEnvBuilder
+        try:
+            with TemporaryDirectory() as tmpdir:
+                wheel_dir = Path(tmpdir)
+                current_wheel = (
+                    wheel_dir / "wechat_desktop_tool-0.2.0-py3-none-any.whl"
+                )
+                current_wheel.write_bytes(b"")
+
+                result = script._run_incompatible_dependency_smoke(wheel_dir)
+        finally:
+            script.subprocess.run = original_run
+            script.venv.EnvBuilder = original_env_builder
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("wechat-desktop-tool==0.2.0", calls[0])
+        self.assertIn("--no-index", calls[0])
+
+    def test_mixed_dependency_smoke_rejects_unrelated_install_failure(self) -> None:
+        script = _load_wheel_check_script()
+
+        unrelated = subprocess.CompletedProcess(
+            ("python", "-m", "pip"),
+            1,
+            "",
+            "permission denied while creating the virtual environment",
+        )
+        resolution = subprocess.CompletedProcess(
+            ("python", "-m", "pip"),
+            1,
+            "",
+            (
+                "ERROR: No matching distribution found for "
+                "computer-use-macos>=0.2.0"
+            ),
+        )
+
+        self.assertFalse(
+            script._is_expected_dependency_resolution_rejection(unrelated)
+        )
+        self.assertTrue(
+            script._is_expected_dependency_resolution_rejection(resolution)
+        )
+
 
 class ReleaseProofBundleTests(unittest.TestCase):
     def test_bundle_writes_release_assets_that_satisfy_strict_preflight(self) -> None:
@@ -1983,6 +2564,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
             textedit = root / "textedit-source.json"
             focus = root / "focus-source.json"
             submit = root / "submit-source.json"
+            selector = root / "selector-source.json"
             testpypi = root / "testpypi-source.json"
             trusted = root / "trusted-source.json"
             output = root / "release-proof"
@@ -2032,6 +2614,10 @@ class ReleaseProofBundleTests(unittest.TestCase):
                         }
                     }
                 ),
+                encoding="utf-8",
+            )
+            selector.write_text(
+                json.dumps(_wechat_selector_engine_smoke_report()),
                 encoding="utf-8",
             )
             testpypi.write_text(
@@ -2068,8 +2654,10 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 textedit_smoke_report=textedit,
                 wechat_focus_draft_report=focus,
                 wechat_submit_report=submit,
+                wechat_selector_engine_report=selector,
                 testpypi_install_report=testpypi,
                 trusted_publisher_report=trusted,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
             )
             results = preflight.run_preflight(
                 ROOT,
@@ -2079,9 +2667,11 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 wechat_smoke_report_paths=(
                     output / "wechat-focus-draft-smoke.json",
                     output / "wechat-submit-smoke.json",
+                    output / "wechat-selector-engine-smoke.json",
                 ),
                 testpypi_install_report_path=output / "testpypi-install.json",
                 trusted_publisher_report_path=output / "trusted-publisher.json",
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
@@ -2089,6 +2679,46 @@ class ReleaseProofBundleTests(unittest.TestCase):
         self.assertEqual(report["missingProofs"], [])
         failures = [result for result in results if result.status == "fail"]
         self.assertEqual(failures, [])
+
+    def test_bundle_rejects_invalid_selector_proof_before_copying_assets(
+        self,
+    ) -> None:
+        preflight = _load_preflight()
+        bundle = _load_release_proof_bundle_script()
+
+        with TemporaryDirectory() as tmpdir:
+            paths = _write_release_proof_bundle_sources(
+                preflight,
+                Path(tmpdir),
+                trusted_all=True,
+            )
+            invalid = json.loads(paths["selector"].read_text(encoding="utf-8"))
+            invalid["source"]["repository"] = "release-private-contact-canary"
+            paths["selector"].write_text(json.dumps(invalid), encoding="utf-8")
+            copied: list[tuple[Path, Path]] = []
+            original_copy = bundle._copy_asset
+            bundle._copy_asset = lambda source, target: copied.append((source, target))
+            try:
+                with self.assertRaisesRegex(ValueError, "sensitive canary"):
+                    bundle.build_bundle(
+                        output_dir=paths["output"],
+                        helper_doctor_report=paths["helper"],
+                        textedit_smoke_report=paths["textedit"],
+                        wechat_focus_draft_report=paths["focus"],
+                        wechat_submit_report=paths["submit"],
+                        wechat_selector_engine_report=paths["selector"],
+                        testpypi_install_report=paths["testpypi"],
+                        trusted_publisher_report=paths["trusted"],
+                        expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                        sensitive_canaries=("release-private-contact-canary",),
+                    )
+            finally:
+                bundle._copy_asset = original_copy
+
+            output_exists = paths["output"].exists()
+
+        self.assertEqual(copied, [])
+        self.assertFalse(output_exists)
 
     def test_bundle_reports_missing_external_proofs(self) -> None:
         preflight = _load_preflight()
@@ -2100,6 +2730,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
             textedit = root / "textedit-source.json"
             focus = root / "focus-source.json"
             submit = root / "submit-source.json"
+            selector = root / "selector-source.json"
             testpypi = root / "testpypi-source.json"
             trusted = root / "trusted-source.json"
             output = root / "release-proof"
@@ -2151,6 +2782,10 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            selector.write_text(
+                json.dumps(_wechat_selector_engine_smoke_report()),
+                encoding="utf-8",
+            )
             testpypi.write_text(
                 json.dumps(
                     {
@@ -2185,8 +2820,10 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 textedit_smoke_report=textedit,
                 wechat_focus_draft_report=focus,
                 wechat_submit_report=submit,
+                wechat_selector_engine_report=selector,
                 testpypi_install_report=testpypi,
                 trusted_publisher_report=trusted,
+                expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
             )
 
         self.assertEqual(report["passed"], False)
@@ -2280,7 +2917,7 @@ class FakeReportRunner:
                 and self._script_matches_package(script, self.fail_api_smoke_package)
             ):
                 return subprocess.CompletedProcess(command, 1, "", "api smoke failed")
-            return subprocess.CompletedProcess(command, 0, "0.1.1\n", "")
+            return subprocess.CompletedProcess(command, 0, "0.2.0\n", "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def _script_matches_package(self, script: str, package_name: str) -> bool:
@@ -2332,6 +2969,7 @@ def _load_trusted_publisher_script() -> Any:
 
 
 def _load_wheel_check_script() -> Any:
+    _load_testpypi_script()
     path = ROOT / "scripts" / "wheel_check.py"
     spec = importlib.util.spec_from_file_location("wheel_check", path)
     assert spec is not None
@@ -2367,7 +3005,7 @@ def _write_fake_wheel_set(
         _write_fake_wheel(
             wheel_dir,
             project_name=project_name,
-            version="0.1.1",
+            version="0.2.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -2433,7 +3071,7 @@ def _write_fake_sdist_set(
         _write_fake_sdist(
             sdist_dir,
             project_name=project_name,
-            version="0.1.1",
+            version="0.2.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -2523,7 +3161,7 @@ def _testpypi_install_report_payload(
                 "installed": not failed,
                 "imported": not failed,
                 "apiSmoke": not failed,
-                "version": None if failed else "0.1.1",
+                "version": None if failed else "0.2.0",
             }
         )
     return {
@@ -2546,6 +3184,7 @@ def _write_release_proof_bundle_sources(
         "textedit": root / "textedit-source.json",
         "focus": root / "focus-source.json",
         "submit": root / "submit-source.json",
+        "selector": root / "selector-source.json",
         "testpypi": root / "testpypi-source.json",
         "trusted": root / "trusted-source.json",
     }
@@ -2597,6 +3236,10 @@ def _write_release_proof_bundle_sources(
         ),
         encoding="utf-8",
     )
+    paths["selector"].write_text(
+        json.dumps(_wechat_selector_engine_smoke_report()),
+        encoding="utf-8",
+    )
     paths["testpypi"].write_text(
         json.dumps(
             {
@@ -2639,10 +3282,14 @@ def _release_proof_bundle_args(paths: dict[str, Path]) -> list[str]:
         str(paths["focus"]),
         "--wechat-submit-report",
         str(paths["submit"]),
+        "--wechat-selector-engine-report",
+        str(paths["selector"]),
         "--testpypi-install-report",
         str(paths["testpypi"]),
         "--trusted-publisher-report",
         str(paths["trusted"]),
+        "--expected-source-sha",
+        SELECTOR_PROOF_HEAD_SHA,
     ]
 
 
@@ -2743,6 +3390,74 @@ def _wechat_observation(
         "success": True,
         "summary": f"{operation} ok",
         "observation": observation,
+    }
+
+
+def _wechat_selector_engine_smoke_report(
+    *,
+    head_sha: str = SELECTOR_PROOF_HEAD_SHA,
+) -> dict[str, Any]:
+    checks = {
+        "systemOpenWeChat": True,
+        "readiness": True,
+        "openWeChat": True,
+        "inspectWindow": True,
+        "listConversations": True,
+        "openContact": True,
+        "readVisibleMessages": True,
+        "listContacts": True,
+        "validProfileOverride": True,
+        "invalidProfileFallback": True,
+    }
+    return {
+        "schema": "macos_computer_use.release.wechat_selector_engine_proof.v2",
+        "source": {
+            "repository": "zhanghao1903/macos-computer-use",
+            "headSha": head_sha,
+            "generatedAt": "2026-07-12T00:00:00Z",
+            "packageVersions": {
+                "app-control-protocol": "0.2.0",
+                "computer-use-macos": "0.2.0",
+                "wechat-desktop-tool": "0.2.0",
+            },
+        },
+        "checks": checks,
+        "collections": {
+            "contacts": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [{"semanticFieldsPresent": True}],
+            },
+            "conversations": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [
+                    {"semanticFieldsPresent": True, "actionable": True}
+                ],
+            },
+            "visibleMessages": {
+                "requestedLimit": 30,
+                "count": 1,
+                "items": [{"nonEmptyTextObserved": True}],
+            },
+        },
+        "safety": {
+            "focusGatePassed": True,
+            "targetPostconditionPassed": True,
+            "expiredActionRefRejected": True,
+            "frameDerivedCoordinatesOnly": True,
+            "rawObservationIncluded": False,
+            "sensitiveFieldScanPassed": True,
+        },
+        "timingsMs": {
+            "openWeChat": 100,
+            "inspectWindow": 100,
+            "listConversations": 100,
+            "openContact": 100,
+            "readVisibleMessages": 100,
+            "listContacts": 100,
+        },
+        "failedStep": None,
     }
 
 

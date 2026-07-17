@@ -1,0 +1,410 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+    "reviewed_at": "2026-07-14T01:06:03Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "current PR metadata, exact base and head SHAs, complete changed-file metadata, full main-to-head diff, commit delta, and exact-head CI",
+      "focused 14c58c7-to-002fd72 five-commit, ten-file remediation and documentation delta",
+      "Accessibility worker serialization, lock and startup deadline, readiness, dispatch, response timeout, process preservation, and cleanup",
+      "Accessibility action timeout conversion, warm-worker no-fallback path, protocol retryability, and consumer recovery contract",
+      "prior finding lifecycle, release record, package boundaries, repository and package tests, compile, whitespace, preflight, wheel checks, CI, and PR hygiene"
+    ],
+    "excluded_scope": [
+      "fresh real WeChat action or message submission",
+      "post-submit delivery read-back and repeated live latency percentiles",
+      "signed helper execution and real TestPyPI or PyPI publication",
+      "private raw smoke artifacts and unrelated dirty worktree files",
+      "Ruff installation and cleanup of the existing strict-mypy baseline"
+    ]
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "PRR-019 is resolved and every existing local and exact-head CI gate passes, but PRR-020 proves that a post-dispatch unknown Accessibility action timeout is exposed to protocol consumers as retryable, contradicting the PR contract and permitting duplicate mutating actions.",
+    "blocking_finding_ids": [
+      "PRR-020"
+    ]
+  },
+  "summary": "The five-commit delta correctly fixes and verifies PRR-019 by bounding lock and startup time and preventing expired writes. Re-review found a distinct recovery-contract defect: an action that was definitely dispatched but whose response timed out is still marked retryable for protocol callers. Resolve PRR-020 and add protocol retryability assertions before merge.",
+  "change_map": [
+    {
+      "area": "Queue and startup deadline",
+      "change": "Acquire the worker lock within the remaining request budget and check the deadline after lock acquisition and readiness.",
+      "external_behavior": "Pre-dispatch expiration writes zero frames and preserves a healthy worker.",
+      "risk": "Low",
+      "validation": "The prior counterexample now writes zero frames and both real-subprocess deadline regressions pass."
+    },
+    {
+      "area": "Post-dispatch action timeout",
+      "change": "Retain worker termination and no internal fallback while discarding dispatch state during protocol conversion.",
+      "external_behavior": "A mutating unknown outcome is returned as retryable.",
+      "risk": "Medium",
+      "validation": "A synthetic dispatched AXPress returned timeout with retryable true and zero internal fallback."
+    },
+    {
+      "area": "Framing and resources",
+      "change": "Retain readiness handshake, fd-level newline framing, and process cleanup.",
+      "external_behavior": "Fast responses remain ordered and workers close cleanly.",
+      "risk": "Low",
+      "validation": "139 package tests passed with resource warnings treated as errors; query and action stress remains green."
+    },
+    {
+      "area": "Compatibility and release",
+      "change": "Keep schema, configuration, dependencies, and package versions unchanged.",
+      "external_behavior": "The 0.2.0 surface remains, but the documented retryability contract is not honored.",
+      "risk": "Medium",
+      "validation": "Root and package suites, preflight, wheel checks, compile, and CI passed; the new contract assertion failed."
+    },
+    {
+      "area": "Documentation and PR hygiene",
+      "change": "Approve a77f5d4 in repository docs while leaving the GitHub body at an older request-changes snapshot.",
+      "external_behavior": "Maintainers see conflicting review state.",
+      "risk": "Low",
+      "validation": "Branch documentation and GitHub PR metadata were compared against the current head."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-020",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "A dispatched action timeout is incorrectly advertised as retryable",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 1453,
+        "line_end": 1468,
+        "symbol": "MacOSComputerUseClient.accessibility_action",
+        "side": "RIGHT",
+        "commit_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0"
+      },
+      "observation": "The warm action path returns a worker timeout without internal fallback, but accessibility_action converts both pre-dispatch and post-dispatch timeouts to the same generic ComputerUseStatus.TIMEOUT. The protocol adapter marks every timeout retryable, so the top-level observation and nested ToolError expose retryable true even after the worker received the action.",
+      "trigger": "The action worker receives an AXPress request and begins the action, but no response arrives before the deadline; a run_command caller follows the protocol retryability classification.",
+      "impact": "A caller can retry an unknown mutating outcome and execute the same UI side effect twice. Suppressing the package's own one-shot fallback does not protect a consumer that relies on the public retryable field.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "The worker timeout is converted to a generic Accessibility action timeout without preserving whether dispatch occurred.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:1453"
+        },
+        {
+          "kind": "code",
+          "description": "The new warm action path returns the worker result directly and performs no one-shot fallback.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:1533"
+        },
+        {
+          "kind": "code",
+          "description": "The protocol adapter marks every ComputerUseStatus.TIMEOUT retryable and copies that value into ToolError.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:5004"
+        },
+        {
+          "kind": "spec",
+          "description": "The PR merge-readiness public contract says action worker timeout or protocol failure is non-retryable after dispatch.",
+          "reference": "docs/feature/accessibility-selector-engine/merge-readiness.md:146"
+        },
+        {
+          "kind": "reproduction",
+          "description": "An exact-head synthetic worker recorded AXPress and withheld its response. The protocol result was timeout with failureKind accessibility_action_timeout and retryable true, with zero fallback calls; a retryable-false assertion exited 1.",
+          "reference": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-002fd72.md#8-validation-evidence"
+        },
+        {
+          "kind": "test",
+          "description": "The existing real-worker dispatched-timeout regression proves one dispatch and zero fallback calls but does not assert top-level or nested retryability.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:1866"
+        }
+      ],
+      "remediation": "Preserve whether an action crossed the dispatch boundary and emit retryable false for post-dispatch timeout or unknown outcomes at both protocol levels. A pre-dispatch zero-write timeout may remain retryable only when reliably distinguished; conservatively making every Accessibility action timeout non-retryable is also safe. Align documentation with the implemented contract.",
+      "verification": "Extend the real dispatched-timeout regression to assert one recorded action, zero internal fallback calls, and top-level plus nested retryable false. Add a separate pre-dispatch timeout assertion for the chosen safe retry policy, then rerun package, root, framing and deadline, release, and exact-head CI gates.",
+      "status": "open",
+      "fingerprint": "accessibility-action-post-dispatch-timeout-retryable"
+    },
+    {
+      "id": "PRR-019",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "concurrency",
+      "title": "Expired queued actions were dispatched before timeout was reported",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 241,
+        "line_end": 310,
+        "symbol": "_AccessibilityWorker.run",
+        "side": "RIGHT",
+        "commit_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0"
+      },
+      "observation": "The former worker could exhaust its deadline waiting for the lock and still write. The current implementation serializes within the budget, bounds lock acquisition by remaining time, checks after acquisition, and checks again after startup and readiness before writing.",
+      "trigger": "Another request holds the worker lock beyond this request timeout, or startup reaches readiness but completion returns after the same deadline.",
+      "impact": "Before remediation, an action could begin after its caller timeout. Both repaired paths now return before dispatch and preserve a healthy worker.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "One monotonic deadline now covers serialization, bounded lock acquisition, startup and readiness, the pre-write gate, and response waiting.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:241"
+        },
+        {
+          "kind": "test",
+          "description": "Real subprocess tests prove zero frames and same-process follow-up for lock contention and delayed startup completion.",
+          "reference": "packages/computer-use-macos/tests/test_package.py:1082"
+        },
+        {
+          "kind": "reproduction",
+          "description": "The prior 0.1-second request completed while the lock remained held, wrote zero frames, returned timeout 124, and preserved the same process.",
+          "reference": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-002fd72.md#8-validation-evidence"
+        },
+        {
+          "kind": "ci",
+          "description": "Exact-head GitHub Actions completed successfully.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29268604523/job/86880315238"
+        }
+      ],
+      "remediation": "Completed: bound lock waiting and startup by the request deadline, check again before writing, return pre-dispatch timeout with zero frames, and preserve a healthy worker.",
+      "verification": "Completed: both zero-write counterexamples, same-process follow-up, framing stress, warning-as-error package tests, repository tests, preflight, wheels, and exact-head CI passed.",
+      "status": "resolved",
+      "fingerprint": "accessibility-worker-queued-deadline-late-dispatch"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-020",
+      "action": "Distinguish post-dispatch unknown action outcomes from safe pre-dispatch expiration, emit retryable false after dispatch at both protocol levels, add protocol assertions, and synchronize the declared contract.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-019",
+      "action": "Prevent dispatch after queue or startup consumes the deadline, preserve a healthy worker, and add zero-write regressions.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Private desktop logs can contain transient UI text.",
+      "mitigation": "Keep raw artifacts untracked and publish only bounded semantic evidence.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Medium",
+      "description": "A consumer can retry an action whose first outcome is unknown and duplicate a UI mutation.",
+      "mitigation": "Make post-dispatch outcomes non-retryable and require observation or manual recovery.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Pre-dispatch queue and startup expiration is now bounded and preserves the worker.",
+      "mitigation": "Retain one total deadline and the deterministic zero-write regressions.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "Contended calls can exhaust their budget before dispatch.",
+      "mitigation": "Return promptly without process churn and retain transport timing diagnostics.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Medium",
+      "description": "The emitted retryability value contradicts the feature's declared recovery contract.",
+      "mitigation": "Preserve dispatch state and test top-level and nested protocol fields.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Medium",
+      "description": "Shipping the warm action path with unsafe retry guidance can duplicate desktop effects.",
+      "mitigation": "Resolve PRR-020 before changing the PR from draft or releasing.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "maintainability",
+      "level": "Low",
+      "description": "Worker transport and generic result mapping encode different safety knowledge.",
+      "mitigation": "Carry an explicit dispatch or outcome classification across the boundary.",
+      "owner": "computer-use-macos"
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "synthetic post-dispatch Accessibility action non-retryability assertion",
+        "environment": "isolated 002fd72 clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "The worker recorded AXPress, the result was timeout with retryable true, no internal fallback occurred, and the required retryable-false assertion failed.",
+        "evidence_ref": "PRR-020"
+      },
+      {
+        "command": "prior queued-deadline zero-write counterexample with timeout 0.1 seconds while the lock remains held",
+        "environment": "isolated 002fd72 clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "The call completed while locked, wrote zero frames, returned timeout 124, and preserved the same process.",
+        "evidence_ref": "PRR-019"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src .venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "isolated 002fd72 clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "139 tests passed and 1 platform-conditional test skipped; no ResourceWarning occurred.",
+        "evidence_ref": "PRR-019"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests",
+        "environment": "isolated 002fd72 clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 repository tests passed, including wheel build, install, API smoke, dependency rejection, and release checks.",
+        "evidence_ref": null
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src .venv/bin/python -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "isolated 002fd72 clone; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "isolated 002fd72 clone; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "123 tests passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": ".venv/bin/python -m compileall -q packages examples scripts tests",
+        "environment": "isolated 002fd72 clone; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Python compilation passed.",
+        "evidence_ref": null
+      },
+      {
+        "command": "git diff --check origin/main...HEAD",
+        "environment": "isolated 002fd72 clone",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors.",
+        "evidence_ref": null
+      },
+      {
+        "command": "env -u PYTHONPATH .venv/bin/python scripts/release_preflight.py",
+        "environment": "isolated 002fd72 clone; CPython 3.12.7",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "All local public, package, workflow, and documentation gates passed; only expected sandbox socket and unavailable external-proof warnings remained.",
+        "evidence_ref": null
+      },
+      {
+        "command": "git status --short",
+        "environment": "isolated 002fd72 clone after verification",
+        "head_sha": "002fd7226634c7777e07416cb2e4401843e7b2b0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "The isolated verification clone remained clean.",
+        "evidence_ref": null
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test - run 29268604523, job 86880315238",
+        "observed_at": "2026-07-14T01:00:52Z",
+        "status": "PASS",
+        "summary": "Exact head 002fd72 completed successfully; GitHub reports the PR mechanically mergeable with merge state CLEAN.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29268604523/job/86880315238"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "fresh real WeChat action or send",
+        "reason": "No new live desktop mutation was authorized or needed; both findings are distinguished with synthetic worker frames and protocol results."
+      },
+      {
+        "check": "post-submit delivery read-back",
+        "reason": "Outside this worker recovery review."
+      },
+      {
+        "check": "signed helper and real release publication",
+        "reason": "These remain later release-stage external gates."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the project virtual environment or available Anaconda runtime."
+      },
+      {
+        "check": "strict mypy",
+        "reason": "The prior exact implementation run reported three existing errors outside the worker delta; it is not a configured CI gate."
+      }
+    ]
+  },
+  "limitations": [
+    "This review is authoritative only for head 002fd7226634c7777e07416cb2e4401843e7b2b0.",
+    "The post-dispatch reproduction uses a synthetic worker and temporary marker and does not execute a real macOS Accessibility action.",
+    "The generic timeout-to-retryable mapping existed on the base branch, but this PR adds a default warm action path that reaches it and explicitly adds a contrary after-dispatch contract.",
+    "No fresh real desktop mutation, signed helper, or release publication was performed.",
+    "Private raw observations and unrelated dirty worktree files were excluded.",
+    "The GitHub PR remains draft and its platform body still describes the old 07fa052 request-changes snapshot."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "Protocol consumers may use retryable to decide whether an automatic or manual retry is safe; this is the field's backend recovery purpose.",
+    "A mutating request becomes an unknown outcome once write and flush cross the worker dispatch boundary, so response loss must not be advertised as safely retryable.",
+    "Pre-dispatch expiration may be retryable only when the implementation reliably preserves and propagates its zero-write state.",
+    "The current release record satisfies the MR-level changelog gate; an additional entry for each review-only remediation commit is not required."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced legacy private focus implementation in a separate cleanup.",
+      "value": "Reduces dead-code ambiguity without expanding the current worker safety fix."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group or remove it as an unavailable documented gate.",
+      "value": "Makes the documented lint gate reproducible in clean environments."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live percentiles if the three-second target becomes an operational SLO.",
+      "value": "Separates representative feature acceptance from an ongoing latency guarantee."
+    },
+    {
+      "id": "NOTE-015",
+      "category": "documentation",
+      "recommendation": "Synchronize the GitHub PR body with the current head and latest review decision.",
+      "value": "The platform body still advertises obsolete findings and asks that the PR remain draft."
+    }
+  ]
+}

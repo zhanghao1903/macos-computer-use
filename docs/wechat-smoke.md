@@ -83,8 +83,8 @@ python -m wechat_desktop_tool.examples.wechat_smoke
 ```
 
 Live automated contact selection requires `WECHAT_TOOL_ALLOW_FOCUS_SELECT=1`.
-The known-unsafe `Command+F` search hotkey is rejected for live runs; configure
-`wechat.search_hotkey = ["Command", "K"]` first.
+The tool uses the selector-backed `open_contact` flow and verifies the target
+chat before drafting or submitting.
 
 ## Submit Smoke
 
@@ -119,9 +119,9 @@ python -m wechat_desktop_tool.examples.wechat_smoke \
 ```
 
 To switch to the specified contact before sending, explicitly opt into both
-contact selection and sending. This requires `wechat.search_hotkey` to be
-configured to `["Command", "K"]`; the known-unsafe `["Command", "F"]` setting is
-rejected before any keyboard action is sent:
+contact selection and sending. The tool resolves a visible conversation row or
+the verified WeChat search box, opens one target, and verifies the resulting
+chat title before any message text is drafted:
 
 ```bash
 WECHAT_TOOL_CONTACT="File Transfer" \
@@ -145,6 +145,50 @@ The package does not make the authorization decision. Setting
 authorization and confirmation policy. `WECHAT_TOOL_ALLOW_SUBMIT=1` is accepted
 as a compatibility alias.
 
+## Selector Engine Release Proof
+
+This read-only smoke opens WeChat, lists visible conversations and contacts,
+opens one configured contact, reads visible messages, checks profile override
+fallback, and verifies expired actionRef rejection. It does not draft or submit
+content.
+
+Run it from the exact commit that will be released:
+
+```bash
+HEAD_SHA="$(git rev-parse HEAD)"
+WECHAT_TOOL_SOCKET_PATH=/tmp/app-control.sock \
+WECHAT_TOOL_TOKEN_FILE=./app-control.token \
+python examples/wechat_selector_engine_smoke_test.py \
+  --head-sha "$HEAD_SHA" \
+  --contact "File Transfer" \
+  --contact-limit 30 \
+  --conversation-limit 30 \
+  --message-limit 30 \
+  --output ./wechat-selector-engine-smoke.json
+```
+
+The default output is
+`macos_computer_use.release.wechat_selector_engine_proof.v2`. It contains only
+source/version metadata, structural check booleans, counts, bounded timings,
+and safety evidence. It does not contain contact names, message text, window
+titles, command ids, service/config paths, tokens, AX paths, or raw operation
+observations. A valid release proof requires at least one contact, one
+conversation, and one visible message; every measured semantic operation must
+complete within 3000 ms.
+
+Raw diagnostics are available only through an explicit private path:
+
+```bash
+python examples/wechat_selector_engine_smoke_test.py \
+  --head-sha "$HEAD_SHA" \
+  --private-debug-output /private/tmp/wechat-selector-engine-private-debug.json \
+  --output ./wechat-selector-engine-smoke.json
+```
+
+The private debug file can contain contact names, message content, local paths,
+and raw observations. Keep it outside the repository, do not pass it to
+`release_proof_bundle.py`, and never attach it to a GitHub Release.
+
 Dry-run JSON is intentionally not accepted as release proof. Use the saved
 focus/draft and submit JSON reports with:
 
@@ -152,5 +196,10 @@ focus/draft and submit JSON reports with:
 python scripts/release_preflight.py \
   --wechat-smoke-report ./wechat-focus-draft-smoke.json \
   --wechat-smoke-report ./wechat-submit-smoke.json \
+  --wechat-smoke-report ./wechat-selector-engine-smoke.json \
+  --expected-source-sha "$(git rev-parse HEAD)" \
   --require-external
 ```
+
+Use the complete command in [publishing.md](publishing.md) when assembling all
+required external release proofs.

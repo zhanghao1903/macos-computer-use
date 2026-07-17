@@ -25,7 +25,7 @@ jobs:
             python -m unittest discover -s packages/app-control-protocol/tests
           PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src \
             python -m unittest discover -s packages/computer-use-macos/tests
-          PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src \
+          PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src \
             python -m unittest discover -s packages/wechat-desktop-tool/tests
       - name: Run release preflight
         run: python scripts/release_preflight.py
@@ -49,6 +49,7 @@ jobs:
             --pattern textedit-smoke.json \
             --pattern wechat-focus-draft-smoke.json \
             --pattern wechat-submit-smoke.json \
+            --pattern wechat-selector-engine-smoke.json \
             --pattern testpypi-install.json \
             --pattern trusted-publisher.json \
             --pattern release-proof.json \
@@ -57,6 +58,7 @@ jobs:
           test -f release-proof/textedit-smoke.json
           test -f release-proof/wechat-focus-draft-smoke.json
           test -f release-proof/wechat-submit-smoke.json
+          test -f release-proof/wechat-selector-engine-smoke.json
           test -f release-proof/testpypi-install.json
           test -f release-proof/trusted-publisher.json
           test -f release-proof/release-proof.json
@@ -69,9 +71,11 @@ jobs:
             --textedit-smoke-report release-proof/textedit-smoke.json \
             --wechat-smoke-report release-proof/wechat-focus-draft-smoke.json \
             --wechat-smoke-report release-proof/wechat-submit-smoke.json \
+            --wechat-smoke-report release-proof/wechat-selector-engine-smoke.json \
             --testpypi-install-report release-proof/testpypi-install.json \
             --trusted-publisher-report release-proof/trusted-publisher.json \
             --proof release-proof/release-proof.json \
+            --expected-source-sha "${{ github.sha }}" \
             --require-external
       - name: Upload distributions
         uses: actions/upload-artifact@v4

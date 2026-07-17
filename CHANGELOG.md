@@ -6,9 +6,25 @@
 
 - Add an SDK-style WeChat contacts list example that opens WeChat, runs
   `list_contacts`, writes a JSON report, and prints contact names.
+- Add `wechat.selector_profile_path` and
+  `APP_CONTROL_WECHAT_SELECTOR_PROFILE_PATH` so applications can inject a local
+  WeChat selector profile without rebuilding `wechat-desktop-tool`.
+- Add `frontmostApp` root support to scoped `accessibility_query` so selector
+  profiles can inspect app-level Accessibility nodes without a focused window.
+- Add an SDK-style WeChat selector-engine smoke checklist example that writes
+  one JSON report for conversations, contact opening, visible messages, profile
+  override checks, and expired actionRef rejection.
+- Add a read-only WeChat live prerequisite probe example that reports whether
+  the current desktop can expose a frontmost WeChat `AXWindow` before live
+  selector-engine smoke tests run.
 
 ### Internal
 
+- Add the internal Accessibility selector engine, packaged WeChat selector
+  profile, collection extraction, and selector-backed WeChat semantic operation
+  migration while keeping public selector protocol commands deferred.
+- Recognize selector-engine WeChat smoke reports in strict release proof
+  preflight, release proof bundles, and the GitHub Release publishing gate.
 - Add a `feature-lifecycle` agent skill to manage features from requirements
   through design, implementation, review, merge, release readiness, and
   traceable release notes.
@@ -21,6 +37,14 @@
 
 ### Docs
 
+- Add a remediation record that maps the failed Accessibility Selector Engine
+  technical review items to revised design sections, implementation gates, and
+  required proof.
+- Record the latest live WeChat selector-engine smoke retry evidence and the
+  remaining Codex-frontmost desktop blocker.
+- Record the continuation live WeChat selector-engine smoke retry and separate
+  the Codex-hosted probe permission result from the trusted local-service
+  frontmost blocker.
 - Add a documentation index, refresh README installation/API guidance, and
   expand the API reference for package roles and command builders.
 - Add architecture documents for `computer-use-macos` and
@@ -33,13 +57,83 @@
 
 ### Fixed
 
+- Reject empty or non-finite selector profile constraints, malformed or
+  contradictory Accessibility query envelopes, and incomplete WeChat contact
+  target evidence before selector resolution, contact action, Return fallback,
+  message draft, or submit.
+- Treat an exact frontmost bundle-id match as authoritative for generated
+  Accessibility query/action workers, so localized app names do not reject the
+  correct target, and publish all query/action/tree frontmost failures through
+  the stable `computer-use-macos` failure registry.
+- Prevent `wechat-desktop-tool` legacy unsupported and pre-dispatch recovery
+  from replaying a mutation when any known proof reports a performed/unknown
+  effect or native error code.
+- Reject truncated WeChat contact-target queries and failed final search-result
+  queries before candidate selection, row action, Return fallback, draft, or
+  submit across control-map, visible-row, and search-result paths.
+- Route public WeChat focus/send through verified `open_contact`, enforce
+  target-app and row action identity before Accessibility actions, and replace
+  synthetic list continuation tokens with explicit visible-window semantics.
+- Keep WeChat contact, conversation, and visible-message APIs below the
+  three-second target by querying visible rows, skipping selected navigation,
+  replacing stale global-search text, and verifying the active chat across
+  compatible chat-panel paths without using the chat-history shortcut.
+- Replace raw selector-engine release reports with source-bound, whitelist-only
+  proof v2 and reject sensitive, structurally invalid, stale-head, or v1 proof
+  before release bundling.
+- Coordinate all three package versions and dependency floors at `0.2.0`, and
+  reject a new WeChat wheel paired with local `0.1.1` protocol/backend wheels.
+- Fail fast when shared WeChat configuration selects the unsupported helper
+  backend; direct and direct-backed local-service construction remain
+  supported.
+- Run release WeChat tests with every required workspace source path and check
+  the exact path in preflight so clean release environments do not depend on
+  editable installs.
 - Track the `examples/app-control.toml` template so CI release preflight checks
   pass in clean checkouts.
+- Make release preflight and CI WeChat package-test checks inject all workspace
+  package source roots so WeChat checks can import `computer_use_macos` in
+  clean CI checkouts.
 - Install CI build tooling before no-isolation wheel builds so package
   verification can import the configured `setuptools.build_meta` backend.
+- Allow selector-backed WeChat row actionRefs and `open_contact` to work when
+  live `AXRow` targets omit action names or reject `AXPress`, falling back to
+  the selected search result instead of raw coordinates.
 - Allow scoped Accessibility queries to use a longer bounded timeout and give
   WeChat contact/conversation row queries larger time budgets, avoiding
   `list_contacts` failures on slower real WeChat windows.
+- Batch selector collection descendant field extraction and trim unused
+  selector query attributes so WeChat contact listing no longer performs one
+  Accessibility query per visible row.
+- Add a WeChat control-map fast path for mapped navigation/list/message table
+  AX paths so normal semantic reads avoid broad selector discovery and nested
+  per-row searches.
+- Avoid slow WeChat mapped navigation `AXPress` calls by skipping already-active
+  tabs, using bounded frame-based coordinate clicks for mapped navigation, and
+  limiting Accessibility-action fallback to 2 seconds.
+- Add direct screen-coordinate hints to the WeChat navigation control map and
+  stop falling back to the old selector path when mapped navigation fails, so
+  navigation failures stay bounded instead of expanding into long selector
+  searches.
+- Narrow mapped WeChat contact-list reads to static text nodes and prefilter
+  Accessibility queries by role, reducing contact table payloads while keeping
+  existing contact `actionRef` responses.
+- Add an indexed Accessibility root resolver and visible-row traversal hints
+  for mapped WeChat contact-list reads, avoiding full-table child materializing
+  on stable contact table paths.
+- Add per-step `accessibility_query` timing diagnostics so rawdata logs can
+  identify whether query time is spent in PyObjC import, app/window lookup,
+  root resolution, collection, or response serialization.
+- Reuse a persistent Accessibility query worker in `computer-use-macos`
+  service mode so repeated queries avoid per-call PyObjC/AppKit cold starts
+  while retaining the existing subprocess fallback.
+- Verify the requested WeChat chat before reading messages, support current
+  `0/12` and compatible `0/11` mapped roots, use policy-gated Quartz clicks for
+  rows without `AXPress`, and make the SDK recent-messages example print one
+  configured target's returned rows.
+- Reject expired or malformed WeChat `actionRef` payloads before backend or
+  fallback execution, while adding `createdAt` and `expiresAt` metadata to new
+  refs.
 
 ## 0.1.1 - 2026-07-02
 

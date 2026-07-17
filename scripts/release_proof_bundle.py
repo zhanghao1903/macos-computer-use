@@ -20,6 +20,7 @@ PROOF_ASSET_NAMES = {
     "textedit_smoke_report": "textedit-smoke.json",
     "wechat_focus_draft_report": "wechat-focus-draft-smoke.json",
     "wechat_submit_report": "wechat-submit-smoke.json",
+    "wechat_selector_engine_report": "wechat-selector-engine-smoke.json",
     "testpypi_install_report": "testpypi-install.json",
     "trusted_publisher_report": "trusted-publisher.json",
     "release_proof": "release-proof.json",
@@ -33,18 +34,28 @@ def build_bundle(
     textedit_smoke_report: Path,
     wechat_focus_draft_report: Path,
     wechat_submit_report: Path,
+    wechat_selector_engine_report: Path,
     testpypi_install_report: Path,
     trusted_publisher_report: Path,
+    expected_source_sha: str,
+    sensitive_canaries: tuple[str, ...] = (),
 ) -> dict[str, object]:
-    output_dir.mkdir(parents=True, exist_ok=True)
     proof: dict[str, Any] = {}
     proof.update(release_preflight._load_helper_doctor_proof(helper_doctor_report))
     proof.update(release_preflight._load_textedit_smoke_proof(textedit_smoke_report))
     proof.update(
         release_preflight._load_wechat_smoke_proofs(
-            (wechat_focus_draft_report, wechat_submit_report)
+            (
+                wechat_focus_draft_report,
+                wechat_submit_report,
+                wechat_selector_engine_report,
+            ),
+            expected_source_sha=expected_source_sha,
+            sensitive_canaries=sensitive_canaries,
         )
     )
+    if proof.get("wechat_selector_engine_smoke") is not True:
+        raise ValueError("selector proof v2 did not satisfy strict validation")
     proof.update(
         release_preflight._load_testpypi_install_proof(
             REPO_ROOT,
@@ -59,11 +70,15 @@ def build_bundle(
         for key in release_preflight.EXTERNAL_PROOFS
     }
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     assets = {
         PROOF_ASSET_NAMES["helper_doctor_report"]: helper_doctor_report,
         PROOF_ASSET_NAMES["textedit_smoke_report"]: textedit_smoke_report,
         PROOF_ASSET_NAMES["wechat_focus_draft_report"]: wechat_focus_draft_report,
         PROOF_ASSET_NAMES["wechat_submit_report"]: wechat_submit_report,
+        PROOF_ASSET_NAMES["wechat_selector_engine_report"]: (
+            wechat_selector_engine_report
+        ),
         PROOF_ASSET_NAMES["testpypi_install_report"]: testpypi_install_report,
         PROOF_ASSET_NAMES["trusted_publisher_report"]: trusted_publisher_report,
     }
@@ -101,8 +116,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--textedit-smoke-report", type=Path, required=True)
     parser.add_argument("--wechat-focus-draft-report", type=Path, required=True)
     parser.add_argument("--wechat-submit-report", type=Path, required=True)
+    parser.add_argument("--wechat-selector-engine-report", type=Path, required=True)
     parser.add_argument("--testpypi-install-report", type=Path, required=True)
     parser.add_argument("--trusted-publisher-report", type=Path, required=True)
+    parser.add_argument("--expected-source-sha", required=True)
+    parser.add_argument(
+        "--sensitive-canary",
+        action="append",
+        default=[],
+        help="Sensitive value forbidden from selector proof v2; may be repeated.",
+    )
     parser.add_argument(
         "--allow-incomplete",
         action="store_true",
@@ -116,8 +139,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         textedit_smoke_report=args.textedit_smoke_report,
         wechat_focus_draft_report=args.wechat_focus_draft_report,
         wechat_submit_report=args.wechat_submit_report,
+        wechat_selector_engine_report=args.wechat_selector_engine_report,
         testpypi_install_report=args.testpypi_install_report,
         trusted_publisher_report=args.trusted_publisher_report,
+        expected_source_sha=args.expected_source_sha,
+        sensitive_canaries=tuple(args.sensitive_canary),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if args.allow_incomplete or report["passed"] is True else 1

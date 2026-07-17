@@ -96,6 +96,16 @@ The package currently exposes three related capabilities:
 - `accessibility_action`: execute an Accessibility action such as `AXPress` on
   a resolved target with optional snapshot and precondition checks.
 
+The direct backend keeps independent prewarmed subprocesses for bounded query
+and action execution. This avoids paying PyObjC/framework startup on every
+selector step while keeping AX work outside the long-lived service process.
+Read-only query worker failures can fall back to the original one-shot
+subprocess. Action requests are never replayed after dispatch: timeout or
+protocol failure is returned directly because the backend cannot prove that a
+mutation was not already attempted. The action subprocess is used only when no
+worker is available before dispatch. Helper-backed execution remains owned by
+the helper transport and does not use these local workers.
+
 `accessibility_query` is intentionally scoped. Callers provide:
 
 - `root`: focused window, frontmost app, or an element path.

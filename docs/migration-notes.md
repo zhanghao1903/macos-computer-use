@@ -55,8 +55,8 @@ wechat.focus_contact("File Transfer")
 wechat.draft_message("hello")
 ```
 
-Helper deployments can be configured through the shared config file or with a
-standalone helper config object:
+Generic `computer-use-macos` helper deployments can be configured through the
+shared config file or with a standalone helper config object:
 
 ```python
 from computer_use_macos import ComputerUseClient, HelperConfig
@@ -68,6 +68,46 @@ app_control = ComputerUseClient(
         allowed_apps=("TextEdit",),
     )
 )
+```
+
+This helper example does not imply helper parity for the selector-backed
+WeChat APIs. See the coordinated `0.2.0` migration below.
+
+## Coordinated 0.2.0 Upgrade
+
+Accessibility Selector Engine support is released as one coordinated package
+set. Upgrade all three distributions together:
+
+```bash
+python -m pip install --upgrade \
+  "app-control-protocol>=0.2.0,<0.3" \
+  "computer-use-macos>=0.2.0,<0.3" \
+  "wechat-desktop-tool>=0.2.0,<0.3"
+```
+
+The dependency floors are intentional:
+
+- `computer-use-macos 0.2.0` requires `app-control-protocol>=0.2.0`;
+- `wechat-desktop-tool 0.2.0` requires both
+  `app-control-protocol>=0.2.0` and `computer-use-macos>=0.2.0`;
+- a new WeChat package with a `0.1.x` protocol or macOS backend must fail
+  dependency resolution instead of reaching runtime with an incomplete
+  selector contract.
+
+`WeChatDesktopTool.from_config(...)` now reads
+`computer_use.backend`. `backend="helper"` raises `ValueError` during tool
+construction because helper selector parity is outside the `0.2.0` scope.
+Supported WeChat modes are direct execution and a local service backed by the
+direct runtime. Generic non-WeChat `computer-use-macos` helper operations are
+unchanged.
+
+To roll back, pin the complete previous set rather than mixing versions:
+
+```bash
+python -m pip install --force-reinstall \
+  "app-control-protocol==0.1.1" \
+  "computer-use-macos==0.1.1" \
+  "wechat-desktop-tool==0.1.1"
 ```
 
 ## Compatibility Decision
@@ -88,5 +128,29 @@ app_control = ComputerUseClient(
   perform authorization and confirmation before invoking them.
 - `unknown` observations should be reviewed manually before retrying commands
   that may have side effects.
-- Helper mode is recommended for production because macOS permissions attach to
-  the executing process identity.
+- Helper mode remains appropriate for generic production computer-use
+  operations because macOS permissions attach to the executing process
+  identity. It is not a supported WeChat selector runtime in `0.2.0`.
+
+## WeChat Navigation Safety Changes
+
+- `focus_contact` now delegates to verified `open_contact`, and `send_message`
+  uses that same target-switch path before drafting. Legacy search-hotkey
+  configuration remains accepted but no longer drives normal contact switching.
+- Search focus is now fail closed. `focus_contact` and `open_contact` return
+  `failureKind="search_not_focused"` for every unknown Accessibility focus
+  state and do not clear, type, or press Return.
+- `open_contact` now reports duplicate semantic matches as a failed
+  `contact_ambiguous` result with `status="needs_disambiguation"`; callers must
+  no longer interpret that state as a successful open.
+- Navigation no longer executes packaged absolute screen coordinates. It
+  re-queries the mapped AX path, validates the current element frame against
+  the current window, and verifies the selected state after the action.
+- Contact and conversation rows that do not advertise `AXPress` no longer
+  include an `actionRef` with an unexecutable `AXPress` precondition.
+- Executable row actionRefs now include the exact row label in
+  `preconditions.labelIn`; refs without verifiable row identity are rejected
+  before backend execution.
+- Contact and conversation list pagination is explicitly visible-window only.
+  `nextPageToken` is always null, and non-null page tokens now return
+  `pagination_not_supported` instead of replaying the first visible page.

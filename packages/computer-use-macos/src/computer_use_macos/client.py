@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import select
+import subprocess
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
 from app_control_protocol import AppControlConfig, HelperConfig
 
-from .commands import CommandRunner, SubprocessCommandRunner
+from .accessibility_limits import (
+    MAX_ACCESSIBILITY_QUERY_DEPTH,
+    MAX_ACCESSIBILITY_QUERY_LIMIT,
+)
+from .commands import CommandResult, CommandRunner, SubprocessCommandRunner
 from .models import (
     ComputerUseOperation,
     ComputerUseReadiness,
@@ -41,6 +49,10 @@ def _bounded(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "...[truncated]"
+
+
+def _duration_ms(started: float) -> int:
+    return max(0, int(round((time.monotonic() - started) * 1000)))
 
 
 def _timeout_metadata(
@@ -109,6 +121,37 @@ def _target_identity_metadata(
     return metadata
 
 
+def _attach_accessibility_transport(
+    payload: dict[str, Any],
+    transport: Mapping[str, Any],
+) -> None:
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        payload["diagnostics"] = diagnostics
+    diagnostics["transport"] = dict(transport)
+
+
+def _accessibility_action_payload_metadata(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"accessibility_action": dict(payload)}
+    action_attempted = payload.get("actionAttempted")
+    if isinstance(action_attempted, bool):
+        metadata["action_attempted"] = action_attempted
+    action_effect = payload.get("actionEffect")
+    if isinstance(action_effect, str) and action_effect in {
+        "none",
+        "unknown",
+        "performed",
+    }:
+        metadata["action_effect"] = action_effect
+    native_error_code = payload.get("nativeErrorCode")
+    if isinstance(native_error_code, int) and not isinstance(native_error_code, bool):
+        metadata["native_error_code"] = native_error_code
+    return metadata
+
+
 _KEY_CODES = {
     "return": 36,
     "enter": 36,
@@ -163,14 +206,341 @@ _ACCESSIBILITY_ROLES = {
     "axradiobutton": "radio button",
     "radio_button": "radio button",
     "radiobutton": "radio button",
+    "axrow": "row",
+    "row": "row",
     "axpopupbutton": "pop up button",
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
     "axtextfield": "text field",
-    "axtextarea": "text field",
+    "axtextarea": "text area",
+    "text_area": "text area",
+    "textarea": "text area",
     "text_field": "text field",
     "textfield": "text field",
 }
+
+_ACCESSIBILITY_ROLE_COLLECTIONS = {
+    "button": "buttons",
+    "checkbox": "checkboxes",
+    "menu item": "menu items",
+    "radio button": "radio buttons",
+    "row": "rows",
+    "text field": "text fields",
+    "text area": "text areas",
+}
+
+
+@dataclass(frozen=True)
+class _AccessibilityWorkerResult(CommandResult):
+    request_dispatched: bool = False
+
+
+class _AccessibilityWorker:
+    """Warm subprocess for repeated Accessibility operations in service mode."""
+
+    _PROTOCOL_FAILURE = 70
+    _STARTUP_TIMEOUT_SECONDS = 5.0
+    _MAX_FRAME_BYTES = 16 * 1024 * 1024
+
+    def __init__(
+        self,
+        *,
+        worker_name: str,
+        worker_script: str,
+        executable: str = sys.executable,
+    ) -> None:
+        self._worker_name = worker_name
+        self._worker_script = worker_script
+        self._executable = executable
+        self._process: subprocess.Popen[str] | None = None
+        self._stdout_buffer = bytearray()
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        with self._lock:
+            self._ensure_started(
+                deadline=time.monotonic() + self._STARTUP_TIMEOUT_SECONDS
+            )
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stop_locked()
+
+    def run(self, request: Mapping[str, Any], *, timeout: float) -> CommandResult:
+        started = time.monotonic()
+        timeout = max(0.1, timeout)
+        deadline = started + timeout
+        try:
+            request_line = json.dumps(request, ensure_ascii=False) + "\n"
+        except Exception as exc:
+            return _AccessibilityWorkerResult(
+                self._PROTOCOL_FAILURE,
+                "",
+                str(exc),
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not self._lock.acquire(timeout=remaining):
+            return self._pre_dispatch_timeout("waiting for worker access")
+        try:
+            if time.monotonic() >= deadline:
+                return self._pre_dispatch_timeout("after worker access")
+            try:
+                process = self._ensure_started(deadline=deadline)
+            except TimeoutError as exc:
+                return _AccessibilityWorkerResult(
+                    124,
+                    "",
+                    str(exc),
+                    timed_out=True,
+                )
+            except Exception as exc:
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                )
+            if process.stdin is None or process.stdout is None:
+                self._stop_locked()
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    f"Accessibility {self._worker_name} worker pipes are unavailable.",
+                )
+            if time.monotonic() >= deadline:
+                return self._pre_dispatch_timeout("after worker readiness")
+            try:
+                process.stdin.write(request_line)
+                process.stdin.flush()
+            except Exception as exc:
+                self._stop_locked()
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                    request_dispatched=True,
+                )
+
+            try:
+                line = self._read_response_line(process, deadline=deadline)
+            except Exception as exc:
+                self._stop_locked()
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    str(exc),
+                    request_dispatched=True,
+                )
+            if line is None:
+                stderr = self._terminate_for_timeout(process)
+                return _AccessibilityWorkerResult(
+                    124,
+                    "",
+                    stderr,
+                    timed_out=True,
+                    request_dispatched=True,
+                )
+            if not line:
+                stderr = self._collect_stderr(process)
+                self._stop_locked()
+                return _AccessibilityWorkerResult(
+                    self._PROTOCOL_FAILURE,
+                    "",
+                    stderr
+                    or (
+                        f"Accessibility {self._worker_name} worker exited "
+                        "without a response."
+                    ),
+                    request_dispatched=True,
+                )
+            return _AccessibilityWorkerResult(
+                0,
+                line,
+                "",
+                request_dispatched=True,
+            )
+        finally:
+            self._lock.release()
+
+    def _pre_dispatch_timeout(self, phase: str) -> CommandResult:
+        return _AccessibilityWorkerResult(
+            124,
+            "",
+            (
+                f"Accessibility {self._worker_name} worker timed out before "
+                f"dispatch while {phase}."
+            ),
+            timed_out=True,
+        )
+
+    def _ensure_started(self, *, deadline: float) -> subprocess.Popen[str]:
+        if self._process is not None and self._process.poll() is None:
+            return self._process
+        self._stop_locked()
+        self._stdout_buffer.clear()
+        self._process = subprocess.Popen(
+            [
+                self._executable,
+                "-u",
+                "-c",
+                self._worker_script,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+        process = self._process
+        try:
+            readiness_line = self._read_response_line(process, deadline=deadline)
+            if readiness_line is None:
+                stderr = self._terminate_for_timeout(process)
+                raise TimeoutError(
+                    stderr
+                    or (
+                        f"Accessibility {self._worker_name} worker readiness "
+                        "timed out."
+                    )
+                )
+            if not readiness_line:
+                stderr = self._collect_stderr(process)
+                raise RuntimeError(
+                    stderr
+                    or (
+                        f"Accessibility {self._worker_name} worker exited "
+                        "before readiness."
+                    )
+                )
+            self._validate_readiness_line(readiness_line)
+        except Exception:
+            self._stop_locked()
+            raise
+        return process
+
+    def _read_response_line(
+        self,
+        process: subprocess.Popen[str],
+        *,
+        deadline: float,
+    ) -> str | None:
+        if process.stdout is None:
+            return ""
+        while True:
+            buffered_line = self._pop_buffered_line()
+            if buffered_line is not None:
+                if buffered_line:
+                    return buffered_line
+                continue
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            stdout_fd = process.stdout.fileno()
+            ready, _, _ = select.select([stdout_fd], [], [], remaining)
+            if not ready:
+                return None
+            try:
+                chunk = os.read(stdout_fd, 64 * 1024)
+            except InterruptedError:
+                continue
+            if not chunk:
+                return ""
+            self._stdout_buffer.extend(chunk)
+            if len(self._stdout_buffer) > self._MAX_FRAME_BYTES:
+                raise RuntimeError(
+                    f"Accessibility {self._worker_name} worker response "
+                    f"exceeded {self._MAX_FRAME_BYTES} bytes."
+                )
+
+    def _pop_buffered_line(self) -> str | None:
+        newline_index = self._stdout_buffer.find(b"\n")
+        if newline_index < 0:
+            return None
+        raw_line = bytes(self._stdout_buffer[:newline_index])
+        del self._stdout_buffer[: newline_index + 1]
+        try:
+            return raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted invalid UTF-8."
+            ) from exc
+
+    def _validate_readiness_line(self, line: str) -> None:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted invalid "
+                "readiness JSON."
+            ) from exc
+        if not isinstance(payload, dict) or payload.get("workerReady") is not True:
+            raise RuntimeError(
+                f"Accessibility {self._worker_name} worker emitted an "
+                "unexpected readiness frame."
+            )
+        if payload.get("status") != "ok":
+            message = payload.get("message")
+            detail = str(message).strip() if message is not None else ""
+            raise RuntimeError(
+                detail
+                or f"Accessibility {self._worker_name} worker failed readiness."
+            )
+
+    def _terminate_for_timeout(self, process: subprocess.Popen[str]) -> str:
+        try:
+            process.kill()
+            _, stderr = process.communicate(timeout=1)
+        except Exception as exc:
+            stderr = str(exc)
+        finally:
+            self._process = None
+            self._stdout_buffer.clear()
+            self._close_process_pipes(process)
+        return stderr or f"Accessibility {self._worker_name} worker timed out."
+
+    def _collect_stderr(self, process: subprocess.Popen[str]) -> str:
+        if process.poll() is None:
+            return ""
+        try:
+            _, stderr = process.communicate(timeout=1)
+        except Exception as exc:
+            return str(exc)
+        return stderr or ""
+
+    def _stop_locked(self) -> None:
+        process = self._process
+        self._process = None
+        self._stdout_buffer.clear()
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
+        finally:
+            self._close_process_pipes(process)
+
+    @staticmethod
+    def _close_process_pipes(process: subprocess.Popen[str]) -> None:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is None or stream.closed:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    def __del__(self) -> None:
+        try:
+            self.stop()
+        except Exception:
+            pass
 
 
 class MacOSComputerUseClient:
@@ -204,6 +574,27 @@ class MacOSComputerUseClient:
         self._runner = runner or SubprocessCommandRunner()
         self._policy = policy or SafetyPolicy()
         self._allowed_apps = self._normalize_allowed_apps(allowed_apps)
+        self._accessibility_query_worker: _AccessibilityWorker | None = None
+        self._accessibility_action_worker: _AccessibilityWorker | None = None
+        if runner is None and probe is None and enabled and self._is_darwin_host():
+            try:
+                query_worker = _AccessibilityWorker(
+                    worker_name="query",
+                    worker_script=_accessibility_query_worker_script(),
+                )
+                query_worker.start()
+                self._accessibility_query_worker = query_worker
+            except Exception:
+                self._accessibility_query_worker = None
+            try:
+                action_worker = _AccessibilityWorker(
+                    worker_name="action",
+                    worker_script=_accessibility_action_worker_script(),
+                )
+                action_worker.start()
+                self._accessibility_action_worker = action_worker
+            except Exception:
+                self._accessibility_action_worker = None
 
     @classmethod
     def from_config(
@@ -268,6 +659,12 @@ class MacOSComputerUseClient:
         if isinstance(allowed_apps, Mapping):
             return {name: bundle_id for name, bundle_id in allowed_apps.items()}
         return {name: None for name in allowed_apps}
+
+    def _is_darwin_host(self) -> bool:
+        try:
+            return self._probe.platform_name() == "Darwin"
+        except Exception:
+            return False
 
     def readiness(self) -> ComputerUseReadiness:
         return build_readiness(
@@ -909,6 +1306,16 @@ class MacOSComputerUseClient:
                 metadata={"readiness": readiness.to_dict()},
             )
 
+        allowlist_failure = self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_QUERY,
+            target_app,
+            bundle_id,
+            require_identity=False,
+        )
+        if allowlist_failure is not None:
+            return allowlist_failure
+        bundle_id = self._effective_accessibility_bundle_id(target_app, bundle_id)
+
         request = _normalize_accessibility_query_request(
             target_app=target_app,
             bundle_id=bundle_id,
@@ -917,14 +1324,9 @@ class MacOSComputerUseClient:
             include_raw=include_raw,
         )
         snapshot_timeout = min(timeout, 15.0)
-        result = self._runner.run(
-            [
-                sys.executable,
-                "-c",
-                _accessibility_query_script(),
-                json.dumps(request, ensure_ascii=False),
-            ],
-            timeout=snapshot_timeout,
+        result, transport = self._run_accessibility_query_request(
+            request,
+            snapshot_timeout,
         )
         if getattr(result, "timed_out", False):
             return _timed_out_result(
@@ -935,6 +1337,7 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_timeout",
+                    "accessibility_query_transport": transport,
                 },
             )
         if result.returncode != 0:
@@ -945,6 +1348,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_failed",
                     "stderr": _bounded(result.stderr or result.stdout, 1000),
+                    "accessibility_query_transport": transport,
                 },
             )
         try:
@@ -957,6 +1361,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_invalid_json",
                     "stdout": _bounded(result.stdout, 1000),
+                    "accessibility_query_transport": transport,
                 },
             )
         if not isinstance(payload, dict):
@@ -966,8 +1371,10 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_query_invalid_payload",
+                    "accessibility_query_transport": transport,
                 },
             )
+        _attach_accessibility_transport(payload, transport)
         if payload.get("available") is False:
             failure_kind = payload.get("failureKind")
             return ComputerUseResult.failed(
@@ -995,6 +1402,55 @@ class MacOSComputerUseClient:
             },
         )
 
+    def _run_accessibility_query_request(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        worker = self._accessibility_query_worker
+        if worker is None:
+            return self._run_accessibility_query_subprocess(request, timeout)
+
+        worker_started = time.monotonic()
+        worker_result = worker.run(request, timeout=timeout)
+        worker_transport: dict[str, Any] = {
+            "mode": "worker",
+            "durationMs": _duration_ms(worker_started),
+            "fallback": False,
+        }
+        if worker_result.timed_out or worker_result.returncode == 0:
+            return worker_result, worker_transport
+
+        result, transport = self._run_accessibility_query_subprocess(request, timeout)
+        transport["fallback"] = True
+        transport["fallbackFromWorker"] = True
+        transport["workerDurationMs"] = worker_transport["durationMs"]
+        transport["workerReturnCode"] = worker_result.returncode
+        if worker_result.stderr:
+            transport["workerStderr"] = _bounded(worker_result.stderr, 1000)
+        return result, transport
+
+    def _run_accessibility_query_subprocess(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        started = time.monotonic()
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-c",
+                _accessibility_query_script(),
+                json.dumps(request, ensure_ascii=False),
+            ],
+            timeout=timeout,
+        )
+        return result, {
+            "mode": "subprocess",
+            "durationMs": _duration_ms(started),
+            "fallback": False,
+        }
+
     def accessibility_action(
         self,
         *,
@@ -1013,12 +1469,15 @@ class MacOSComputerUseClient:
                 "macOS Accessibility action is unavailable until readiness is ready.",
                 metadata={"readiness": readiness.to_dict()},
             )
-        allowlist_failure = self._accessibility_action_allowlist_failure(
+        allowlist_failure = self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
             target_app,
             bundle_id,
+            require_identity=True,
         )
         if allowlist_failure is not None:
             return allowlist_failure
+        bundle_id = self._effective_accessibility_bundle_id(target_app, bundle_id)
 
         request = _normalize_accessibility_action_request(
             target_app=target_app,
@@ -1054,14 +1513,9 @@ class MacOSComputerUseClient:
                 risk=risk,
             )
 
-        result = self._runner.run(
-            [
-                sys.executable,
-                "-c",
-                _accessibility_action_script(),
-                json.dumps(request, ensure_ascii=False),
-            ],
-            timeout=timeout,
+        result, transport = self._run_accessibility_action_request(
+            request,
+            timeout,
         )
         if getattr(result, "timed_out", False):
             return _timed_out_result(
@@ -1072,6 +1526,7 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_action_timeout",
+                    "accessibility_action_transport": transport,
                 },
             )
         if result.returncode != 0:
@@ -1082,6 +1537,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_action_failed",
                     "stderr": _bounded(result.stderr or result.stdout, 1000),
+                    "accessibility_action_transport": transport,
                 },
             )
         try:
@@ -1094,6 +1550,7 @@ class MacOSComputerUseClient:
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_action_invalid_json",
                     "stdout": _bounded(result.stdout, 1000),
+                    "accessibility_action_transport": transport,
                 },
             )
         if not isinstance(payload, dict):
@@ -1103,8 +1560,10 @@ class MacOSComputerUseClient:
                 metadata={
                     **_target_identity_metadata(target_app, bundle_id),
                     "failure_kind": "accessibility_action_invalid_payload",
+                    "accessibility_action_transport": transport,
                 },
             )
+        _attach_accessibility_transport(payload, transport)
         if payload.get("available") is False or payload.get("status") != "ok":
             failure_kind = payload.get("failureKind")
             return ComputerUseResult.failed(
@@ -1117,8 +1576,7 @@ class MacOSComputerUseClient:
                         if isinstance(failure_kind, str) and failure_kind
                         else "accessibility_action_failed"
                     ),
-                    "accessibility_action": payload,
-                    "action_attempted": bool(payload.get("actionAttempted")),
+                    **_accessibility_action_payload_metadata(payload),
                 },
             )
 
@@ -1129,34 +1587,92 @@ class MacOSComputerUseClient:
             snapshot_id=snapshot if isinstance(snapshot, str) else None,
             metadata={
                 **_target_identity_metadata(target_app, bundle_id),
-                "accessibility_action": payload,
-                "action_attempted": bool(payload.get("actionAttempted")),
+                **_accessibility_action_payload_metadata(payload),
             },
         )
+
+    def _run_accessibility_action_request(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        worker = self._accessibility_action_worker
+        if worker is None:
+            return self._run_accessibility_action_subprocess(request, timeout)
+
+        worker_started = time.monotonic()
+        worker_result = worker.run(request, timeout=timeout)
+        worker_transport: dict[str, Any] = {
+            "mode": "worker",
+            "durationMs": _duration_ms(worker_started),
+            "fallback": False,
+        }
+        request_dispatched = getattr(worker_result, "request_dispatched", None)
+        if isinstance(request_dispatched, bool):
+            worker_transport["requestDispatched"] = request_dispatched
+        return worker_result, worker_transport
+
+    def _run_accessibility_action_subprocess(
+        self,
+        request: Mapping[str, Any],
+        timeout: float,
+    ) -> tuple[CommandResult, dict[str, Any]]:
+        started = time.monotonic()
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-c",
+                _accessibility_action_script(),
+                json.dumps(request, ensure_ascii=False),
+            ],
+            timeout=timeout,
+        )
+        return result, {
+            "mode": "subprocess",
+            "durationMs": _duration_ms(started),
+            "fallback": False,
+        }
 
     def _accessibility_action_allowlist_failure(
         self,
         target_app: str | None,
         bundle_id: str | None,
     ) -> ComputerUseResult | None:
+        return self._accessibility_target_allowlist_failure(
+            ComputerUseOperation.ACCESSIBILITY_ACTION,
+            target_app,
+            bundle_id,
+            require_identity=True,
+        )
+
+    def _accessibility_target_allowlist_failure(
+        self,
+        operation: ComputerUseOperation,
+        target_app: str | None,
+        bundle_id: str | None,
+        *,
+        require_identity: bool,
+    ) -> ComputerUseResult | None:
         metadata = _target_identity_metadata(target_app, bundle_id)
         if target_app is None and bundle_id is None:
+            if not require_identity:
+                return None
             return ComputerUseResult.needs_user(
-                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                operation,
                 "target_app or bundle_id is required for Accessibility action.",
                 metadata=metadata,
             )
         if target_app is not None:
             if target_app not in self._allowed_apps:
                 return ComputerUseResult.blocked(
-                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    operation,
                     f"App is not allowlisted: {target_app}",
                     metadata=metadata,
                 )
             expected_bundle_id = self._allowed_apps.get(target_app)
             if expected_bundle_id and bundle_id and expected_bundle_id != bundle_id:
                 return ComputerUseResult.blocked(
-                    ComputerUseOperation.ACCESSIBILITY_ACTION,
+                    operation,
                     f"App bundle id is not allowlisted: {bundle_id}",
                     metadata={
                         **metadata,
@@ -1169,11 +1685,23 @@ class MacOSComputerUseClient:
         }
         if bundle_id not in allowed_bundle_ids:
             return ComputerUseResult.blocked(
-                ComputerUseOperation.ACCESSIBILITY_ACTION,
+                operation,
                 f"App bundle id is not allowlisted: {bundle_id}",
                 metadata=metadata,
             )
         return None
+
+    def _effective_accessibility_bundle_id(
+        self,
+        target_app: str | None,
+        bundle_id: str | None,
+    ) -> str | None:
+        if bundle_id is not None:
+            return bundle_id
+        if target_app is None:
+            return None
+        expected_bundle_id = self._allowed_apps.get(target_app)
+        return expected_bundle_id if isinstance(expected_bundle_id, str) else None
 
     def type_text(
         self,
@@ -1663,12 +2191,16 @@ class MacOSComputerUseClient:
                     metadata={"readiness": readiness.to_dict()},
                 )
 
-        script = (
-            'tell application "System Events"\n'
-            f"  click at {{{x}, {y}}}\n"
-            "end tell\n"
+        result = self._runner.run(
+            [
+                sys.executable,
+                "-m",
+                "computer_use_macos._coordinate_click",
+                str(x),
+                str(y),
+            ],
+            timeout=timeout,
         )
-        result = self._runner.run(["osascript", "-e", script], timeout=timeout)
         if getattr(result, "timed_out", False):
             return _timed_out_result(
                 ComputerUseOperation.CLICK,
@@ -1677,6 +2209,7 @@ class MacOSComputerUseClient:
                 timeout,
                 metadata={
                     "coordinateClick": True,
+                    "method": "quartz_cg_event",
                     "x": x,
                     "y": y,
                     **_target_identity_metadata(target_app, bundle_id),
@@ -1688,6 +2221,7 @@ class MacOSComputerUseClient:
                 "Failed to click screen coordinate.",
                 metadata={
                     "coordinateClick": True,
+                    "method": "quartz_cg_event",
                     "x": x,
                     "y": y,
                     **_target_identity_metadata(target_app, bundle_id),
@@ -1699,6 +2233,7 @@ class MacOSComputerUseClient:
             "Clicked screen coordinate.",
             metadata={
                 "coordinateClick": True,
+                "method": "quartz_cg_event",
                 "x": x,
                 "y": y,
                 **_target_identity_metadata(target_app, bundle_id),
@@ -2123,11 +2658,19 @@ _ACCESSIBILITY_QUERY_SAFE_ATTRIBUTES = {
     "AXEnabled",
     "AXFocused",
     "AXSelected",
+    "AXHidden",
     "AXPosition",
     "AXSize",
     "AXFrame",
     "AXIdentifier",
     "AXPlaceholderValue",
+}
+
+_ACCESSIBILITY_ROOT_RESOLVER_ATTRIBUTES = {
+    "AXChildren",
+    "AXContents",
+    "AXRows",
+    "AXVisibleRows",
 }
 
 
@@ -2141,13 +2684,20 @@ def _normalize_accessibility_query_request(
 ) -> dict[str, Any]:
     root_payload = dict(root or {"kind": "focusedWindow"})
     root_kind = root_payload.get("kind", "focusedWindow")
-    if root_kind not in {"focusedWindow", "axPath"}:
-        raise ValueError("root.kind must be focusedWindow or axPath")
+    if root_kind not in {"focusedWindow", "frontmostApp", "axPath"}:
+        raise ValueError("root.kind must be focusedWindow, frontmostApp, or axPath")
     if root_kind == "axPath":
         ax_path = root_payload.get("axPath") or root_payload.get("path")
         if not isinstance(ax_path, str) or not ax_path.strip():
             raise ValueError("root.axPath is required when root.kind is axPath")
         root_payload["axPath"] = ax_path.strip()
+    root_resolver = root_payload.get("resolver")
+    if root_resolver is not None:
+        if root_kind != "axPath":
+            raise ValueError("root.resolver is only supported for axPath roots")
+        root_payload["resolver"] = _normalize_accessibility_root_resolver(
+            root_resolver,
+        )
 
     query_payload = dict(query or {})
     scope = query_payload.get("scope", "children")
@@ -2158,14 +2708,14 @@ def _normalize_accessibility_query_request(
         query_payload.get("maxDepth"),
         default=1 if scope != "descendants" else 3,
         minimum=0,
-        maximum=8,
+        maximum=MAX_ACCESSIBILITY_QUERY_DEPTH,
         name="query.maxDepth",
     )
     query_payload["limit"] = _bounded_int(
         query_payload.get("limit"),
         default=50,
         minimum=1,
-        maximum=500,
+        maximum=MAX_ACCESSIBILITY_QUERY_LIMIT,
         name="query.limit",
     )
     query_payload["timeBudgetMs"] = _bounded_int(
@@ -2187,6 +2737,7 @@ def _normalize_accessibility_query_request(
             "AXEnabled",
             "AXFocused",
             "AXSelected",
+            "AXHidden",
             "AXPosition",
             "AXSize",
             "AXFrame",
@@ -2214,6 +2765,22 @@ def _normalize_accessibility_query_request(
         raise TypeError("query.includeChildrenCount must be a boolean")
     query_payload["includeChildrenCount"] = include_children_count
 
+    include_child_roles = query_payload.get("includeChildRoles", False)
+    if not isinstance(include_child_roles, bool):
+        raise TypeError("query.includeChildRoles must be a boolean")
+    query_payload["includeChildRoles"] = include_child_roles
+
+    include_descendant_roles = query_payload.get("includeDescendantRoles", False)
+    if not isinstance(include_descendant_roles, bool):
+        raise TypeError("query.includeDescendantRoles must be a boolean")
+    query_payload["includeDescendantRoles"] = include_descendant_roles
+
+    prefer_visible_rows = query_payload.get("preferVisibleRows")
+    if prefer_visible_rows is not None:
+        if not isinstance(prefer_visible_rows, bool):
+            raise TypeError("query.preferVisibleRows must be a boolean")
+        query_payload["preferVisibleRows"] = prefer_visible_rows
+
     match = query_payload.get("match")
     if match is None:
         query_payload["match"] = {}
@@ -2231,7 +2798,65 @@ def _normalize_accessibility_query_request(
     }
 
 
-_ACCESSIBILITY_ACTION_ALLOWLIST = {"AXPress"}
+def _normalize_accessibility_root_resolver(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError("root.resolver must be an object")
+    strategy = value.get("strategy", "attributePath")
+    if strategy != "attributePath":
+        raise ValueError("root.resolver.strategy must be attributePath")
+    raw_steps = value.get("steps")
+    if not isinstance(raw_steps, list | tuple) or not raw_steps:
+        raise ValueError("root.resolver.steps must be a non-empty list")
+    steps: list[dict[str, int | str]] = []
+    for index, raw_step in enumerate(raw_steps):
+        if not isinstance(raw_step, Mapping):
+            raise TypeError(f"root.resolver.steps[{index}] must be an object")
+        attribute = raw_step.get("attribute")
+        if not isinstance(attribute, str) or not attribute.strip():
+            raise ValueError(
+                f"root.resolver.steps[{index}].attribute must be non-empty"
+            )
+        normalized_attribute = attribute.strip()
+        if normalized_attribute not in _ACCESSIBILITY_ROOT_RESOLVER_ATTRIBUTES:
+            raise ValueError(
+                "unsupported root resolver attribute: "
+                f"{normalized_attribute}"
+            )
+        raw_item_index = raw_step.get("index")
+        if (
+            isinstance(raw_item_index, bool)
+            or not isinstance(raw_item_index, int)
+            or raw_item_index < 0
+            or raw_item_index > 10_000
+        ):
+            raise ValueError(
+                f"root.resolver.steps[{index}].index must be a non-negative integer"
+            )
+        step: dict[str, int | str] = {
+            "attribute": normalized_attribute,
+            "index": raw_item_index,
+        }
+        raw_path_index = raw_step.get("pathIndex", raw_step.get("path_index"))
+        if raw_path_index is not None:
+            if (
+                isinstance(raw_path_index, bool)
+                or not isinstance(raw_path_index, int)
+                or raw_path_index < 0
+                or raw_path_index > 10_000
+            ):
+                raise ValueError(
+                    "root.resolver.steps"
+                    f"[{index}].pathIndex must be a non-negative integer"
+                )
+            step["pathIndex"] = raw_path_index
+        steps.append(step)
+    return {
+        "strategy": "attributePath",
+        "steps": steps,
+    }
+
+
+_ACCESSIBILITY_ACTION_ALLOWLIST = {"AXPress", "AXSetFocus"}
 
 
 def _accessibility_action_target_from_payload(
@@ -2339,7 +2964,7 @@ def _bounded_int(
         raise TypeError(f"{name} must be an integer")
     if value < minimum or value > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}")
-    return value
+    return int(value)
 
 
 def _first(payload: Mapping[str, Any], *keys: str) -> Any:
@@ -2445,15 +3070,73 @@ def _selector_target_text(selector: Mapping[str, Any]) -> str:
 def _accessibility_click_script(target_app: str, selector: Mapping[str, Any]) -> str:
     role = str(selector["role"])
     name = selector.get("name")
+    collection = _ACCESSIBILITY_ROLE_COLLECTIONS.get(role)
     if isinstance(name, str):
-        element = f"{role} {_applescript_string(name)}"
+        target_name = name
+        target_index = 0
     else:
-        element = f"{role} {selector['index']}"
+        target_name = ""
+        target_index = int(selector["index"])
+    if collection is None:
+        if isinstance(name, str):
+            element = f"{role} {_applescript_string(name)}"
+        else:
+            element = f"{role} {selector['index']}"
+        return (
+            'tell application "System Events"\n'
+            f"  tell process {_applescript_string(target_app)}\n"
+            "    set frontmost to true\n"
+            f"    click {element} of front window\n"
+            "  end tell\n"
+            "end tell\n"
+        )
     return (
+        "on cleanText(rawValue)\n"
+        "  try\n"
+        "    return rawValue as text\n"
+        "  on error\n"
+        '    return ""\n'
+        "  end try\n"
+        "end cleanText\n"
+        "\n"
+        "on elementMatches(uiElement, targetName)\n"
+        "  try\n"
+        "    if my cleanText((name of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((description of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((title of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  try\n"
+        "    if my cleanText((value of uiElement)) is targetName then return true\n"
+        "  end try\n"
+        "  return false\n"
+        "end elementMatches\n"
+        "\n"
         'tell application "System Events"\n'
         f"  tell process {_applescript_string(target_app)}\n"
         "    set frontmost to true\n"
-        f"    click {element} of front window\n"
+        "    set frontWindow to front window\n"
+        f"    set roleName to {_applescript_string(role)}\n"
+        f"    set targetName to {_applescript_string(target_name)}\n"
+        f"    set targetIndex to {target_index}\n"
+        f"    set candidates to {collection} of frontWindow\n"
+        "    set currentIndex to 0\n"
+        "    repeat with uiElement in candidates\n"
+        "      set currentIndex to currentIndex + 1\n"
+        "      if targetIndex > 0 then\n"
+        "        if currentIndex is targetIndex then\n"
+        "          click uiElement\n"
+        "          return\n"
+        "        end if\n"
+        "      else if my elementMatches(uiElement, targetName) then\n"
+        "        click uiElement\n"
+        "        return\n"
+        "      end if\n"
+        "    end repeat\n"
+        '    error "No matching accessibility selector target: " & roleName\n'
         "  end tell\n"
         "end tell\n"
     )
@@ -2571,9 +3254,43 @@ from typing import Any
 
 APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
 CHILDREN_ATTRIBUTE = "AXChildren"
+CONTENTS_ATTRIBUTE = "AXContents"
+VISIBLE_ROWS_ATTRIBUTE = "AXVisibleRows"
+ROOT_RESOLVER_ATTRIBUTES = {
+    CHILDREN_ATTRIBUTE,
+    CONTENTS_ATTRIBUTE,
+    "AXRows",
+    VISIBLE_ROWS_ATTRIBUTE,
+}
 AX_VALUE_NUMBER_RE = re.compile(r"([xywh]):(-?\d+(?:\.\d+)?)")
 STARTED_AT = time.monotonic()
 QUERY_STARTED_AT = STARTED_AT
+ATTRIBUTE_CACHE: dict[tuple[str, str], list[Any] | Any | None] = {}
+ROOT_RESOLUTION: dict[str, Any] = {
+    "strategy": "default",
+    "durationMs": 0,
+}
+STEP_TIMINGS: list[dict[str, Any]] = []
+LAST_STEP_AT = STARTED_AT
+
+
+def elapsed_ms(started: float | None = None, ended: float | None = None) -> int:
+    base = STARTED_AT if started is None else started
+    finish = time.monotonic() if ended is None else ended
+    return max(0, int(round((finish - base) * 1000)))
+
+
+def mark_step(name: str) -> None:
+    global LAST_STEP_AT
+    now = time.monotonic()
+    STEP_TIMINGS.append(
+        {
+            "name": name,
+            "startedMs": elapsed_ms(STARTED_AT, LAST_STEP_AT),
+            "durationMs": elapsed_ms(LAST_STEP_AT, now),
+        }
+    )
+    LAST_STEP_AT = now
 
 
 def fail(failure_kind: str, message: str) -> None:
@@ -2583,6 +3300,10 @@ def fail(failure_kind: str, message: str) -> None:
                 "available": False,
                 "failureKind": failure_kind,
                 "message": message,
+                "diagnostics": {
+                    "durationMs": elapsed_ms(),
+                    "stepTimings": list(STEP_TIMINGS),
+                },
             },
             ensure_ascii=False,
         )
@@ -2592,7 +3313,9 @@ def fail(failure_kind: str, message: str) -> None:
 
 try:
     REQUEST = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+    mark_step("parseRequest")
 except Exception as exc:
+    mark_step("parseRequest")
     fail("accessibility_query_invalid_request", str(exc))
 
 try:
@@ -2605,7 +3328,9 @@ try:
         AXUIElementCreateApplication,
         kAXFocusedWindowAttribute,
     )
+    mark_step("pyobjcImport")
 except Exception as exc:
+    mark_step("pyobjcImport")
     fail("accessibility_query_pyobjc_unavailable", str(exc))
 
 
@@ -2639,23 +3364,50 @@ def ax_actions(element: Any) -> list[str]:
         return []
 
 
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_matches_name(app: Any, app_name: str) -> bool:
+    try:
+        return str(app.localizedName() or "").casefold() == app_name.casefold()
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
+    except Exception:
+        return False
+
+
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
-    if bundle_id:
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
-        for candidate in apps or []:
-            try:
-                if not bool(candidate.isTerminated()):
-                    return candidate
-            except Exception:
-                return candidate
+    frontmost = workspace.frontmostApplication()
+    if frontmost is None or not app_is_usable(frontmost):
         fail(
-            "accessibility_query_target_app_not_running",
-            f"No running app found for bundle id: {bundle_id}",
+            "accessibility_query_target_app_not_frontmost",
+            "No usable frontmost app is available",
         )
-    return workspace.frontmostApplication()
+    if bundle_id:
+        if not app_matches_bundle(frontmost, bundle_id):
+            fail(
+                "accessibility_query_target_app_not_frontmost",
+                f"Target bundle is not frontmost: {bundle_id}",
+            )
+    elif target_app:
+        if not app_matches_name(frontmost, target_app):
+            fail(
+                "accessibility_query_target_app_not_frontmost",
+                f"Target app is not frontmost: {target_app}",
+            )
+    return frontmost
 
 
 def safe_scalar(value: Any) -> Any:
@@ -2695,19 +3447,100 @@ def frame_from_attrs(attrs: dict[str, Any]) -> dict[str, float] | None:
     return None
 
 
-def children_of(element: Any) -> list[Any]:
-    children = ax_get(element, CHILDREN_ATTRIBUTE)
-    if not children:
+def ax_role(element: Any) -> str:
+    value = safe_scalar(cached_ax_get(element, "AXRole"))
+    return str(value or "")
+
+
+def element_cache_key(element: Any) -> str:
+    return str(element)
+
+
+def cached_ax_get(element: Any, attr: str) -> Any:
+    key = (element_cache_key(element), attr)
+    if key not in ATTRIBUTE_CACHE:
+        ATTRIBUTE_CACHE[key] = ax_get(element, attr)
+    return ATTRIBUTE_CACHE[key]
+
+
+def attribute_list(element: Any, attr: str) -> list[Any]:
+    value = cached_ax_get(element, attr)
+    if not value:
         return []
     try:
-        return list(children)
+        return list(value)
     except Exception:
         return []
 
 
-def ax_role(element: Any) -> str:
-    value = safe_scalar(ax_get(element, "AXRole"))
-    return str(value or "")
+def prefer_visible_rows() -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    return bool(query.get("preferVisibleRows", False))
+
+
+def child_attribute_for(element: Any) -> str:
+    if prefer_visible_rows() and ax_role(element) == "AXTable":
+        visible_rows = attribute_list(element, VISIBLE_ROWS_ATTRIBUTE)
+        if visible_rows:
+            return VISIBLE_ROWS_ATTRIBUTE
+    return CHILDREN_ATTRIBUTE
+
+
+def children_of(element: Any) -> list[Any]:
+    return attribute_list(element, child_attribute_for(element))
+
+
+def path_children_of(element: Any) -> list[Any]:
+    return attribute_list(element, CHILDREN_ATTRIBUTE)
+
+
+def child_path_index(parent: Any, child: Any, fallback_index: int) -> int:
+    if not (prefer_visible_rows() and ax_role(parent) == "AXTable"):
+        return fallback_index
+    value = safe_scalar(cached_ax_get(child, "AXIndex"))
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return fallback_index
+
+
+def child_entries(element: Any) -> list[tuple[int, Any]]:
+    return [
+        (child_path_index(element, child, index), child)
+        for index, child in enumerate(children_of(element))
+    ]
+
+
+def append_unique_role(roles: list[str], role: str) -> None:
+    if role and role not in roles:
+        roles.append(role)
+
+
+def child_roles_of(element: Any) -> list[str]:
+    roles: list[str] = []
+    for child in children_of(element):
+        append_unique_role(roles, ax_role(child))
+    return roles
+
+
+def descendant_roles_of(element: Any, max_depth: int, limit: int = 200) -> list[str]:
+    roles: list[str] = []
+    visited = 0
+
+    def visit(current: Any, depth: int) -> None:
+        nonlocal visited
+        if depth <= 0 or visited >= limit:
+            return
+        for child in children_of(current):
+            if visited >= limit:
+                return
+            visited += 1
+            append_unique_role(roles, ax_role(child))
+            visit(child, depth - 1)
+
+    visit(element, max_depth)
+    return roles
 
 
 def windows_of(app_element: Any) -> list[Any]:
@@ -2727,7 +3560,7 @@ def focused_window_for_app(app_element: Any) -> Any | None:
     for candidate in windows_of(app_element):
         if ax_role(candidate) == "AXWindow":
             return candidate
-    return focused
+    return None
 
 
 def time_budget_exceeded() -> bool:
@@ -2736,14 +3569,97 @@ def time_budget_exceeded() -> bool:
     return (time.monotonic() - QUERY_STARTED_AT) * 1000 >= budget_ms
 
 
-def resolve_root(window: Any) -> tuple[Any | None, str]:
+def root_resolver_steps(resolver: Any) -> list[dict[str, Any]]:
+    if not isinstance(resolver, dict):
+        return []
+    if resolver.get("strategy") != "attributePath":
+        return []
+    steps = resolver.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def resolve_root_with_attribute_path(
+    app_element: Any,
+    window: Any | None,
+    raw_path: str,
+    resolver: Any,
+) -> tuple[Any | None, str]:
+    steps = root_resolver_steps(resolver)
+    if not steps:
+        return None, raw_path
+    if raw_path == "app" or raw_path.startswith("app/"):
+        current = app_element
+        current_path = "app"
+    elif raw_path in {"", "0"} or raw_path.startswith("0/"):
+        if window is None:
+            return None, raw_path
+        current = window
+        current_path = "0"
+    else:
+        return None, raw_path
+    for step in steps:
+        attr = str(step.get("attribute") or "")
+        if attr not in ROOT_RESOLVER_ATTRIBUTES:
+            return None, raw_path
+        try:
+            index = int(step.get("index"))
+            path_index = int(step.get("pathIndex", index))
+        except Exception:
+            return None, raw_path
+        values = attribute_list(current, attr)
+        if index < 0 or index >= len(values) or path_index < 0:
+            return None, raw_path
+        current = values[index]
+        current_path = f"{current_path}/{path_index}"
+    return current, current_path
+
+
+def resolve_root_inner(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
     root = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
     kind = root.get("kind", "focusedWindow")
+    if kind == "frontmostApp":
+        return app_element, "app"
     if kind == "focusedWindow":
+        if window is None:
+            return None, "0"
         return window, "0"
     if kind != "axPath":
         return None, "0"
     raw_path = str(root.get("axPath") or root.get("path") or "").strip()
+    resolver = root.get("resolver")
+    if resolver is not None:
+        ROOT_RESOLUTION["requestedAxPath"] = raw_path
+        resolved_element, resolved_path = resolve_root_with_attribute_path(
+            app_element,
+            window,
+            raw_path,
+            resolver,
+        )
+        if resolved_element is not None:
+            ROOT_RESOLUTION["strategy"] = "attributePath"
+            ROOT_RESOLUTION["resolvedAxPath"] = resolved_path
+            return resolved_element, resolved_path
+        ROOT_RESOLUTION["strategy"] = "attributePathFallback"
+    if raw_path == "app":
+        return app_element, "app"
+    if raw_path.startswith("app/"):
+        current = app_element
+        current_path = "app"
+        for raw_index in raw_path.split("/")[1:]:
+            try:
+                index = int(raw_index)
+            except ValueError:
+                return None, raw_path
+            children = path_children_of(current)
+            if index < 0 or index >= len(children):
+                return None, raw_path
+            current = children[index]
+            current_path = f"{current_path}/{index}"
+        return current, current_path
+    if window is None:
+        return None, raw_path
     if raw_path in {"", "0"}:
         return window, "0"
     parts = raw_path.split("/")
@@ -2756,7 +3672,7 @@ def resolve_root(window: Any) -> tuple[Any | None, str]:
             index = int(raw_index)
         except ValueError:
             return None, raw_path
-        children = children_of(current)
+        children = path_children_of(current)
         if index < 0 or index >= len(children):
             return None, raw_path
         current = children[index]
@@ -2764,12 +3680,20 @@ def resolve_root(window: Any) -> tuple[Any | None, str]:
     return current, current_path
 
 
+def resolve_root(app_element: Any, window: Any | None) -> tuple[Any | None, str]:
+    started = time.monotonic()
+    root_element, root_path = resolve_root_inner(app_element, window)
+    ROOT_RESOLUTION["durationMs"] = int(round((time.monotonic() - started) * 1000))
+    ROOT_RESOLUTION["resolvedAxPath"] = root_path
+    return root_element, root_path
+
+
 def read_node(element: Any, path: str) -> dict[str, Any]:
     query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
     requested_attrs = query.get("attributes") or []
     raw_attrs: dict[str, Any] = {}
     for attr in requested_attrs:
-        value = safe_scalar(ax_get(element, attr))
+        value = safe_scalar(cached_ax_get(element, attr))
         if value is not None:
             raw_attrs[attr] = value
     node: dict[str, Any] = {"axPath": path}
@@ -2799,6 +3723,13 @@ def read_node(element: Any, path: str) -> dict[str, Any]:
             node["actions"] = actions
     if bool(query.get("includeChildrenCount", True)):
         node["childrenCount"] = len(children_of(element))
+    if bool(query.get("includeChildRoles", False)):
+        node["childRoles"] = child_roles_of(element)
+    if bool(query.get("includeDescendantRoles", False)):
+        node["descendantRoles"] = descendant_roles_of(
+            element,
+            int(query.get("maxDepth") or 1),
+        )
     if bool(REQUEST.get("includeRaw", False)):
         node["raw"] = raw_attrs
     return node
@@ -2816,6 +3747,19 @@ def string_set(value: Any) -> set[str]:
     if value is None:
         return set()
     return {str(value).casefold()}
+
+
+def role_filter_allows(element: Any) -> bool:
+    query = REQUEST.get("query") if isinstance(REQUEST.get("query"), dict) else {}
+    match = query.get("match") if isinstance(query.get("match"), dict) else {}
+    if "role" not in match and "roleIn" not in match:
+        return True
+    role = text_value(safe_scalar(cached_ax_get(element, "AXRole")))
+    if "role" in match and role != text_value(match.get("role")):
+        return False
+    if "roleIn" in match and role not in string_set(match.get("roleIn")):
+        return False
+    return True
 
 
 def node_matches(node: dict[str, Any]) -> bool:
@@ -2870,16 +3814,17 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
             return
         diagnostics["nodeCount"] += 1
         if include_self:
-            node = read_node(element, path)
-            if node_matches(node):
-                nodes.append(node)
-                if len(nodes) >= limit:
-                    diagnostics["truncated"] = True
-                    diagnostics["truncationReason"] = "limit"
-                    return
+            if role_filter_allows(element):
+                node = read_node(element, path)
+                if node_matches(node):
+                    nodes.append(node)
+                    if len(nodes) >= limit:
+                        diagnostics["truncated"] = True
+                        diagnostics["truncationReason"] = "limit"
+                        return
         if scope == "self" or depth >= max_depth:
             return
-        for index, child in enumerate(children_of(element)):
+        for index, child in child_entries(element):
             visit(child, f"{path}/{index}", depth + 1, True)
             if diagnostics["truncated"]:
                 return
@@ -2887,12 +3832,12 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
     if scope == "self":
         visit(root_element, root_path, 0, True)
     elif scope == "children":
-        for index, child in enumerate(children_of(root_element)):
+        for index, child in child_entries(root_element):
             visit(child, f"{root_path}/{index}", 1, True)
             if diagnostics["truncated"]:
                 break
     else:
-        for index, child in enumerate(children_of(root_element)):
+        for index, child in child_entries(root_element):
             visit(child, f"{root_path}/{index}", 1, True)
             if diagnostics["truncated"]:
                 break
@@ -2900,37 +3845,80 @@ def collect(root_element: Any, root_path: str) -> tuple[list[dict[str, Any]], di
     return nodes, diagnostics
 
 
-if not AXIsProcessTrusted():
+permission_available = bool(AXIsProcessTrusted())
+mark_step("permissionCheck")
+if not permission_available:
     fail(
         "missing_accessibility",
         "Accessibility permission is not available for the Python process.",
     )
 
 try:
-    objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
-    app = selected_running_app()
+    try:
+        objc.lookUpClass("NSWorkspace")
+    except Exception:
+        objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+    mark_step("appKitLoad")
 except Exception as exc:
+    mark_step("appKitLoad")
+    fail("accessibility_query_frontmost_app_failed", str(exc))
+
+try:
+    app = selected_running_app()
+    mark_step("selectRunningApp")
+except Exception as exc:
+    mark_step("selectRunningApp")
     fail("accessibility_query_frontmost_app_failed", str(exc))
 
 if app is None:
     fail("accessibility_query_no_frontmost_app", "No frontmost app is available.")
 
 pid = int(app.processIdentifier())
+mark_step("readProcessIdentifier")
 app_ax = AXUIElementCreateApplication(pid)
+mark_step("createApplicationElement")
+root_request = REQUEST.get("root") if isinstance(REQUEST.get("root"), dict) else {}
+root_kind = root_request.get("kind", "focusedWindow")
+raw_root_path = str(root_request.get("axPath") or root_request.get("path") or "").strip()
+mark_step("readRootRequest")
 window = focused_window_for_app(app_ax)
-if window is None:
+mark_step("focusedWindow")
+if (
+    window is None
+    and root_kind != "frontmostApp"
+    and raw_root_path != "app"
+    and not raw_root_path.startswith("app/")
+):
     fail("accessibility_query_no_focused_window", "No focused window is available.")
 
-root_element, root_path = resolve_root(window)
+root_element, root_path = resolve_root(app_ax, window)
+mark_step("resolveRoot")
 if root_element is None:
     fail("accessibility_query_root_not_found", "Could not resolve query root.")
 
-window_title = safe_scalar(ax_get(window, "AXTitle"))
+window_title = safe_scalar(ax_get(window, "AXTitle")) if window is not None else None
+window_frame = (
+    frame_from_attrs(
+        {
+            "AXFrame": ax_get(window, "AXFrame"),
+            "AXPosition": ax_get(window, "AXPosition"),
+            "AXSize": ax_get(window, "AXSize"),
+        }
+    )
+    if window is not None
+    else None
+)
+mark_step("windowTitle")
 QUERY_STARTED_AT = time.monotonic()
 nodes, diagnostics = collect(root_element, root_path)
+mark_step("collect")
+diagnostics["rootResolution"] = dict(ROOT_RESOLUTION)
+if prefer_visible_rows():
+    diagnostics["preferVisibleRows"] = True
 app_name = str(app.localizedName() or "")
 bundle_id = str(app.bundleIdentifier() or "")
 snapshot_id = f"frontmost:{app_name}:{window_title or ''}"
+mark_step("responseMetadata")
 payload = {
     "schema": "macos.accessibility.query.v1",
     "available": True,
@@ -2942,7 +3930,12 @@ payload = {
     },
     "window": {
         "title": str(window_title or ""),
-        "role": str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow"),
+        "role": (
+            str(safe_scalar(ax_get(window, "AXRole")) or "AXWindow")
+            if window is not None
+            else ""
+        ),
+        "frame": window_frame,
     },
     "root": {
         "axPath": root_path,
@@ -2950,7 +3943,101 @@ payload = {
     "nodes": nodes,
     "diagnostics": diagnostics,
 }
-print(json.dumps(payload, ensure_ascii=False))
+mark_step("buildResponse")
+diagnostics["stepTimings"] = list(STEP_TIMINGS)
+serialized_payload = json.dumps(payload, ensure_ascii=False)
+mark_step("serializeResponse")
+diagnostics["stepTimings"] = list(STEP_TIMINGS)
+serialized_payload = json.dumps(payload, ensure_ascii=False)
+print(serialized_payload)
+'''
+
+
+def _accessibility_query_worker_script() -> str:
+    query_script = json.dumps(_accessibility_query_script(), ensure_ascii=False)
+    return f'''
+from __future__ import annotations
+
+from contextlib import redirect_stdout
+from io import StringIO
+import json
+import sys
+import traceback
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+QUERY_SCRIPT = {query_script}
+
+
+def warm_frameworks() -> None:
+    status = "ok"
+    message = ""
+    try:
+        import objc
+        import ApplicationServices  # noqa: F401
+        try:
+            objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+        except Exception:
+            objc.lookUpClass("NSWorkspace")
+    except Exception as exc:
+        status = "error"
+        message = str(exc)
+    print(
+        json.dumps(
+            {{
+                "workerReady": True,
+                "status": status,
+                "message": message,
+            }},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
+def run_query(raw_request: str) -> str:
+    output = StringIO()
+    original_argv = sys.argv
+    sys.argv = ["accessibility_query_worker", raw_request]
+    namespace = {{"__name__": "__main__"}}
+    try:
+        with redirect_stdout(output):
+            try:
+                exec(QUERY_SCRIPT, namespace)
+            except SystemExit:
+                pass
+    except BaseException as exc:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_query_worker_failed",
+                "message": str(exc),
+                "diagnostics": {{
+                    "workerException": traceback.format_exc(limit=8),
+                }},
+            }},
+            ensure_ascii=False,
+        )
+    finally:
+        sys.argv = original_argv
+    lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
+    if not lines:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_query_worker_empty_response",
+                "message": "Accessibility query worker produced no response.",
+            }},
+            ensure_ascii=False,
+        )
+    return lines[-1]
+
+
+warm_frameworks()
+for line in sys.stdin:
+    raw_request = line.strip()
+    if not raw_request:
+        continue
+    print(run_query(raw_request), flush=True)
 '''
 
 
@@ -2974,18 +4061,33 @@ def finish(payload: dict[str, Any]) -> None:
     sys.exit(0)
 
 
-def fail(failure_kind: str, message: str, *, target: dict[str, Any] | None = None) -> None:
+def fail(
+    failure_kind: str,
+    message: str,
+    *,
+    target: dict[str, Any] | None = None,
+    action: str | None = None,
+    action_attempted: bool = False,
+    action_effect: str | None = None,
+    native_error_code: int | None = None,
+) -> None:
     payload: dict[str, Any] = {
         "schema": "macos.accessibility.action.result.v1",
         "available": False,
         "status": "failed",
         "failureKind": failure_kind,
         "message": message,
-        "actionAttempted": False,
+        "actionAttempted": action_attempted,
         "diagnostics": {
             "durationMs": int(round((time.monotonic() - STARTED_AT) * 1000)),
         },
     }
+    if action_effect is not None:
+        payload["actionEffect"] = action_effect
+    if action is not None:
+        payload["action"] = action
+    if native_error_code is not None:
+        payload["nativeErrorCode"] = native_error_code
     if target is not None:
         payload["target"] = target
     finish(payload)
@@ -3004,6 +4106,9 @@ try:
         AXUIElementCopyAttributeValue,
         AXUIElementCreateApplication,
         AXUIElementPerformAction,
+        AXUIElementSetAttributeValue,
+        kAXErrorActionUnsupported,
+        kAXErrorAttributeUnsupported,
         kAXFocusedWindowAttribute,
     )
 except Exception as exc:
@@ -3033,6 +4138,13 @@ def ax_actions(element: Any) -> list[str]:
 def ax_perform_action(element: Any, action: str) -> int:
     try:
         return int(AXUIElementPerformAction(element, action))
+    except Exception:
+        return -1
+
+
+def ax_set_focused(element: Any) -> int:
+    try:
+        return int(AXUIElementSetAttributeValue(element, "AXFocused", True))
     except Exception:
         return -1
 
@@ -3078,26 +4190,50 @@ def focused_window_for_app(app_element: Any) -> Any | None:
     for candidate in windows_of(app_element):
         if ax_role(candidate) == "AXWindow":
             return candidate
-    return focused
+    return None
+
+
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_matches_name(app: Any, app_name: str) -> bool:
+    try:
+        return str(app.localizedName() or "").casefold() == app_name.casefold()
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
+    except Exception:
+        return False
 
 
 def selected_running_app() -> Any:
     bundle_id = str(REQUEST.get("bundleId") or "").strip()
+    target_app = str(REQUEST.get("targetApp") or "").strip()
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
+    frontmost = workspace.frontmostApplication()
+    if frontmost is None or not app_is_usable(frontmost):
+        fail("target_app_not_frontmost", "No usable frontmost app is available")
     if bundle_id:
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(bundle_id)
-        for candidate in apps or []:
-            try:
-                if not bool(candidate.isTerminated()):
-                    return candidate
-            except Exception:
-                return candidate
-        fail(
-            "target_app_not_running",
-            f"No running app found for bundle id: {bundle_id}",
-        )
-    return workspace.frontmostApplication()
+        if not app_matches_bundle(frontmost, bundle_id):
+            fail(
+                "target_app_not_frontmost",
+                f"Target bundle is not frontmost: {bundle_id}",
+            )
+    elif target_app:
+        if not app_matches_name(frontmost, target_app):
+            fail(
+                "target_app_not_frontmost",
+                f"Target app is not frontmost: {target_app}",
+            )
+    return frontmost
 
 
 def resolve_ax_path(window: Any, raw_path: str) -> tuple[Any | None, str]:
@@ -3168,7 +4304,10 @@ def validate_preconditions(facts: dict[str, Any], action: str) -> str | None:
     if action_set and action.casefold() not in action_set:
         return "action did not match preconditions.actionIn"
     action_names = {str(item).casefold() for item in facts.get("actions") or []}
-    if action.casefold() not in action_names:
+    if action != "AXSetFocus" and action.casefold() not in action_names:
+        role = str(facts.get("role") or "")
+        if action == "AXPress" and role == "AXRow":
+            return None
         return f"target does not expose action: {action}"
     return None
 
@@ -3180,7 +4319,7 @@ if not AXIsProcessTrusted():
     )
 
 action = str(REQUEST.get("action") or "").strip()
-if action != "AXPress":
+if action not in {"AXPress", "AXSetFocus"}:
     fail("unsupported_accessibility_action", f"Unsupported Accessibility action: {action}")
 
 target = REQUEST.get("target")
@@ -3228,12 +4367,36 @@ precondition_failure = validate_preconditions(facts, action)
 if precondition_failure is not None:
     fail("precondition_failed", precondition_failure, target=facts)
 
-err = ax_perform_action(element, action)
+method = "AXUIElementPerformAction"
+if action == "AXSetFocus":
+    method = "AXUIElementSetAttributeValue"
+    err = ax_set_focused(element)
+else:
+    err = ax_perform_action(element, action)
 if err != 0:
+    unsupported_error = (
+        action == "AXSetFocus" and err == int(kAXErrorAttributeUnsupported)
+    ) or (
+        action == "AXPress" and err == int(kAXErrorActionUnsupported)
+    )
+    if unsupported_error:
+        fail(
+            "accessibility_action_unsupported",
+            f"{method} returned unsupported error: {err}",
+            target=facts,
+            action=action,
+            action_attempted=True,
+            action_effect="none",
+            native_error_code=err,
+        )
     fail(
         "accessibility_action_failed",
-        f"AXUIElementPerformAction returned error: {err}",
+        f"{method} returned error: {err}",
         target=facts,
+        action=action,
+        action_attempted=True,
+        action_effect="unknown",
+        native_error_code=err,
     )
 
 finish(
@@ -3242,10 +4405,11 @@ finish(
         "available": True,
         "status": "ok",
         "operation": "accessibility_action",
-        "method": "AXUIElementPerformAction",
+        "method": method,
         "snapshotId": snapshot_id,
         "action": action,
         "actionAttempted": True,
+        "actionEffect": "performed",
         "target": facts,
         "app": {
             "name": app_name,
@@ -3262,6 +4426,96 @@ finish(
         },
     }
 )
+'''
+
+
+def _accessibility_action_worker_script() -> str:
+    action_script = json.dumps(_accessibility_action_script(), ensure_ascii=False)
+    return f'''
+from __future__ import annotations
+
+from contextlib import redirect_stdout
+from io import StringIO
+import json
+import sys
+import traceback
+
+APPKIT_FRAMEWORK_PATH = "/System/Library/Frameworks/AppKit.framework"
+ACTION_SCRIPT = {action_script}
+
+
+def warm_frameworks() -> None:
+    status = "ok"
+    message = ""
+    try:
+        import objc
+        import ApplicationServices  # noqa: F401
+        try:
+            objc.loadBundle("AppKit", globals(), bundle_path=APPKIT_FRAMEWORK_PATH)
+        except Exception:
+            objc.lookUpClass("NSWorkspace")
+    except Exception as exc:
+        status = "error"
+        message = str(exc)
+    print(
+        json.dumps(
+            {{
+                "workerReady": True,
+                "status": status,
+                "message": message,
+            }},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
+def run_action(raw_request: str) -> str:
+    output = StringIO()
+    original_argv = sys.argv
+    sys.argv = ["accessibility_action_worker", raw_request]
+    namespace = {{"__name__": "__main__"}}
+    try:
+        with redirect_stdout(output):
+            try:
+                exec(ACTION_SCRIPT, namespace)
+            except SystemExit:
+                pass
+    except BaseException as exc:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_action_worker_failed",
+                "message": str(exc),
+                "actionAttempted": False,
+                "diagnostics": {{
+                    "workerException": traceback.format_exc(limit=8),
+                }},
+            }},
+            ensure_ascii=False,
+        )
+    finally:
+        sys.argv = original_argv
+    lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
+    if not lines:
+        return json.dumps(
+            {{
+                "available": False,
+                "failureKind": "accessibility_action_worker_empty_response",
+                "message": "Accessibility action worker produced no response.",
+                "actionAttempted": False,
+            }},
+            ensure_ascii=False,
+        )
+    return lines[-1]
+
+
+warm_frameworks()
+for line in sys.stdin:
+    raw_request = line.strip()
+    if not raw_request:
+        continue
+    print(run_action(raw_request), flush=True)
 '''
 
 
@@ -3288,6 +4542,7 @@ SAFE_ATTRIBUTES = (
     "AXEnabled",
     "AXFocused",
     "AXSelected",
+    "AXHidden",
     "AXPosition",
     "AXSize",
     "AXFrame",
@@ -3381,22 +4636,33 @@ def mark_truncated(reason: str) -> None:
 
 def selected_running_app() -> Any:
     workspace = objc.lookUpClass("NSWorkspace").sharedWorkspace()
-    if TARGET_BUNDLE_ID:
-        running_application = objc.lookUpClass("NSRunningApplication")
-        apps = running_application.runningApplicationsWithBundleIdentifier_(
-            TARGET_BUNDLE_ID
-        )
-        for candidate in apps or []:
-            try:
-                if not bool(candidate.isTerminated()):
-                    return candidate
-            except Exception:
-                return candidate
+    frontmost = workspace.frontmostApplication()
+    if frontmost is None or not app_is_usable(frontmost):
         fail(
-            "accessibility_tree_target_app_not_running",
-            f"No running app found for bundle id: {TARGET_BUNDLE_ID}",
+            "accessibility_tree_target_app_not_frontmost",
+            "No usable frontmost app is available",
         )
-    return workspace.frontmostApplication()
+    if TARGET_BUNDLE_ID:
+        if not app_matches_bundle(frontmost, TARGET_BUNDLE_ID):
+            fail(
+                "accessibility_tree_target_app_not_frontmost",
+                f"Target bundle is not frontmost: {TARGET_BUNDLE_ID}",
+            )
+    return frontmost
+
+
+def app_matches_bundle(app: Any, bundle_id: str) -> bool:
+    try:
+        return str(app.bundleIdentifier() or "") == bundle_id
+    except Exception:
+        return False
+
+
+def app_is_usable(app: Any) -> bool:
+    try:
+        return not bool(app.isTerminated()) and not bool(app.isHidden())
+    except Exception:
+        return False
 
 
 def safe_scalar(value: Any) -> Any:
@@ -3788,18 +5054,30 @@ def _result_to_protocol_observation(
         status=_protocol_status(result, tool_status_cls),
         failure_kind=_failure_kind(result),
         message=result.summary,
-        retryable=result.status
-        in {
-            ComputerUseStatus.NEEDS_USER,
-            ComputerUseStatus.NOT_AVAILABLE,
-            ComputerUseStatus.TIMEOUT,
-        },
+        retryable=_result_retryable(result),
         observation=observation,
         evidence=_result_evidence(result),
         metadata={"legacyStatus": result.status.value},
         tool_observation_cls=tool_observation_cls,
         tool_error_cls=tool_error_cls,
     )
+
+
+def _result_retryable(result: ComputerUseResult) -> bool:
+    if (
+        result.operation == ComputerUseOperation.ACCESSIBILITY_ACTION
+        and result.status == ComputerUseStatus.TIMEOUT
+    ):
+        transport = result.metadata.get("accessibility_action_transport")
+        return (
+            isinstance(transport, Mapping)
+            and transport.get("requestDispatched") is False
+        )
+    return result.status in {
+        ComputerUseStatus.NEEDS_USER,
+        ComputerUseStatus.NOT_AVAILABLE,
+        ComputerUseStatus.TIMEOUT,
+    }
 
 
 def _protocol_failure(
@@ -3865,6 +5143,8 @@ _PUBLIC_METADATA_FIELDS = {
     "submitted": "submitted",
     "input_method": "inputMethod",
     "action_attempted": "actionAttempted",
+    "action_effect": "actionEffect",
+    "native_error_code": "nativeErrorCode",
     "key": "key",
     "keys": "keys",
     "modifiers": "modifiers",

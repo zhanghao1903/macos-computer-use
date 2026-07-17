@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wechat-desktop-tool"
-version = "0.1.1"
+version = "0.2.0"
 description = "Protocol-first WeChat Desktop semantic tools for app-control clients."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,8 @@ authors = [
   { name = "Zhang Hao" }
 ]
 dependencies = [
-  "app-control-protocol>=0.1.0",
+  "app-control-protocol>=0.2.0",
+  "computer-use-macos>=0.2.0",
 ]
 keywords = ["wechat", "desktop", "automation", "app-control", "agent-tools"]
 classifiers = [
@@ -39,9 +40,10 @@ wechat-desktop-tool = "wechat_desktop_tool.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
-wechat_desktop_tool = ["py.typed"]
+wechat_desktop_tool = ["py.typed", "profiles/*.toml"]
 
 [tool.ruff]
 line-length = 88

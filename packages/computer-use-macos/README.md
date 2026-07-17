@@ -68,6 +68,16 @@ observation = client.run_command(
 nodes = observation.observation["accessibilityQuery"]["nodes"]
 ```
 
+Set `includeChildRoles` or `includeDescendantRoles` in the query when a caller
+needs bounded structural summaries for selector matching. These fields return
+role names only and avoid exposing full child nodes.
+
+Supported query roots are `focusedWindow`, `frontmostApp`, and `axPath`.
+`frontmostApp` reads from the application AX root for app-level inspection;
+`axPath` may reference focused-window paths such as `0/12/0` or app-root paths
+such as `app/0`. App-root paths are read-only query paths and should not be
+passed to `accessibility_action`.
+
 Helper manifests can be used directly:
 
 ```python
@@ -153,7 +163,14 @@ The package provides:
 - developer-facing module entrypoints: `commands`, `observations`, `errors`,
   `readiness`, and `transport`
 - stable `COMPUTER_USE_FAILURE_KINDS` constants for package-owned failure
-  routing
+  routing, including
+  `errors.ACCESSIBILITY_ACTION_UNSUPPORTED` for a definite native no-effect
+  result and the query/action worker failed or empty-response constants
+
+Accessibility query, action, and tree workers require the requested app to be
+the current usable frontmost application. They fail before creating an AX
+application element when the bundle/name does not match or the app is hidden or
+terminated; a background process is never selected as a fallback.
 
 It does not provide WeChat semantics, product authorization, UI, LLM decision
 loops, or caller task state.

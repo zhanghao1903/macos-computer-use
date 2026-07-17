@@ -1,0 +1,331 @@
+schema_version = "app-control.selector-profile.v1"
+profile_id = "wechat.macos"
+profile_version = "2026.07"
+
+[app]
+app_id = "wechat"
+bundle_ids = ["com.tencent.xinWeChat"]
+app_names = ["WeChat", "微信"]
+supported_locales = ["zh-CN", "en-US"]
+window_title_patterns = ["微信.*", "WeChat.*"]
+
+[locale_aliases]
+"navigation.chats" = ["聊天", "__EN_CHATS_PLACEHOLDER__"]
+"navigation.contacts" = ["通讯录", "__EN_CONTACTS_PLACEHOLDER__"]
+"navigation.favorites" = ["收藏", "__EN_FAVORITES_PLACEHOLDER__"]
+"search.placeholder" = ["搜索", "search", "__EN_SEARCH_PLACEHOLDER__"]
+
+[selectors.navigation.chats.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.chats.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.chats.steps.match.attributes.AXDescription]
+alias_ref = "navigation.chats"
+
+[selectors.navigation.chats.steps.match.attributes.AXValue]
+exists = true
+
+[selectors.navigation.chats.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription", "AXValue"]
+
+[selectors.navigation.contacts.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.contacts.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.contacts.steps.match.attributes.AXDescription]
+alias_ref = "navigation.contacts"
+
+[selectors.navigation.contacts.steps.match.attributes.AXValue]
+exists = true
+
+[selectors.navigation.contacts.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription", "AXValue"]
+
+[selectors.navigation.favorites.root]
+kind = "focusedWindow"
+
+[[selectors.navigation.favorites.steps]]
+scope = "children"
+max_depth = 1
+limit = 20
+time_budget_ms = 2000
+role_in = ["AXRadioButton"]
+actions_include = ["AXPress"]
+
+[selectors.navigation.favorites.steps.match.attributes.AXDescription]
+alias_ref = "navigation.favorites"
+
+[selectors.navigation.favorites.steps.match.attributes.AXValue]
+exists = true
+
+[selectors.navigation.favorites.cache]
+mode = "readWrite"
+ttl_seconds = 300
+validate_signature = true
+key_attributes = ["AXDescription", "AXValue"]
+
+[selectors.regions.mainContent.root]
+kind = "focusedWindow"
+
+[[selectors.regions.mainContent.steps]]
+scope = "children"
+max_depth = 1
+limit = 40
+time_budget_ms = 2500
+role_in = ["AXSplitGroup"]
+
+[selectors.regions.mainContent.cache]
+mode = "disabled"
+validate_signature = true
+key_attributes = ["AXRole"]
+
+[selectors.regions.searchBox.root]
+kind = "selector"
+selector_id = "regions.mainContent"
+
+[[selectors.regions.searchBox.steps]]
+scope = "children"
+max_depth = 1
+limit = 30
+time_budget_ms = 2000
+role_in = ["AXTextArea", "AXTextField"]
+
+[selectors.regions.searchBox.steps.match.attributes.AXDescription]
+alias_ref = "search.placeholder"
+
+[selectors.regions.chatPanel.root]
+kind = "selector"
+selector_id = "regions.mainContent"
+
+[[selectors.regions.chatPanel.steps]]
+scope = "children"
+max_depth = 1
+limit = 40
+time_budget_ms = 2500
+role_in = ["AXSplitGroup"]
+
+[collections.contacts]
+root_selector_id = "regions.mainContent"
+
+[collections.contacts.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.contacts.item.steps]]
+scope = "descendants"
+max_depth = 8
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.contacts.fields.displayName]
+source = "descendant"
+attribute = "AXValue"
+required = true
+transform = "strip"
+
+[[collections.contacts.fields.displayName.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 8
+time_budget_ms = 1000
+role_in = ["AXStaticText"]
+
+[collections.contacts.fields.element]
+source = "computed"
+attribute = "elementRef"
+required = true
+
+[collections.conversations]
+root_selector_id = "regions.mainContent"
+
+[collections.conversations.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.conversations.item.steps]]
+scope = "descendants"
+max_depth = 6
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.conversations.fields.rawLabel]
+source = "descendant"
+required = true
+transform = "strip"
+
+[[collections.conversations.fields.rawLabel.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 10
+time_budget_ms = 1000
+role_in = ["AXStaticText", "AXCell"]
+
+[collections.conversations.fields.element]
+source = "computed"
+attribute = "elementRef"
+required = true
+
+[collections.visibleMessages]
+root_selector_id = "regions.chatPanel"
+
+[collections.visibleMessages.pagination]
+mode = "visibleWindow"
+default_limit = 30
+max_limit = 100
+
+[[collections.visibleMessages.item.steps]]
+scope = "descendants"
+max_depth = 6
+limit = 120
+time_budget_ms = 5000
+role_in = ["AXRow"]
+
+[collections.visibleMessages.fields.text]
+source = "descendant"
+attribute = "AXValue"
+required = true
+transform = "strip"
+
+[[collections.visibleMessages.fields.text.selector.steps]]
+scope = "descendants"
+max_depth = 3
+limit = 10
+time_budget_ms = 1000
+role_in = ["AXStaticText", "AXCell"]
+
+[actions.navigation.contacts.press]
+selector_id = "navigation.contacts"
+ax_action = "AXPress"
+risk = "changes_focus"
+
+[[actions.navigation.contacts.press.preconditions]]
+kind = "appFrontmost"
+value = true
+
+[actions.navigation.chats.press]
+selector_id = "navigation.chats"
+ax_action = "AXPress"
+risk = "changes_focus"
+
+[[actions.navigation.chats.press.preconditions]]
+kind = "appFrontmost"
+value = true
+
+[control_map]
+schema_version = "wechat.control-map.v1"
+map_id = "wechat.macos.default"
+map_version = "2026.07"
+
+[control_map.navigation.chats]
+ax_paths = ["0/1"]
+role = "AXRadioButton"
+labels = ["聊天", "__EN_CHATS_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.navigation.contacts]
+ax_paths = ["0/2"]
+role = "AXRadioButton"
+labels = ["通讯录", "__EN_CONTACTS_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.navigation.favorites]
+ax_paths = ["0/3"]
+role = "AXRadioButton"
+labels = ["收藏", "__EN_FAVORITES_PLACEHOLDER__"]
+action = "AXPress"
+kind = "navigation.switch"
+risk = "changes_focus"
+
+[control_map.regions.mainContent]
+ax_paths = ["0/12", "0/11"]
+role = "AXSplitGroup"
+labels = ["main-content"]
+kind = "region.main_content"
+risk = "read_only"
+
+[control_map.regions.searchBox]
+ax_paths = ["0/12/0", "0/11/0"]
+role = "AXTextArea"
+labels = ["搜索", "search", "__EN_SEARCH_PLACEHOLDER__"]
+action = "AXSetFocus"
+kind = "search.focus"
+risk = "changes_focus"
+
+[control_map.regions.chatPanel]
+ax_paths = ["0/12/4", "0/11/4"]
+role = "AXSplitGroup"
+labels = ["chat-panel"]
+kind = "region.chat_panel"
+risk = "read_only"
+
+[control_map.collections.contacts]
+root_ax_paths = ["0/12/2/0", "0/11/2/0"]
+roles = ["AXStaticText"]
+attributes = ["AXRole", "AXValue", "AXPosition", "AXSize", "AXFrame"]
+actions = false
+max_depth = 3
+minimum_limit = 60
+limit_multiplier = 2
+time_budget_ms = 1200
+prefer_visible_rows = true
+
+[control_map.collections.contacts.root_resolvers."0/12/2/0"]
+strategy = "attributePath"
+steps = [
+  { attribute = "AXChildren", index = 12 },
+  { attribute = "AXChildren", index = 2 },
+  { attribute = "AXContents", index = 0, path_index = 0 },
+]
+
+[control_map.collections.contacts.root_resolvers."0/11/2/0"]
+strategy = "attributePath"
+steps = [
+  { attribute = "AXChildren", index = 11 },
+  { attribute = "AXChildren", index = 2 },
+  { attribute = "AXContents", index = 0, path_index = 0 },
+]
+
+[control_map.collections.conversations]
+root_ax_paths = ["0/12/1/0", "0/11/1/0"]
+roles = ["AXRow", "AXCell", "AXStaticText"]
+max_depth = 2
+minimum_limit = 100
+limit_multiplier = 4
+time_budget_ms = 2200
+prefer_visible_rows = true
+
+[control_map.collections.visibleMessages]
+root_ax_paths = ["0/12/4/0/0", "0/11/4/0/0"]
+roles = ["AXRow", "AXCell", "AXStaticText"]
+max_depth = 3
+minimum_limit = 100
+limit_multiplier = 4
+time_budget_ms = 2200

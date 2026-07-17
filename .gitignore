@@ -21,6 +21,7 @@ helper-doctor.json
 textedit-smoke.json
 wechat-focus-draft-smoke.json
 wechat-submit-smoke.json
+wechat-selector-engine-private-debug*.json
 testpypi-install.json
 trusted-publisher.json
 release-proof.json

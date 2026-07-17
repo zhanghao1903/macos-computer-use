@@ -78,8 +78,8 @@ def _add_send_message_parser(
         "--allow-focus-select",
         action="store_true",
         help=(
-            "allow the example to press the configured submit key to select a "
-            "contact search result"
+            "allow the example to switch to the requested contact through the "
+            "verified selector-backed open_contact flow"
         ),
     )
 
@@ -119,14 +119,6 @@ def _run_send_message_example(
     app_control = _app_control_for_args(args, parser)
     tool = WeChatDesktopTool.from_config(app_control, args.config)
     is_dry_run = isinstance(app_control, DryRunAppControl)
-    if (
-        args.allow_focus_select
-        and not is_dry_run
-        and _is_known_unsafe_search_hotkey(tool.config.search_hotkey)
-    ):
-        output = _unsafe_focus_select_output(args, tool.config.search_hotkey)
-        print(json.dumps(output, ensure_ascii=False, indent=2))
-        return 1
     allow_focus_select = args.allow_focus_select or is_dry_run
     if args.submit:
         if allow_focus_select:
@@ -310,8 +302,8 @@ def _focus_current_chat_for_example(
             ),
             recovery_hint=(
                 "Open the target chat manually, or rerun with "
-                "--allow-focus-select after confirming the search shortcut is safe "
-                "for this WeChat version."
+                "--allow-focus-select to use verified selector-backed contact "
+                "selection."
             ),
             retryable=True,
             phase="focus_contact",
@@ -326,59 +318,6 @@ def _focus_current_chat_for_example(
             "autoSelectContact": False,
         },
     )
-
-
-def _unsafe_focus_select_output(
-    args: argparse.Namespace,
-    search_hotkey: tuple[str, ...],
-) -> dict[str, Any]:
-    focus = ToolObservation.failure(
-        command_id="wechat-example-focus-select-disabled",
-        tool=WECHAT_TOOL,
-        operation="focus_contact",
-        status=ToolStatus.FAILED,
-        error=ToolError(
-            failure_kind="unsafe_search_hotkey",
-            message=(
-                "Configured WeChat contact search hotkey is unsafe for live "
-                f"contact selection: {'+'.join(search_hotkey)}."
-            ),
-            recovery_hint=(
-                "Set wechat.search_hotkey to Command+K, or open the target chat "
-                "manually and use --assume-current-chat."
-            ),
-            retryable=False,
-            phase="focus_contact",
-            operation="focus_contact",
-        ),
-        summary="Configured WeChat contact search hotkey is unsafe.",
-        observation={
-            "focusedContact": None,
-            "requestedContact": args.contact,
-            "autoSelectContact": False,
-            "searchHotkey": list(search_hotkey),
-        },
-    )
-    if args.submit:
-        result = _nested_example_failure("focus_contact", focus)
-        return {"result": result.to_dict()}
-    draft = ToolObservation.failure(
-        command_id="wechat-example-draft-skipped",
-        tool=WECHAT_TOOL,
-        operation="draft_message",
-        status=ToolStatus.FAILED,
-        error=ToolError(failure_kind="focus_failed", message=focus.summary),
-        summary="Draft skipped because focus_contact failed.",
-    )
-    return {
-        "submitted": False,
-        "focus": focus.to_dict(),
-        "draft": draft.to_dict(),
-    }
-
-
-def _is_known_unsafe_search_hotkey(keys: tuple[str, ...]) -> bool:
-    return tuple(_key_lookup_name(key) for key in keys) == ("command", "f")
 
 
 def _nested_example_failure(phase: str, observation: ToolObservation) -> ToolObservation:
@@ -450,13 +389,10 @@ def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
     return 0.0
 
 
-def _key_lookup_name(key: str) -> str:
-    return key.strip().replace("-", "_").replace(" ", "_").lower()
-
-
 class DryRunAppControl:
-    def __init__(self) -> None:
+    def __init__(self, *, contact: str | None = None) -> None:
         self.commands: list[ToolCommand] = []
+        self._contact = contact
 
     def run_command(
         self,
@@ -467,13 +403,126 @@ class DryRunAppControl:
         del observer
         tool_command = _coerce_command(command)
         self.commands.append(tool_command)
+        observation: dict[str, Any] = {
+            "input": tool_command.input,
+            "dryRun": True,
+        }
+        phase = tool_command.metadata.get("phase") if tool_command.metadata else None
+        if tool_command.operation == "observe":
+            observation.update(
+                {
+                    "frontmostApp": "WeChat",
+                    "frontmostBundleId": "com.tencent.xinWeChat",
+                    "windowTitle": "微信 (聊天)",
+                }
+            )
+            if isinstance(phase, str) and phase.startswith("verify_search_focus"):
+                observation["accessibility"] = {
+                    "available": True,
+                    "focusedElement": {
+                        "role": "AXTextField",
+                        "roleDescription": "search field",
+                        "description": "搜索",
+                        "frame": {
+                            "x": 80,
+                            "y": 120,
+                            "width": 240,
+                            "height": 28,
+                        },
+                    },
+                }
+        elif tool_command.operation == "accessibility_query":
+            observation["accessibilityQuery"] = self._accessibility_query_payload(
+                tool_command,
+                phase=phase,
+            )
         return ToolObservation.ok(
             command_id=tool_command.command_id,
             tool=tool_command.tool,
             operation=tool_command.operation,
             summary=f"dry-run app-control command: {tool_command.operation}",
-            observation={"input": tool_command.input, "dryRun": True},
+            observation=observation,
         )
+
+    def _accessibility_query_payload(
+        self,
+        command: ToolCommand,
+        *,
+        phase: object,
+    ) -> dict[str, Any]:
+        contact = self._contact or "Dry Run Contact"
+        nodes: list[dict[str, Any]] = []
+        if isinstance(phase, str) and phase.startswith(
+            "control_map_conversation_target_"
+        ):
+            nodes.append(
+                {
+                    "axPath": "0/12/1/0/0",
+                    "role": "AXRow",
+                    "description": f"{contact},dry-run preview,09:00",
+                    "frame": {
+                        "x": 330,
+                        "y": 120,
+                        "width": 270,
+                        "height": 64,
+                    },
+                    "actions": ["AXPress"],
+                    "childrenCount": 0,
+                }
+            )
+        elif isinstance(phase, str) and phase.startswith("verify_contact"):
+            nodes.append(
+                {
+                    "axPath": "0/12/4/2",
+                    "role": "AXStaticText",
+                    "value": contact,
+                    "frame": {
+                        "x": 650,
+                        "y": 120,
+                        "width": 180,
+                        "height": 24,
+                    },
+                    "childrenCount": 0,
+                }
+            )
+
+        target_app = str(command.input.get("targetApp") or "WeChat")
+        bundle_id = str(
+            command.input.get("bundleId") or "com.tencent.xinWeChat"
+        )
+        root = command.input.get("root")
+        normalized_root = (
+            dict(root)
+            if isinstance(root, Mapping)
+            else {"kind": "focusedWindow", "axPath": "0"}
+        )
+        normalized_root.setdefault("axPath", "0")
+        return {
+            "schema": "macos.accessibility.query.v1",
+            "available": True,
+            "snapshotId": f"frontmost:{target_app}:微信 (聊天)",
+            "app": {
+                "name": target_app,
+                "bundleId": bundle_id,
+                "pid": 123,
+            },
+            "window": {
+                "title": "微信 (聊天)",
+                "role": "AXWindow",
+                "frame": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 1_440,
+                    "height": 900,
+                },
+            },
+            "root": normalized_root,
+            "nodes": nodes,
+            "diagnostics": {
+                "returnedNodes": len(nodes),
+                "truncated": False,
+            },
+        }
 
 
 class LocalServiceAppControl:
@@ -551,7 +600,7 @@ def _app_control_for_args(
     if args.token and args.token_file:
         raise ValueError("--token and --token-file are mutually exclusive")
     if args.dry_run:
-        return DryRunAppControl()
+        return DryRunAppControl(contact=getattr(args, "contact", None))
 
     socket_path = args.socket_path
     token = args.token

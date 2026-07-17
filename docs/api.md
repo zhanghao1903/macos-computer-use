@@ -183,6 +183,13 @@ For new UI-model APIs, prefer `accessibility_query` over
 requested subtree and attributes, returns normalized `nodes`, and avoids
 exposing raw `attributeNames` to application callers.
 
+The query `root.kind` can be `focusedWindow`, `frontmostApp`, or `axPath`.
+`focusedWindow` is the default window-rooted query. `frontmostApp` reads from
+the target application's AX root and can still return app-level nodes when no
+focused AX window is available. `axPath` accepts either focused-window paths
+such as `0/12/0` or app-root paths such as `app/0`; app-root paths are intended
+for scoped reads and are not valid `accessibility_action` targets.
+
 Example protocol command:
 
 ```python
@@ -205,15 +212,87 @@ result = client.run_command(
                 "AXSize",
             ],
             "actions": True,
+            "includeChildRoles": True,
+            "includeDescendantRoles": True,
         },
     )
 )
 ```
 
+`includeChildRoles` and `includeDescendantRoles` return bounded role-name
+summaries for structural matching. They are intended for selector engines and
+semantic adapters that need to verify UI shape without returning full child
+subtrees.
+
+Internal selector consumers validate query envelopes before exposing a
+candidate. A success response must contain a supported schema or the narrow
+legacy shape, a mapping-only node list, mapping diagnostics, and a Boolean
+`truncated` value. Wrong-type, contradictory, malformed, or version-skewed
+responses return `selector_query_failed`; malformed nodes are not silently
+dropped and cannot become cache entries or action targets. Custom selector
+profiles likewise reject explicit empty `any_of` matchers and non-finite
+confidence, weight, relation-distance, or frame values before a query runs.
+
 Use `accessibility_action` for elements that expose stable AX actions such as
 `AXPress`. The direct backend validates the target app allowlist, resolves the
 snapshot-local `axPath`, checks preconditions, and then calls
 `AXUIElementPerformAction`.
+
+On the direct backend, bounded Accessibility queries and actions use separate
+prewarmed worker processes. Successful payloads expose
+`diagnostics.transport.mode` as `worker` or `subprocess`. A worker protocol
+failure may fall back once for a read-only query. Actions are never replayed
+after a worker request: worker timeout or protocol failure is returned directly
+because the action may already have been attempted. The original action
+subprocess remains the fallback only when no action worker is available before
+dispatch. Helper behavior is unchanged.
+
+Successful worker-backed actions expose
+`diagnostics.transport.requestDispatched`; timeout observations expose the same
+field at
+`observation.metadata.accessibility_action_transport.requestDispatched`. A
+value of `false` means the request deadline expired before any worker write and
+the timeout is safe to retry. A value of `true` means dispatch was attempted;
+if its result is unknown, the timeout is not retryable. When dispatch state is
+unavailable, action timeouts are conservatively not retryable. The top-level
+observation and nested `ToolError` always carry the same `retryable` value.
+
+Higher-level adapters must preserve this no-replay boundary. The packaged
+WeChat adapter permits one alternative mutation only when the result explicitly
+proves `requestDispatched=false` and `retryable=true`, or when the backend
+explicitly reports an unsupported Accessibility action without reporting that
+the action was attempted. The direct backend additionally normalizes Apple's
+definite no-effect results as `failureKind=accessibility_action_unsupported`:
+`AXPress` with `kAXErrorActionUnsupported` (`-25206`) and `AXSetFocus` with
+`kAXErrorAttributeUnsupported` (`-25205`). These results carry the exact
+requested `action`, `actionAttempted=true`, `actionEffect=none`, and
+`nativeErrorCode`; the native call was issued, but the requested action or
+attribute was not supported and was not performed. That explicit no-effect
+result may override dispatched and non-retryable transport evidence for
+exactly one policy-gated fallback only when the proof is complete. The failure
+kind must be
+`accessibility_action_unsupported`, the action must be `AXPress` with `-25206`
+or `AXSetFocus` with `-25205`, `actionAttempted` must be `true`, and
+`actionEffect` must be `none`. Every present public, metadata, snake-case, and
+nested copy must have the expected type and agree with the others. The proof
+action must also equal the action in the outbound request; an internally valid
+proof for a different action is rejected.
+
+Attempt and dispatch evidence is parsed without truthiness coercion. A field is
+either absent, a consistent Boolean `true`, a consistent Boolean `false`, or
+invalid. Any present non-Boolean value, malformed metadata/action/diagnostics/
+transport container, or contradictory alias invalidates recovery. The client
+promotes `actionAttempted` to normalized metadata only when the raw value is an
+actual Boolean and retains the raw action payload for downstream validation.
+
+All other attempted native failures carry `actionEffect=unknown`, including
+`kAXErrorCannotComplete` (`-25204`), and remain fail-closed.
+`actionAttempted=true`, `requestDispatched=true`, `retryable=false`,
+missing action/effect/native-code proof, malformed or empty values,
+contradictory duplicates, and missing dispatch evidence stop recovery unless
+the complete result is the definite unsupported/no-effect case above. They
+cannot be followed by a coordinate click, selector click, Return keypress, or
+next mutating strategy.
 
 ```python
 from computer_use_macos import accessibility_action_command
@@ -475,6 +554,11 @@ app_control = ComputerUseClient.from_config("app-control.toml")
 wechat = WeChatDesktopTool.from_config(app_control, "app-control.toml")
 ```
 
+`wechat.selector_profile_path` names one TOML asset containing both the generic
+selector profile and the WeChat control map. The override activates atomically;
+if either section is missing or invalid, both packaged defaults are used for
+the lifetime of that tool instance.
+
 Public operations:
 
 | Operation | Python API | Purpose | Mutates Desktop |
@@ -487,7 +571,7 @@ Public operations:
 | `execute_action` | `wechat.execute_action(action_ref)` | Execute an action returned by `inspect_window` or list APIs. | Depends |
 | `read_visible_messages` | `wechat.read_visible_messages(limit=20)` | Return visible loaded message rows in current chat. | Opens/focuses app |
 | `read_contact_messages` | `wechat.read_contact_messages(contact, limit=30)` | Compose `open_contact` and `read_visible_messages`. | Yes |
-| `focus_contact` | `wechat.focus_contact(contact)` | Compatibility keyboard-search flow used by send-message. | Yes |
+| `focus_contact` | `wechat.focus_contact(contact)` | Compatibility wrapper over verified `open_contact`, used by send-message. | Yes |
 | `observe_current_chat` | `wechat.observe_current_chat()` | Legacy observe-backed current chat summary. | No |
 | `draft_message` | `wechat.draft_message(message)` | Type bounded text into the focused chat input. | Yes |
 | `submit_draft` | `wechat.submit_draft()` | Press the configured submit key. | Yes |
@@ -513,8 +597,8 @@ result = wechat.run_command(list_contacts_command(limit=30))
 |---|---|---|---|
 | `open_wechat_command()` | `open_wechat` | none | Open/focus WeChat and verify foreground identity. |
 | `inspect_window_command(...)` | `inspect_window` | optional flags | Returns `wechat.window.v1`. |
-| `list_contacts_command(...)` | `list_contacts` | optional limit/page token | Visible contacts page only. |
-| `list_conversations_command(...)` | `list_conversations` | optional limit/page token | Visible conversations page only. |
+| `list_contacts_command(...)` | `list_contacts` | optional limit | Visible contacts only; non-null page tokens are rejected. |
+| `list_conversations_command(...)` | `list_conversations` | optional limit | Visible conversations only; non-null page tokens are rejected. |
 | `open_contact_command(contact)` | `open_contact` | contact text | May return `needs_disambiguation`. |
 | `execute_action_command(action_ref)` | `execute_action` | `actionRef` returned by a read-model API | Executes `accessibility_action` first, then allowed fallback. |
 | `read_visible_messages_command(...)` | `read_visible_messages` | optional limit | Visible loaded messages only. |
@@ -527,6 +611,13 @@ The read-model APIs use `macos.computer_use/accessibility_query` internally.
 Normal responses expose WeChat concepts such as navigation items, contact rows,
 conversation rows, messages, and available semantic actions. They do not expose
 raw `attributeNames` or full AX trees.
+
+Low-level query/action/observe evidence and stream events use operation-specific
+allowlists. They omit nodes, paths, target labels, window content, AX values,
+descriptions, and raw payloads. `inspect_window(include_raw=True)` places raw
+query data only in `observation.rawQueries`; evidence and events remain
+sanitized. `execute_action.observation.result` is an audit summary rather than
+the lower backend's raw observation.
 
 `inspect_window` returns:
 
@@ -560,7 +651,9 @@ raw `attributeNames` or full AX trees.
           "id": "nav.contacts.press",
           "preferredMethod": "accessibility_action",
           "target": {"axPath": "0/2", "role": "AXRadioButton"},
-          "action": "AXPress"
+          "action": "AXPress",
+          "createdAt": "2026-07-08T10:00:00Z",
+          "expiresAt": "2026-07-08T10:05:00Z"
         }
       }
     ],
@@ -607,12 +700,24 @@ List APIs return visible rows only:
         "id": "chats.visible.0.open",
         "kind": "chats.open",
         "preferredMethod": "accessibility_action",
-        "target": {"axPath": "0/11/1/0/0", "role": "AXRow"},
-        "action": "AXPress"
+        "target": {
+          "axPath": "0/11/1/0/0",
+          "role": "AXRow",
+          "label": "文件传输助手,hello,09:00,置顶"
+        },
+        "action": "AXPress",
+        "preconditions": {
+          "roleIn": ["AXRow"],
+          "labelIn": ["文件传输助手,hello,09:00,置顶"],
+          "actionIn": ["AXPress"]
+        },
+        "createdAt": "2026-07-08T10:00:00Z",
+        "expiresAt": "2026-07-08T10:05:00Z"
       }
     }
   ],
   "pagination": {
+    "mode": "visibleWindow",
     "limit": 30,
     "pageToken": null,
     "hasMore": false,
@@ -620,6 +725,16 @@ List APIs return visible rows only:
   }
 }
 ```
+
+List APIs do not scroll or implement cursor continuation in `0.2.0`.
+`nextPageToken` is always `null`; passing a non-null `pageToken` returns
+`failureKind="pagination_not_supported"` instead of replaying the first page.
+
+WeChat `actionRef` values are short-lived recommendations. Generated refs
+include `createdAt` and `expiresAt`; `execute_action` rejects expired or
+malformed refs with `wechat_action_ref_expired` before calling macOS
+Accessibility or selector fallback. Re-run `inspect_window`, `list_contacts`,
+or `list_conversations` to obtain a fresh ref when this happens.
 
 `read_visible_messages` returns normalized visible messages:
 
@@ -709,8 +824,39 @@ from wechat_desktop_tool import WECHAT_FAILURE_KINDS
 
 These constants cover package-owned failures such as `invalid_input`,
 `coordinate_click_disabled`, `app_not_allowlisted`, `contact_not_found`,
-`draft_failed`, and `submit_unknown`. A tool may still propagate a lower-level
-`failureKind` from another compatible app-control client in nested evidence.
+`accessibility_action_unsupported`, `wechat_action_ref_expired`,
+`wechat_query_truncated`, `draft_failed`, and `submit_unknown`. The named macOS constant is available as
+`computer_use_macos.errors.ACCESSIBILITY_ACTION_UNSUPPORTED`. A tool may still
+propagate a lower-level `failureKind` from another compatible app-control
+client in nested evidence.
+
+Warm accessibility worker process failures are also stable public constants:
+
+- `ACCESSIBILITY_QUERY_WORKER_FAILED`
+- `ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE`
+- `ACCESSIBILITY_ACTION_WORKER_FAILED`
+- `ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE`
+
+All four are exported from `computer_use_macos` and included exactly once in
+`COMPUTER_USE_FAILURE_KINDS`.
+
+Frontmost-target guard failures are stable public constants as well:
+
+- `ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST`
+- `TARGET_APP_NOT_FRONTMOST`
+- `ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST`
+
+They preserve the operation-specific serialized values already returned by the
+query, action, and legacy tree paths and are each included exactly once in
+`COMPUTER_USE_FAILURE_KINDS`.
+
+Accessibility query, action, and legacy tree workers operate only on the
+current usable frontmost application. When a request contains a bundle id, an
+exact bundle match is authoritative and a localized display-name difference is
+ignored. App-name matching is the fallback only when no bundle id is supplied.
+A wrong identity, terminated app, hidden app, or unavailable frontmost app
+fails before an AX application element is created. The workers do not select a
+background process with the requested bundle identifier.
 
 The caller must own:
 

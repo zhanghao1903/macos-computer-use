@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from email.parser import Parser
 import inspect
 from io import StringIO
@@ -120,6 +121,7 @@ PACKAGE_PROJECTS = {
     "computer-use-macos": Path("packages/computer-use-macos/pyproject.toml"),
     "wechat-desktop-tool": Path("packages/wechat-desktop-tool/pyproject.toml"),
 }
+EXPECTED_PACKAGE_VERSION = "0.2.0"
 
 PACKAGE_SOURCES = {
     "app-control-protocol": Path(
@@ -130,6 +132,18 @@ PACKAGE_SOURCES = {
         "packages/wechat-desktop-tool/src/wechat_desktop_tool"
     ),
 }
+
+WORKSPACE_SOURCE_PATHS = (
+    "packages/app-control-protocol/src",
+    "packages/computer-use-macos/src",
+    "packages/wechat-desktop-tool/src",
+)
+
+WECHAT_PACKAGE_TEST_PYTHONPATH = (
+    "PYTHONPATH=packages/app-control-protocol/src:"
+    "packages/computer-use-macos/src:"
+    "packages/wechat-desktop-tool/src"
+)
 
 PACKAGE_MODULE_FILES = (
     "packages/computer-use-macos/src/computer_use_macos/commands.py",
@@ -146,8 +160,11 @@ PACKAGE_MODULE_FILES = (
 
 EXPECTED_RUNTIME_DEPS = {
     "app-control-protocol": (),
-    "computer-use-macos": ("app-control-protocol>=0.1.0",),
-    "wechat-desktop-tool": ("app-control-protocol>=0.1.0",),
+    "computer-use-macos": ("app-control-protocol>=0.2.0",),
+    "wechat-desktop-tool": (
+        "app-control-protocol>=0.2.0",
+        "computer-use-macos>=0.2.0",
+    ),
 }
 
 EXPECTED_ACCESSIBILITY_EXTRA_DEPS = (
@@ -199,6 +216,7 @@ EXPECTED_WHEEL_CONTENT = {
     ),
     "computer-use-macos": (
         "computer_use_macos/__init__.py",
+        "computer_use_macos/accessibility_limits.py",
         "computer_use_macos/py.typed",
         "computer_use_macos/cli.py",
         "computer_use_macos/__main__.py",
@@ -211,6 +229,16 @@ EXPECTED_WHEEL_CONTENT = {
         "computer_use_macos/readiness.py",
         "computer_use_macos/service.py",
         "computer_use_macos/transport.py",
+        "computer_use_macos/selectors/__init__.py",
+        "computer_use_macos/selectors/cache.py",
+        "computer_use_macos/selectors/collections.py",
+        "computer_use_macos/selectors/diagnostics.py",
+        "computer_use_macos/selectors/matching.py",
+        "computer_use_macos/selectors/models.py",
+        "computer_use_macos/selectors/profile.py",
+        "computer_use_macos/selectors/resolver.py",
+        "computer_use_macos/selectors/transforms.py",
+        "computer_use_macos/selectors/validation.py",
         "computer_use_macos/examples/__init__.py",
         "computer_use_macos/examples/textedit_smoke.py",
         "computer_use_macos/helper/__init__.py",
@@ -233,6 +261,7 @@ EXPECTED_WHEEL_CONTENT = {
         "wechat_desktop_tool/tool.py",
         "wechat_desktop_tool/adapter.py",
         "wechat_desktop_tool/recipes.py",
+        "wechat_desktop_tool/profiles/wechat-macos.toml",
         "wechat_desktop_tool/examples/__init__.py",
         "wechat_desktop_tool/examples/wechat_smoke.py",
     ),
@@ -280,13 +309,21 @@ MODULE_ENTRYPOINT_CHECKS = (
     (
         "wechat-desktop-tool:root",
         ("wechat_desktop_tool", "--help"),
-        ("packages/app-control-protocol/src", "packages/wechat-desktop-tool/src"),
+        (
+            "packages/app-control-protocol/src",
+            "packages/computer-use-macos/src",
+            "packages/wechat-desktop-tool/src",
+        ),
         ("examples",),
     ),
     (
         "wechat-desktop-tool:send-message",
         ("wechat_desktop_tool", "examples", "send-message", "--help"),
-        ("packages/app-control-protocol/src", "packages/wechat-desktop-tool/src"),
+        (
+            "packages/app-control-protocol/src",
+            "packages/computer-use-macos/src",
+            "packages/wechat-desktop-tool/src",
+        ),
         ("--contact", "--message", "--dry-run", "--submit"),
     ),
 )
@@ -378,17 +415,90 @@ PACKAGE_BANNED_TERMS = {
         "computer_use_macos",
     ),
 }
+PACKAGE_ALLOWED_TERM_PATHS = {
+    (
+        "wechat-desktop-tool",
+        "computer_use_macos",
+    ): (
+        Path("packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py"),
+    ),
+}
 
 EXTERNAL_PROOFS = {
     "helper_app_doctor": "helper app template/build output passed helper doctor",
     "textedit_smoke": "real TextEdit smoke passed",
     "wechat_focus_draft_smoke": "real WeChat focus/draft smoke passed",
     "wechat_submit_smoke": "real opt-in WeChat submit smoke passed",
+    "wechat_selector_engine_smoke": (
+        "real WeChat selector-engine smoke checklist passed"
+    ),
     "testpypi_install": (
         "all packages installed from TestPyPI in a clean env and API smoke passed"
     ),
     "pypi_trusted_publisher": "PyPI Trusted Publisher is configured",
 }
+
+WECHAT_SELECTOR_ENGINE_LEGACY_SMOKE_SCHEMA = (
+    "macos_computer_use.sdk.wechat_selector_engine_smoke_test.v1"
+)
+WECHAT_SELECTOR_ENGINE_PROOF_SCHEMA = (
+    "macos_computer_use.release.wechat_selector_engine_proof.v2"
+)
+WECHAT_SELECTOR_ENGINE_PROOF_REPOSITORY = "zhanghao1903/macos-computer-use"
+WECHAT_SELECTOR_ENGINE_REQUIRED_CHECKS = (
+    "systemOpenWeChat",
+    "readiness",
+    "openWeChat",
+    "inspectWindow",
+    "listConversations",
+    "openContact",
+    "readVisibleMessages",
+    "listContacts",
+    "validProfileOverride",
+    "invalidProfileFallback",
+)
+WECHAT_SELECTOR_ENGINE_COLLECTIONS = {
+    "contacts": ("semanticFieldsPresent",),
+    "conversations": ("semanticFieldsPresent", "actionable"),
+    "visibleMessages": ("nonEmptyTextObserved",),
+}
+WECHAT_SELECTOR_ENGINE_REQUIRED_SAFETY = (
+    "focusGatePassed",
+    "targetPostconditionPassed",
+    "expiredActionRefRejected",
+    "frameDerivedCoordinatesOnly",
+    "rawObservationIncluded",
+    "sensitiveFieldScanPassed",
+)
+WECHAT_SELECTOR_ENGINE_REQUIRED_TIMINGS = (
+    "openWeChat",
+    "inspectWindow",
+    "listConversations",
+    "openContact",
+    "readVisibleMessages",
+    "listContacts",
+)
+WECHAT_SELECTOR_ENGINE_FORBIDDEN_KEYS = {
+    "axpath",
+    "configpath",
+    "contact",
+    "displayname",
+    "executable",
+    "messagetext",
+    "observation",
+    "rawobservation",
+    "socketpath",
+    "text",
+    "token",
+    "windowtitle",
+}
+WECHAT_SELECTOR_ENGINE_HEAD_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+WECHAT_SELECTOR_ENGINE_UTC_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
+)
+WECHAT_SELECTOR_ENGINE_ABSOLUTE_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9._:-])/(?!/)[^\s]*"
+)
 
 HELPER_RELEASE_REQUIRED_CHECKS = (
     "manifest",
@@ -428,6 +538,8 @@ def run_preflight(
     wechat_smoke_report_paths: tuple[Path, ...] = (),
     testpypi_install_report_path: Path | None = None,
     trusted_publisher_report_path: Path | None = None,
+    expected_source_sha: str | None = None,
+    sensitive_canaries: tuple[str, ...] = (),
     require_external: bool = False,
 ) -> list[CheckResult]:
     root = root.resolve()
@@ -441,6 +553,10 @@ def run_preflight(
             path=proof_path,
             loader=_load_proof,
         )
+    if require_external and expected_source_sha is not None:
+        # Strict selector proof must come from a validated v2 report, never the
+        # boolean-only release summary fallback.
+        proof["wechat_selector_engine_smoke"] = False
     if helper_doctor_report_path is not None:
         _merge_external_proof(
             proof,
@@ -463,7 +579,11 @@ def run_preflight(
             proof_source_results,
             source_name=f"wechat-smoke-report:{index}",
             path=wechat_smoke_report_path,
-            loader=_load_wechat_smoke_proof,
+            loader=lambda path: _load_wechat_smoke_proof(
+                path,
+                expected_source_sha=expected_source_sha,
+                sensitive_canaries=sensitive_canaries,
+            ),
         )
     if testpypi_install_report_path is not None:
         _merge_external_proof(
@@ -611,6 +731,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional JSON report confirming PyPI Trusted Publisher setup.",
     )
     parser.add_argument(
+        "--expected-source-sha",
+        default=os.environ.get("GITHUB_SHA"),
+        help=(
+            "Expected 40-character lowercase source SHA for strict WeChat "
+            "selector proof v2."
+        ),
+    )
+    parser.add_argument(
+        "--sensitive-canary",
+        action="append",
+        default=[],
+        help=(
+            "Optional sensitive value that must not occur in selector proof v2; "
+            "may be repeated."
+        ),
+    )
+    parser.add_argument(
         "--require-external",
         action="store_true",
         help="Fail if external release proofs are missing or false.",
@@ -632,6 +769,8 @@ def main(argv: list[str] | None = None) -> int:
         wechat_smoke_report_paths=tuple(args.wechat_smoke_report),
         testpypi_install_report_path=args.testpypi_install_report,
         trusted_publisher_report_path=args.trusted_publisher_report,
+        expected_source_sha=args.expected_source_sha,
+        sensitive_canaries=tuple(args.sensitive_canary),
         require_external=args.require_external,
     )
     if args.json:
@@ -893,7 +1032,7 @@ def _check_projects(root: Path) -> list[CheckResult]:
                 )
             )
     version_values = set(versions.values())
-    versions_match = len(version_values) == 1 and "" not in version_values
+    versions_match = version_values == {EXPECTED_PACKAGE_VERSION}
     results.append(
         CheckResult(
             name="version-consistency",
@@ -1209,7 +1348,9 @@ def _check_module_entrypoints(root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
     for name, module_args, pythonpath_paths, expected_terms in MODULE_ENTRYPOINT_CHECKS:
         command = [sys.executable, "-m", *module_args]
-        env_updates = {"PYTHONPATH": _pythonpath(root, *pythonpath_paths)}
+        env_updates = {
+            "PYTHONPATH": _workspace_source_pythonpath(root, *pythonpath_paths)
+        }
         try:
             output = _run_help_command(root, command, env_updates=env_updates)
             missing = [term for term in expected_terms if term not in output]
@@ -1259,7 +1400,7 @@ def _run_help_command(
 
 def _check_helper_template_smoke(root: Path) -> list[CheckResult]:
     env_updates = {
-        "PYTHONPATH": _pythonpath(
+        "PYTHONPATH": _workspace_source_pythonpath(
             root,
             "packages/app-control-protocol/src",
             "packages/computer-use-macos/src",
@@ -1448,7 +1589,7 @@ def _check_dry_run_smokes(root: Path) -> list[CheckResult]:
                 "--dry-run",
             ],
             {
-                "PYTHONPATH": _pythonpath(
+                "PYTHONPATH": _workspace_source_pythonpath(
                     root,
                     "packages/app-control-protocol/src",
                     "packages/wechat-desktop-tool/src",
@@ -1467,7 +1608,7 @@ def _check_dry_run_smokes(root: Path) -> list[CheckResult]:
                 "WECHAT_TOOL_CONTACT": "File Transfer",
                 "WECHAT_TOOL_MESSAGE": "hello",
                 "WECHAT_TOOL_DRY_RUN": "1",
-                "PYTHONPATH": _pythonpath(
+                "PYTHONPATH": _workspace_source_pythonpath(
                     root,
                     "packages/app-control-protocol/src",
                     "packages/wechat-desktop-tool/src",
@@ -1729,6 +1870,14 @@ def _pythonpath(root: Path, *relative_paths: str) -> str:
     return os.pathsep.join(values)
 
 
+def _workspace_source_pythonpath(root: Path, *relative_paths: str) -> str:
+    ordered_paths: list[str] = []
+    for relative_path in (*relative_paths, *WORKSPACE_SOURCE_PATHS):
+        if relative_path not in ordered_paths:
+            ordered_paths.append(relative_path)
+    return _pythonpath(root, *ordered_paths)
+
+
 def _validate_textedit_dry_run(payload: dict[str, Any], root: Path) -> None:
     if payload.get("dryRun") is not True:
         raise ValueError("TextEdit smoke did not report dryRun=true")
@@ -1756,13 +1905,9 @@ def _validate_wechat_dry_run(payload: dict[str, Any], root: Path) -> None:
     expected = [
         "open_app",
         "observe",
-        "hotkey",
-        "observe",
-        "hotkey",
-        "press_key",
-        "type_text",
-        "press_key",
-        "observe",
+        "accessibility_query",
+        "accessibility_action",
+        "accessibility_query",
         "type_text",
     ]
     if operations != expected:
@@ -1784,7 +1929,12 @@ def _check_source_boundaries(root: Path) -> list[CheckResult]:
     for package_name, relative in PACKAGE_SOURCES.items():
         source = root / relative
         terms = (*COMMON_BANNED_TERMS, *PACKAGE_BANNED_TERMS.get(package_name, ()))
-        matches = _find_terms(source, terms)
+        allowed = {
+            term: tuple(root / path for path in paths)
+            for (allowed_package, term), paths in PACKAGE_ALLOWED_TERM_PATHS.items()
+            if allowed_package == package_name
+        }
+        matches = _find_terms(source, terms, allowed_paths=allowed)
         results.append(
             CheckResult(
                 name=f"source-boundary:{package_name}",
@@ -1803,6 +1953,14 @@ def _check_workflows(root: Path) -> list[CheckResult]:
         "ci-runs-protocol-tests": "packages/app-control-protocol/tests" in ci,
         "ci-runs-computer-use-tests": "packages/computer-use-macos/tests" in ci,
         "ci-runs-wechat-tests": "packages/wechat-desktop-tool/tests" in ci,
+        "ci-wechat-tests-include-workspace-deps": (
+            WECHAT_PACKAGE_TEST_PYTHONPATH in ci
+            and "packages/wechat-desktop-tool/tests" in ci
+        ),
+        "release-wechat-tests-include-workspace-deps": (
+            WECHAT_PACKAGE_TEST_PYTHONPATH in release
+            and "packages/wechat-desktop-tool/tests" in release
+        ),
         "ci-builds-all-packages": all(
             item in ci
             for item in (
@@ -1847,6 +2005,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "textedit-smoke.json",
                 "wechat-focus-draft-smoke.json",
                 "wechat-submit-smoke.json",
+                "wechat-selector-engine-smoke.json",
                 "testpypi-install.json",
                 "trusted-publisher.json",
                 "release-proof.json",
@@ -1854,6 +2013,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "test -f release-proof/textedit-smoke.json",
                 "test -f release-proof/wechat-focus-draft-smoke.json",
                 "test -f release-proof/wechat-submit-smoke.json",
+                "test -f release-proof/wechat-selector-engine-smoke.json",
                 "test -f release-proof/testpypi-install.json",
                 "test -f release-proof/trusted-publisher.json",
                 "test -f release-proof/release-proof.json",
@@ -1868,6 +2028,8 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "--testpypi-install-report",
                 "--trusted-publisher-report",
                 "--proof",
+                "--expected-source-sha",
+                "github.sha",
                 "--require-external",
             )
         ),
@@ -1924,13 +2086,20 @@ def _import_package_for_project(project_name: str) -> str:
     return project_name.replace("-", "_")
 
 
-def _find_terms(source: Path, terms: tuple[str, ...]) -> list[str]:
+def _find_terms(
+    source: Path,
+    terms: tuple[str, ...],
+    *,
+    allowed_paths: Mapping[str, tuple[Path, ...]] | None = None,
+) -> list[str]:
     matches: list[str] = []
     if not source.exists():
         return [f"missing source path: {source}"]
     for path in source.rglob("*.py"):
         text = path.read_text(encoding="utf-8").lower()
         for term in terms:
+            if path in (allowed_paths or {}).get(term, ()):
+                continue
             if term in text:
                 matches.append(f"{path}:{term}")
     return matches
@@ -1992,6 +2161,22 @@ def _check_wheel_file(
 
     metadata_name = metadata.get("Name")
     metadata_version = metadata.get("Version")
+    forbidden_bytecode = sorted(
+        name
+        for name in names
+        if name.endswith(".pyc") or "__pycache__/" in name
+    )
+    results.append(
+        CheckResult(
+            name=f"wheel-no-bytecode:{project_name}",
+            status="ok" if not forbidden_bytecode else "fail",
+            summary=(
+                "no bytecode cache files"
+                if not forbidden_bytecode
+                else f"included {forbidden_bytecode[0]}"
+            ),
+        )
+    )
     results.append(
         CheckResult(
             name=f"wheel-metadata-name:{project_name}",
@@ -2295,10 +2480,19 @@ def _load_textedit_smoke_proof(path: Path) -> dict[str, Any]:
     return {"textedit_smoke": passed}
 
 
-def _load_wechat_smoke_proofs(paths: tuple[Path, ...]) -> dict[str, Any]:
+def _load_wechat_smoke_proofs(
+    paths: tuple[Path, ...],
+    *,
+    expected_source_sha: str | None = None,
+    sensitive_canaries: tuple[str, ...] = (),
+) -> dict[str, Any]:
     proof: dict[str, Any] = {}
     for path in paths:
-        report = _load_wechat_smoke_proof(path)
+        report = _load_wechat_smoke_proof(
+            path,
+            expected_source_sha=expected_source_sha,
+            sensitive_canaries=sensitive_canaries,
+        )
         for key, value in report.items():
             if value is True:
                 proof[key] = True
@@ -2307,10 +2501,25 @@ def _load_wechat_smoke_proofs(paths: tuple[Path, ...]) -> dict[str, Any]:
     return proof
 
 
-def _load_wechat_smoke_proof(path: Path) -> dict[str, Any]:
+def _load_wechat_smoke_proof(
+    path: Path,
+    *,
+    expected_source_sha: str | None = None,
+    sensitive_canaries: tuple[str, ...] = (),
+) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("WeChat smoke report JSON must be an object")
+    schema = payload.get("schema")
+    if schema == WECHAT_SELECTOR_ENGINE_PROOF_SCHEMA:
+        _validate_wechat_selector_engine_proof(
+            payload,
+            expected_source_sha=expected_source_sha,
+            sensitive_canaries=sensitive_canaries,
+        )
+        return {"wechat_selector_engine_smoke": True}
+    if schema == WECHAT_SELECTOR_ENGINE_LEGACY_SMOKE_SCHEMA:
+        return {"wechat_selector_engine_smoke": False}
     if "appControlCommands" in payload:
         return {}
 
@@ -2332,6 +2541,236 @@ def _load_wechat_smoke_proof(path: Path) -> dict[str, Any]:
         "wechat_focus_draft_smoke": focus_draft_passed or submit_passed,
         "wechat_submit_smoke": submit_passed,
     }
+
+
+def _validate_wechat_selector_engine_proof(
+    payload: Mapping[str, Any],
+    *,
+    expected_source_sha: str | None,
+    sensitive_canaries: tuple[str, ...] = (),
+) -> None:
+    _require_exact_keys(
+        payload,
+        {
+            "schema",
+            "source",
+            "checks",
+            "collections",
+            "safety",
+            "timingsMs",
+            "failedStep",
+        },
+        "selector proof",
+    )
+    if payload.get("schema") != WECHAT_SELECTOR_ENGINE_PROOF_SCHEMA:
+        raise ValueError("selector proof schema must be v2")
+    _reject_selector_proof_sensitive_content(
+        payload,
+        sensitive_canaries=sensitive_canaries,
+    )
+
+    if not isinstance(expected_source_sha, str) or not (
+        WECHAT_SELECTOR_ENGINE_HEAD_SHA_PATTERN.fullmatch(expected_source_sha)
+    ):
+        raise ValueError("expected source SHA must be 40 lowercase hex characters")
+    source = _required_mapping(payload.get("source"), "selector proof source")
+    _require_exact_keys(
+        source,
+        {"repository", "headSha", "generatedAt", "packageVersions"},
+        "selector proof source",
+    )
+    if source.get("repository") != WECHAT_SELECTOR_ENGINE_PROOF_REPOSITORY:
+        raise ValueError("selector proof repository does not match")
+    head_sha = source.get("headSha")
+    if not isinstance(head_sha, str) or not (
+        WECHAT_SELECTOR_ENGINE_HEAD_SHA_PATTERN.fullmatch(head_sha)
+    ):
+        raise ValueError("selector proof headSha must be 40 lowercase hex characters")
+    if head_sha != expected_source_sha:
+        raise ValueError("selector proof headSha does not match expected source SHA")
+    _validate_utc_timestamp(source.get("generatedAt"))
+    package_versions = _required_mapping(
+        source.get("packageVersions"),
+        "selector proof packageVersions",
+    )
+    expected_versions = {
+        project_name: EXPECTED_PACKAGE_VERSION
+        for project_name in PACKAGE_PROJECTS
+    }
+    if dict(package_versions) != expected_versions:
+        raise ValueError("selector proof packageVersions do not match release set")
+
+    checks = _required_mapping(payload.get("checks"), "selector proof checks")
+    _require_exact_keys(
+        checks,
+        set(WECHAT_SELECTOR_ENGINE_REQUIRED_CHECKS),
+        "selector proof checks",
+    )
+    _require_true_booleans(checks, "selector proof checks")
+
+    collections = _required_mapping(
+        payload.get("collections"),
+        "selector proof collections",
+    )
+    _require_exact_keys(
+        collections,
+        set(WECHAT_SELECTOR_ENGINE_COLLECTIONS),
+        "selector proof collections",
+    )
+    for collection_name, item_keys in WECHAT_SELECTOR_ENGINE_COLLECTIONS.items():
+        _validate_selector_collection(
+            collection_name,
+            collections.get(collection_name),
+            item_keys=item_keys,
+        )
+
+    safety = _required_mapping(payload.get("safety"), "selector proof safety")
+    _require_exact_keys(
+        safety,
+        set(WECHAT_SELECTOR_ENGINE_REQUIRED_SAFETY),
+        "selector proof safety",
+    )
+    for key in WECHAT_SELECTOR_ENGINE_REQUIRED_SAFETY:
+        expected = False if key == "rawObservationIncluded" else True
+        if safety.get(key) is not expected:
+            raise ValueError(f"selector proof safety.{key} must be {expected}")
+
+    timings = _required_mapping(
+        payload.get("timingsMs"),
+        "selector proof timingsMs",
+    )
+    _require_exact_keys(
+        timings,
+        set(WECHAT_SELECTOR_ENGINE_REQUIRED_TIMINGS),
+        "selector proof timingsMs",
+    )
+    for name, duration_ms in timings.items():
+        if type(duration_ms) is not int or not 0 <= duration_ms <= 3_000:
+            raise ValueError(
+                f"selector proof timingsMs.{name} must be an integer from 0 to 3000"
+            )
+    if payload.get("failedStep") is not None:
+        raise ValueError("selector proof failedStep must be null")
+
+
+def _validate_selector_collection(
+    name: str,
+    value: Any,
+    *,
+    item_keys: tuple[str, ...],
+) -> None:
+    collection = _required_mapping(value, f"selector proof collections.{name}")
+    _require_exact_keys(
+        collection,
+        {"requestedLimit", "count", "items"},
+        f"selector proof collections.{name}",
+    )
+    requested_limit = collection.get("requestedLimit")
+    count = collection.get("count")
+    items = collection.get("items")
+    if type(requested_limit) is not int or not 1 <= requested_limit <= 30:
+        raise ValueError(
+            f"selector proof collections.{name}.requestedLimit must be 1..30"
+        )
+    if type(count) is not int or not 1 <= count <= requested_limit:
+        raise ValueError(
+            f"selector proof collections.{name}.count must be 1..requestedLimit"
+        )
+    if not isinstance(items, list) or len(items) != count:
+        raise ValueError(
+            f"selector proof collections.{name}.items length must equal count"
+        )
+    for index, item in enumerate(items):
+        item_mapping = _required_mapping(
+            item,
+            f"selector proof collections.{name}.items[{index}]",
+        )
+        _require_exact_keys(
+            item_mapping,
+            set(item_keys),
+            f"selector proof collections.{name}.items[{index}]",
+        )
+        _require_true_booleans(
+            item_mapping,
+            f"selector proof collections.{name}.items[{index}]",
+        )
+
+
+def _required_mapping(value: Any, path: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path} must be an object")
+    return value
+
+
+def _require_exact_keys(
+    value: Mapping[str, Any],
+    expected: set[str],
+    path: str,
+) -> None:
+    actual = {str(key) for key in value}
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unknown = sorted(actual - expected)
+        raise ValueError(
+            f"{path} keys do not match; missing={missing}, unknown={unknown}"
+        )
+
+
+def _require_true_booleans(value: Mapping[str, Any], path: str) -> None:
+    invalid = sorted(
+        str(key) for key, item in value.items() if item is not True
+    )
+    if invalid:
+        raise ValueError(f"{path} values must be true for {invalid}")
+
+
+def _validate_utc_timestamp(value: Any) -> None:
+    if not isinstance(value, str) or not (
+        WECHAT_SELECTOR_ENGINE_UTC_TIMESTAMP_PATTERN.fullmatch(value)
+    ):
+        raise ValueError("selector proof generatedAt must be an RFC 3339 UTC timestamp")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError(
+            "selector proof generatedAt must be an RFC 3339 UTC timestamp"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ValueError("selector proof generatedAt must use UTC")
+
+
+def _reject_selector_proof_sensitive_content(
+    payload: Mapping[str, Any],
+    *,
+    sensitive_canaries: tuple[str, ...],
+) -> None:
+    canaries = tuple(
+        value.casefold()
+        for value in sensitive_canaries
+        if isinstance(value, str) and value.strip()
+    )
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, child in value.items():
+                normalized_key = str(key).casefold()
+                if normalized_key in WECHAT_SELECTOR_ENGINE_FORBIDDEN_KEYS:
+                    raise ValueError(f"selector proof contains forbidden key: {path}.{key}")
+                visit(child, f"{path}.{key}")
+            return
+        if isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, f"{path}[{index}]")
+            return
+        if not isinstance(value, str):
+            return
+        if WECHAT_SELECTOR_ENGINE_ABSOLUTE_PATH_PATTERN.search(value):
+            raise ValueError(f"selector proof contains absolute path at {path}")
+        normalized = value.casefold()
+        if any(canary in normalized for canary in canaries):
+            raise ValueError(f"selector proof contains sensitive canary at {path}")
+
+    visit(payload, "selector proof")
 
 
 def _load_testpypi_install_proof(root: Path, path: Path) -> dict[str, Any]:

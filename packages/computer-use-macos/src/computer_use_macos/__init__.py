@@ -19,7 +19,17 @@ from .commands import (
     type_text_command,
     wait_command,
 )
-from .errors import COMPUTER_USE_FAILURE_KINDS, ComputerUseError
+from .errors import (
+    ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
+    ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_ACTION_WORKER_FAILED,
+    ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
+    ACCESSIBILITY_QUERY_WORKER_FAILED,
+    ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST,
+    COMPUTER_USE_FAILURE_KINDS,
+    ComputerUseError,
+    TARGET_APP_NOT_FRONTMOST,
+)
 from .helper import (
     HelperDoctorReport,
     HelperManifest,
@@ -50,10 +60,16 @@ from .service import (
     service_envelopes_to_sse,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "AppControlConfig",
+    "ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE",
+    "ACCESSIBILITY_ACTION_WORKER_FAILED",
+    "ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE",
+    "ACCESSIBILITY_QUERY_WORKER_FAILED",
+    "ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST",
+    "ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST",
     "ComputerUseClient",
     "ComputerUseOperation",
     "ComputerUseReadiness",
@@ -76,6 +92,7 @@ __all__ = [
     "RiskDecision",
     "RiskLevel",
     "SafetyPolicy",
+    "TARGET_APP_NOT_FRONTMOST",
     "UnixSocketCommandService",
     "UnixSocketServiceClient",
     "__version__",

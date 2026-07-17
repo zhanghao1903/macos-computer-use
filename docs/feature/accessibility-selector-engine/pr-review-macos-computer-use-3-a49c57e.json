@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "a49c57ef26a471b0e28f89223554895de3bcf8fd",
+    "reviewed_at": "2026-07-12T16:53:03Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "complete origin/main-to-a49c57e feature diff and prior finding ledger",
+      "runtime remediation through ca6d4a8 and subsequent documentation-only commits",
+      "one-shot public send_message behavior at the target-app identity boundary",
+      "current GitHub PR metadata and check-run annotation",
+      "existing unit, package, wheel, preflight, compile, and diff evidence"
+    ],
+    "excluded_scope": [
+      "successful public message submission",
+      "GitHub Actions execution after a runner starts",
+      "signed helper end-to-end execution",
+      "real package and GitHub Release publication"
+    ]
+  },
+  "decision": {
+    "status": "INCOMPLETE",
+    "mergeable": true,
+    "rationale": "No open code finding remains. The public smoke ran once and failed closed because Codex remained frontmost, while current GitHub CI failed before any step because of an external Billing or spending-limit condition. A successful restricted send and green current CI are still required.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The selector implementation and PRR-001 through PRR-016 remain resolved in source and deterministic tests. One-shot live evidence confirms fail-closed target-app identity with zero contact or message side effects, but does not prove a successful send. GitHub CI could not start because of an account-level Billing gate.",
+  "change_map": [
+    {
+      "area": "selector engine",
+      "change": "Add bounded selector resolution, cache, extraction, verified actions, and diagnostics.",
+      "external_behavior": "WeChat semantic APIs resolve stable controls without broad unbounded dumps.",
+      "risk": "Low",
+      "validation": "Root and package regression suites, preflight, compile, and diff checks pass."
+    },
+    {
+      "area": "public WeChat send",
+      "change": "Route public focus and send through verified open_contact and target-app identity checks.",
+      "external_behavior": "The operation stops before contact or message side effects when WeChat is not proven frontmost.",
+      "risk": "Medium",
+      "validation": "The authorized one-shot smoke returned not_ready with zero Accessibility action, click, type, draft, submit, or send commands."
+    },
+    {
+      "area": "row and list contracts",
+      "change": "Require exact AXRow action identity and expose honest visible-window pagination.",
+      "external_behavior": "Stale rows fail closed and callers cannot loop over synthetic duplicate pages.",
+      "risk": "Low",
+      "validation": "Named missing or changed-label and supplied-token counterexamples pass."
+    },
+    {
+      "area": "remote CI",
+      "change": "No repository change is indicated.",
+      "external_behavior": "The current runner did not start because of GitHub Billing.",
+      "risk": "Unknown",
+      "validation": "Workflow run 29200626621, job 86671264119, contains the account payment or spending-limit failure annotation."
+    }
+  ],
+  "findings": [],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "A successful target switch and send was not observed on the reviewed head.",
+      "mitigation": "Capture one public smoke restricted to 文件传输助手 in an environment where WeChat remains frontmost.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "Desktop rows can change between selector resolution and action.",
+      "mitigation": "Keep exact identity preconditions, short-lived actionRefs, and the target-title postcondition.",
+      "owner": "wechat-desktop-tool"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Medium",
+      "description": "Successful public wrapper integration remains unproven live.",
+      "mitigation": "Capture one successful non-retried smoke before merge.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "The wrong-frontmost recovery path took 2.941 seconds before stopping, and successful wrapper timing remains unknown.",
+      "mitigation": "Record the successful public API duration; existing semantic read and open proofs remain below three seconds.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Unknown",
+      "description": "Current CI executed no repository step because the runner never started.",
+      "mitigation": "Correct GitHub Billing and rerun the existing workflow unchanged.",
+      "owner": "repository owner"
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src .venv/bin/python -m unittest discover -s tests",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "ca6d4a8412978e4be44f546ee839c187fb71a7d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 tests passed in 42.09 seconds; later commits through the reviewed head contain documentation only."
+      },
+      {
+        "command": "package unittest suites",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "ca6d4a8412978e4be44f546ee839c187fb71a7d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 protocol, 128 computer-use with one skipped, and 123 WeChat tests passed."
+      },
+      {
+        "command": ".venv/bin/python scripts/release_preflight.py --json",
+        "environment": "macOS, Python 3.12",
+        "head_sha": "feb937d7aaac0aff9747dd802e03d5d6eb063707",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Public API, docs, config, workflow, and dry-run checks passed with expected external-proof warnings."
+      },
+      {
+        "command": "authorized one-shot wechat_desktop_tool.examples.wechat_smoke",
+        "environment": "macOS live WeChat service, target restricted to 文件传输助手",
+        "head_sha": "a49c57ef26a471b0e28f89223554895de3bcf8fd",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "Returned not_ready because Codex remained frontmost; no Accessibility query/action, contact click, text entry, draft, submit, or send ran, and no retry occurred."
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "GitHub Actions run 29200626621 / job 86671264119",
+        "observed_at": "2026-07-12T16:53:03Z",
+        "status": "FAIL",
+        "summary": "Job did not start because recent account payments failed or the spending limit must be increased; no repository step executed.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29200626621/job/86671264119"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "successful public send_message proof",
+        "reason": "The only authorized attempt failed closed before contact resolution because WeChat did not remain frontmost; it was not retried."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the project or Anaconda environment."
+      },
+      {
+        "check": "signed helper and real release publication",
+        "reason": "Outside this feature merge gate."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is valid only for a49c57ef26a471b0e28f89223554895de3bcf8fd.",
+    "The failed live attempt proves target-app fail-closed behavior, not successful contact selection or submission.",
+    "A GitHub job that never reached a runner is not repository CI evidence.",
+    "Unrelated dirty and generated workspace files were excluded."
+  ],
+  "open_questions": [
+    "Will public send_message complete within three seconds when WeChat remains frontmost?",
+    "Will all current checks pass after GitHub Billing is corrected?"
+  ],
+  "assumptions": [
+    "Runtime behavior at a49c57e is identical to tested code head ca6d4a8 because intervening commits contain documentation only.",
+    "User authorization remains restricted to 文件传输助手 and does not permit retrying an unknown outcome.",
+    "The GitHub check annotation accurately reflects an account-level gate."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced private legacy focus implementation in a later cleanup.",
+      "value": "Reduces dead executable safety logic while retaining compatibility configuration parsing independently."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group.",
+      "value": "Makes the configured lint gate reproducible."
+    }
+  ]
+}

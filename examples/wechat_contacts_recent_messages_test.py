@@ -1,13 +1,12 @@
-"""Read recent visible WeChat messages for each listed contact.
+"""Read recent visible WeChat messages for one configured WeChat contact.
 
 Run from the repository root after starting the local app-control service:
 
     /opt/anaconda3/bin/python examples/wechat_contacts_recent_messages_test.py
 
-The current WeChat API returns the visible contact page from `list_contacts`.
-This example reads up to `--max-contacts` contacts from that page, opens each
-contact, reads up to `--message-limit` visible/recent messages, and writes a
-JSON report.
+By default this example opens 文件传输助手 and reads the latest 30 visible
+messages. Override `DEFAULT_CONTACT` and `DEFAULT_MESSAGE_LIMIT` below for a
+file-local default, or pass `--contact` / `--message-limit` at runtime.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ from wechat_desktop_tool import WeChatDesktopTool
 
 
 DEFAULT_CONFIG = "./app-control.toml"
-DEFAULT_MAX_CONTACTS = 30
+DEFAULT_CONTACT = "文件传输助手"
 DEFAULT_MESSAGE_LIMIT = 30
 DEFAULT_OUTPUT = "./wechat-contacts-recent-messages-test.json"
 DEFAULT_SOCKET_PATH = "/tmp/app-control.sock"
@@ -91,16 +90,16 @@ def run_contacts_recent_messages_test(
     socket_path: str | Path = DEFAULT_SOCKET_PATH,
     token: str | None = None,
     timeout: float = 30.0,
-    max_contacts: int = DEFAULT_MAX_CONTACTS,
+    contact: str = DEFAULT_CONTACT,
     message_limit: int = DEFAULT_MESSAGE_LIMIT,
-    continue_on_error: bool = True,
     system_open: bool = True,
     wechat_bundle_id: str = DEFAULT_WECHAT_BUNDLE_ID,
     system_open_runner: Any | None = None,
     service_client: Any | None = None,
 ) -> dict[str, Any]:
-    if max_contacts <= 0:
-        raise ValueError("max_contacts must be positive")
+    contact = contact.strip()
+    if not contact:
+        raise ValueError("contact must not be empty")
     if message_limit <= 0:
         raise ValueError("message_limit must be positive")
 
@@ -134,33 +133,21 @@ def run_contacts_recent_messages_test(
             readiness,
         )
     )
-    contacts = (
-        wechat.list_contacts(limit=max_contacts)
+    opened_contact = (
+        wechat.open_contact(contact)
         if opened.success
-        else _skipped_observation("list_contacts", "open_wechat", opened)
+        else _skipped_observation("open_contact", "open_wechat", opened)
     )
-    contact_items = _contact_items(contacts)[:max_contacts] if contacts.success else []
-    read_results: list[dict[str, Any]] = []
-    for item in contact_items:
-        display_name = _contact_display_name(item)
-        if display_name is None:
-            continue
-        result = wechat.read_contact_messages(display_name, limit=message_limit)
-        read_results.append(
-            {
-                "contact": display_name,
-                "contactItem": item,
-                "readContactMessages": result.to_dict(),
-                "messageCount": _message_count(result),
-                "success": result.success,
-            }
+    visible_messages = (
+        wechat.read_visible_messages(limit=message_limit)
+        if opened_contact.success
+        else _skipped_observation(
+            "read_visible_messages",
+            "open_contact",
+            opened_contact,
         )
-        if not result.success and not continue_on_error:
-            break
-
-    failed_contacts = [
-        item["contact"] for item in read_results if item.get("success") is not True
-    ]
+    )
+    message_count = _message_count(visible_messages)
     payload: dict[str, Any] = {
         "schema": "macos_computer_use.sdk.wechat_contacts_recent_messages_test.v1",
         "python": {
@@ -173,36 +160,34 @@ def run_contacts_recent_messages_test(
             "configPath": str(config_for_tool) if config_for_tool else None,
         },
         "options": {
-            "maxContacts": max_contacts,
+            "contact": contact,
             "messageLimit": message_limit,
-            "continueOnError": continue_on_error,
             "systemOpen": system_open,
             "wechatBundleId": wechat_bundle_id,
         },
         "systemOpenWeChat": system_opened,
         "readiness": readiness.to_dict(),
         "openWeChat": opened.to_dict(),
-        "listContacts": contacts.to_dict(),
-        "contacts": read_results,
+        "openContact": opened_contact.to_dict(),
+        "readVisibleMessages": visible_messages.to_dict(),
         "summary": {
             "success": (
                 system_opened["success"] is True
                 and readiness.success
                 and opened.success
-                and contacts.success
-                and len(failed_contacts) == 0
+                and opened_contact.success
+                and visible_messages.success
             ),
-            "listedContactCount": len(contact_items),
-            "processedContactCount": len(read_results),
-            "successfulContactCount": len(read_results) - len(failed_contacts),
-            "failedContacts": failed_contacts,
+            "contact": contact,
+            "currentChat": _opened_chat_title(opened_contact),
+            "messageCount": message_count,
             "messageLimit": message_limit,
             "failedStep": _failed_step(
                 system_opened,
                 readiness,
                 opened,
-                contacts,
-                read_results,
+                opened_contact,
+                visible_messages,
             ),
         },
     }
@@ -221,9 +206,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             socket_path=socket_path,
             token=token,
             timeout=timeout,
-            max_contacts=args.max_contacts,
+            contact=args.contact,
             message_limit=args.message_limit,
-            continue_on_error=not args.stop_on_error,
             system_open=not args.skip_system_open,
             wechat_bundle_id=args.wechat_bundle_id,
         )
@@ -232,13 +216,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
+    _print_message_records(payload["readVisibleMessages"])
     print(f"wrote: {Path(args.output).expanduser()}")
     return 0 if payload["summary"]["success"] else 1
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read recent visible WeChat messages for listed contacts.",
+        description="Read recent visible WeChat messages for one contact.",
     )
     parser.add_argument(
         "--config",
@@ -255,11 +240,10 @@ def _parser() -> argparse.ArgumentParser:
         default=os.environ.get("WECHAT_TOOL_TOKEN_FILE", DEFAULT_TOKEN_FILE),
     )
     parser.add_argument("--timeout", type=float, default=30.0)
-    parser.add_argument("--max-contacts", type=int, default=DEFAULT_MAX_CONTACTS)
+    parser.add_argument("--contact", default=DEFAULT_CONTACT)
     parser.add_argument("--message-limit", type=int, default=DEFAULT_MESSAGE_LIMIT)
     parser.add_argument("--skip-system-open", action="store_true")
     parser.add_argument("--wechat-bundle-id", default=DEFAULT_WECHAT_BUNDLE_ID)
-    parser.add_argument("--stop-on-error", action="store_true")
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     return parser
 
@@ -296,24 +280,44 @@ def _service_settings(args: argparse.Namespace) -> tuple[str, str | None, float]
     return str(socket_path), token, float(timeout)
 
 
-def _contact_items(observation: ToolObservation) -> list[dict[str, Any]]:
-    items = observation.observation.get("items")
-    if not isinstance(items, list):
-        return []
-    return [dict(item) for item in items if isinstance(item, Mapping)]
-
-
-def _contact_display_name(item: Mapping[str, Any]) -> str | None:
-    value = item.get("displayName")
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
 def _message_count(observation: ToolObservation) -> int:
     messages_payload = observation.observation.get("messages")
+    if isinstance(messages_payload, list):
+        return len(messages_payload)
     if not isinstance(messages_payload, Mapping):
         return 0
     messages = messages_payload.get("messages")
     return len(messages) if isinstance(messages, list) else 0
+
+
+def _opened_chat_title(observation: ToolObservation) -> str | None:
+    current_chat = observation.observation.get("currentChat")
+    if not isinstance(current_chat, Mapping):
+        return None
+    title = current_chat.get("title")
+    return title if isinstance(title, str) and title.strip() else None
+
+
+def _print_message_records(observation_payload: Mapping[str, Any]) -> None:
+    observation = observation_payload.get("observation")
+    raw_messages = (
+        observation.get("messages") if isinstance(observation, Mapping) else None
+    )
+    messages = raw_messages if isinstance(raw_messages, list) else []
+    print(f"messages ({len(messages)}):")
+    if not messages:
+        print("  (none)")
+        return
+    for index, raw_message in enumerate(messages, start=1):
+        if not isinstance(raw_message, Mapping):
+            continue
+        direction = raw_message.get("direction")
+        timestamp = raw_message.get("timestamp")
+        text = raw_message.get("text")
+        direction_text = direction if isinstance(direction, str) else "unknown"
+        timestamp_text = f" {timestamp}" if isinstance(timestamp, str) else ""
+        message_text = text if isinstance(text, str) else ""
+        print(f"  {index:02d}. [{direction_text}]{timestamp_text} {message_text}")
 
 
 def _open_wechat_process(bundle_id: str, *, runner: Any | None = None) -> dict[str, Any]:
@@ -383,8 +387,8 @@ def _failed_step(
     system_opened: Mapping[str, Any],
     readiness: ToolObservation,
     opened: ToolObservation,
-    contacts: ToolObservation,
-    read_results: list[dict[str, Any]],
+    opened_contact: ToolObservation,
+    visible_messages: ToolObservation,
 ) -> str | None:
     if system_opened.get("success") is not True:
         return "systemOpenWeChat"
@@ -392,10 +396,10 @@ def _failed_step(
         return "readiness"
     if not opened.success:
         return "openWeChat"
-    if not contacts.success:
-        return "listContacts"
-    if any(item.get("success") is not True for item in read_results):
-        return "readContactMessages"
+    if not opened_contact.success:
+        return "openContact"
+    if not visible_messages.success:
+        return "readVisibleMessages"
     return None
 
 

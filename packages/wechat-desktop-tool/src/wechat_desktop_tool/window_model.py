@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
 
@@ -39,6 +40,7 @@ _SEARCH_LABELS = ("搜索", "search", "__EN_SEARCH_PLACEHOLDER__")
 _PINNED_MARKERS = ("置顶", "pinned", "__EN_PINNED_PLACEHOLDER__")
 _MUTED_MARKERS = ("消息免打扰", "muted", "__EN_MUTED_PLACEHOLDER__")
 _WECHAT_TOOL = "wechat.desktop"
+_ACTION_REF_TTL_SECONDS = 300
 
 
 def build_wechat_window_model(
@@ -371,6 +373,15 @@ def _action_ref_kind(actionable: WeChatActionableRegion) -> str:
     return "ui.press"
 
 
+def _action_ref_time_bounds() -> tuple[str, str]:
+    created_at = datetime.now(timezone.utc)
+    expires_at = created_at + timedelta(seconds=_ACTION_REF_TTL_SECONDS)
+    return (
+        created_at.isoformat().replace("+00:00", "Z"),
+        expires_at.isoformat().replace("+00:00", "Z"),
+    )
+
+
 def _action_ref_from_element(
     *,
     action_id: str,
@@ -396,6 +407,7 @@ def _action_ref_from_element(
         preconditions["labelIn"] = [element.label]
     if element.enabled is not None:
         preconditions["enabled"] = element.enabled
+    created_at, expires_at = _action_ref_time_bounds()
     action_ref: dict[str, Any] = {
         "schema": "wechat.action_ref.v1",
         "id": action_id,
@@ -406,6 +418,8 @@ def _action_ref_from_element(
         "preconditions": preconditions,
         "risk": risk,
         "targetSummary": target_summary,
+        "createdAt": created_at,
+        "expiresAt": expires_at,
     }
     if snapshot_id is not None:
         action_ref["snapshotId"] = snapshot_id

@@ -164,7 +164,7 @@ def _info_plist(config: HelperTemplateConfig) -> str:
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.1</string>
+  <string>0.2.0</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
@@ -394,9 +394,19 @@ ACCESSIBILITY_ROLES = {{
     "pop_up_button": "pop up button",
     "popup_button": "pop up button",
     "axtextfield": "text field",
-    "axtextarea": "text field",
+    "axtextarea": "text area",
+    "text_area": "text area",
+    "textarea": "text area",
     "text_field": "text field",
     "textfield": "text field",
+}}
+ACCESSIBILITY_ROLE_COLLECTIONS = {{
+    "button": "buttons",
+    "checkbox": "checkboxes",
+    "menu item": "menu items",
+    "radio button": "radio buttons",
+    "text field": "text fields",
+    "text area": "text areas",
 }}
 
 
@@ -1134,15 +1144,73 @@ def _positive_int(value: object, field_name: str) -> int:
 def _accessibility_click_script(target_app: str, selector: dict[str, Any]) -> str:
     role = str(selector["role"])
     name = selector.get("name")
+    collection = ACCESSIBILITY_ROLE_COLLECTIONS.get(role)
     if isinstance(name, str):
-        element = f"{{role}} {{_applescript_string(name)}}"
+        target_name = name
+        target_index = 0
     else:
-        element = f"{{role}} {{selector['index']}}"
+        target_name = ""
+        target_index = int(selector["index"])
+    if collection is None:
+        if isinstance(name, str):
+            element = f"{{role}} {{_applescript_string(name)}}"
+        else:
+            element = f"{{role}} {{selector['index']}}"
+        return (
+            'tell application "System Events"\\n'
+            f'  tell process {{_applescript_string(target_app)}}\\n'
+            '    set frontmost to true\\n'
+            f'    click {{element}} of front window\\n'
+            '  end tell\\n'
+            'end tell\\n'
+        )
     return (
+        "on cleanText(rawValue)\\n"
+        "  try\\n"
+        "    return rawValue as text\\n"
+        "  on error\\n"
+        '    return ""\\n'
+        "  end try\\n"
+        "end cleanText\\n"
+        "\\n"
+        "on elementMatches(uiElement, targetName)\\n"
+        "  try\\n"
+        "    if my cleanText((name of uiElement)) is targetName then return true\\n"
+        "  end try\\n"
+        "  try\\n"
+        "    if my cleanText((description of uiElement)) is targetName then return true\\n"
+        "  end try\\n"
+        "  try\\n"
+        "    if my cleanText((title of uiElement)) is targetName then return true\\n"
+        "  end try\\n"
+        "  try\\n"
+        "    if my cleanText((value of uiElement)) is targetName then return true\\n"
+        "  end try\\n"
+        "  return false\\n"
+        "end elementMatches\\n"
+        "\\n"
         'tell application "System Events"\\n'
         f'  tell process {{_applescript_string(target_app)}}\\n'
         '    set frontmost to true\\n'
-        f'    click {{element}} of front window\\n'
+        '    set frontWindow to front window\\n'
+        f'    set roleName to {{_applescript_string(role)}}\\n'
+        f'    set targetName to {{_applescript_string(target_name)}}\\n'
+        f'    set targetIndex to {{target_index}}\\n'
+        f'    set candidates to {{collection}} of frontWindow\\n'
+        '    set currentIndex to 0\\n'
+        '    repeat with uiElement in candidates\\n'
+        '      set currentIndex to currentIndex + 1\\n'
+        '      if targetIndex > 0 then\\n'
+        '        if currentIndex is targetIndex then\\n'
+        '          click uiElement\\n'
+        '          return\\n'
+        '        end if\\n'
+        '      else if my elementMatches(uiElement, targetName) then\\n'
+        '        click uiElement\\n'
+        '        return\\n'
+        '      end if\\n'
+        '    end repeat\\n'
+        '    error "No matching accessibility selector target: " & roleName\\n'
         '  end tell\\n'
         'end tell\\n'
     )

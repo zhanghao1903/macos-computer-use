@@ -1,0 +1,331 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "ba733dc622f794b7e49bba17b96f64a0ac4c2e0a",
+    "reviewed_at": "2026-07-14T14:59:34Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "Current PR metadata, complete main-to-head diff, exact base and head SHAs, and exact-head GitHub CI",
+      "Focused 002fd72-to-ba733dc remediation delta and prior finding lifecycle",
+      "Accessibility worker dispatch boundary, deadline, framing, termination, and result classification",
+      "Action transport propagation, timeout conversion, and protocol retryability mapping",
+      "Pre-dispatch, post-dispatch, unknown-worker, subprocess, and non-action timeout regressions",
+      "Root and package suites, compilation, release preflight, wheel checks, whitespace, docs, and clean-tree evidence"
+    ],
+    "excluded_scope": [
+      "Fresh real WeChat action or message submission",
+      "Post-submit delivery read-back and repeated live latency percentiles",
+      "Signed or notarized helper execution and real TestPyPI or PyPI publication",
+      "Private raw smoke artifacts and unrelated dirty worktree files",
+      "Ruff installation and cleanup of the repository strict-mypy baseline"
+    ]
+  },
+  "decision": {
+    "status": "APPROVE",
+    "mergeable": true,
+    "rationale": "Accessibility action timeout recovery now preserves dispatch evidence. Only a proven zero-write timeout is retryable; dispatched or unknown outcomes fail closed. Real subprocess counterexamples, package and root gates, release checks, and exact-head CI pass.",
+    "blocking_finding_ids": []
+  },
+  "summary": "The remediation resolves PRR-020 by retaining the worker write boundary through action transport metadata and computing one fail-closed retryability value for both protocol fields. No new blocking defect was identified, and PRR-001 through PRR-020 are resolved for the reviewed snapshot.",
+  "change_map": [
+    {
+      "area": "Worker dispatch evidence",
+      "change": "A private worker result records whether write or flush was attempted.",
+      "external_behavior": "Action transport exposes requestDispatched when known.",
+      "risk": "Low",
+      "validation": "Success, lock-timeout, startup-timeout, and response-timeout paths are asserted."
+    },
+    {
+      "area": "Pre-dispatch timeout",
+      "change": "A proven zero-write timeout carries requestDispatched=false.",
+      "external_behavior": "The top-level and nested retryability fields remain true.",
+      "risk": "Low",
+      "validation": "The worker lock remains held past the budget with zero frames and zero fallback calls."
+    },
+    {
+      "area": "Post-dispatch timeout",
+      "change": "A write-attempted timeout carries requestDispatched=true.",
+      "external_behavior": "The top-level and nested retryability fields are false.",
+      "risk": "Low",
+      "validation": "Exactly one synthetic AXPress is recorded and no fallback call occurs."
+    },
+    {
+      "area": "Unknown action outcome",
+      "change": "Missing dispatch evidence is classified conservatively.",
+      "external_behavior": "Legacy worker and subprocess action timeouts are not retryable.",
+      "risk": "Low",
+      "validation": "Dedicated protocol regressions pass."
+    },
+    {
+      "area": "Compatibility and release",
+      "change": "Transport diagnostics are additive and no command or schema version changes.",
+      "external_behavior": "Non-action timeout behavior remains unchanged.",
+      "risk": "Low",
+      "validation": "Root and package suites, docs, wheels, preflight, and CI pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-020",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "A dispatched action timeout was incorrectly advertised as retryable",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "line_start": 210,
+        "line_end": 5070,
+        "symbol": "_AccessibilityWorker.run / _run_accessibility_action_request / _result_retryable",
+        "side": "RIGHT",
+        "commit_sha": "ba733dc622f794b7e49bba17b96f64a0ac4c2e0a"
+      },
+      "observation": "The previous warm action path suppressed internal replay but mapped every timeout to retryable protocol guidance. The current result preserves the dispatch boundary and permits retry only when requestDispatched is exactly false.",
+      "trigger": "A worker receives an AXPress request but its response is lost or exceeds the deadline, or the deadline expires before the worker lock can be acquired.",
+      "impact": "Before remediation, a consumer could retry an unknown mutating outcome and duplicate an already-executed UI action.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Worker results classify every pre-write result as undispatched and every write-attempted result as dispatched.",
+          "reference": "client.py:210-351@ba733dc"
+        },
+        {
+          "kind": "code",
+          "description": "Action transport propagates known dispatch evidence and protocol mapping retries only an explicit false value.",
+          "reference": "client.py:1573-1592,5025-5070@ba733dc"
+        },
+        {
+          "kind": "test",
+          "description": "The real pre-dispatch worker regression records zero frames and both retryability fields true.",
+          "reference": "test_package.py:1932-2006@ba733dc"
+        },
+        {
+          "kind": "test",
+          "description": "The real post-dispatch worker regression records one AXPress, zero fallback, and both retryability fields false.",
+          "reference": "test_package.py:2008-2082@ba733dc"
+        },
+        {
+          "kind": "ci",
+          "description": "Exact-head GitHub CI passed all configured test, package, wheel, and distribution checks.",
+          "reference": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29342939601/job/87119164572"
+        }
+      ],
+      "remediation": "Completed: preserve dispatch evidence and fail closed for dispatched or unknown mutating outcomes.",
+      "verification": "Completed: pre-dispatch, post-dispatch, unknown transport, non-action compatibility, resource, package, root, wheel, preflight, and exact-head CI checks pass.",
+      "status": "resolved",
+      "fingerprint": "accessibility-action-timeout-dispatch-retryability"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-020",
+      "action": "Preserve the action dispatch boundary, fail closed after dispatch or when unknown, and add protocol-level recovery assertions.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "Low",
+      "description": "Private desktop logs can contain transient UI text.",
+      "mitigation": "Keep raw artifacts untracked and publish bounded semantic evidence only.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "A timeout after dispatch remains an unknown desktop outcome.",
+      "mitigation": "Emit non-retryable recovery guidance and never replay internally.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Low",
+      "description": "Contended calls can expire before dispatch.",
+      "mitigation": "Use one deadline, return zero-write evidence, and preserve a healthy worker.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "One worker serializes operations and can apply queue backpressure.",
+      "mitigation": "Bound lock waiting with the caller deadline and retain timing diagnostics.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Low",
+      "description": "Action timeout recovery changes from unsafe generic retryability to dispatch-aware guidance.",
+      "mitigation": "Use additive transport evidence, stable status and failure kind, explicit API docs, and regression tests.",
+      "owner": "computer-use-macos"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Low",
+      "description": "The warm action worker remains on the direct and service path.",
+      "mitigation": "Revert the focused worker remediation commits if needed; no data migration exists.",
+      "owner": "feature maintainer"
+    },
+    {
+      "category": "maintainability",
+      "level": "Low",
+      "description": "Dispatch safety spans the private worker and generic protocol mapper.",
+      "mitigation": "Keep the boundary explicit and retain real-subprocess contract tests.",
+      "owner": "computer-use-macos"
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s tests",
+        "environment": "Clean isolated clone; Darwin arm64; CPython 3.12.7",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "127 root tests passed in 53.942 seconds, including wheel and release checks.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src <workspace>/.venv/bin/python -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 app-control-protocol tests passed.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src <workspace>/.venv/bin/python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "141 computer-use-macos tests passed, 1 skipped, with no resource warning.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src <workspace>/.venv/bin/python -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "123 wechat-desktop-tool tests passed.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "<workspace>/.venv/bin/python -m compileall -q packages examples scripts tests",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Python compilation passed.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "env -u PYTHONPATH <workspace>/.venv/bin/python scripts/release_preflight.py",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "All local release gates passed; expected socket and unavailable external-proof warnings remained.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "git diff --check origin/main...HEAD and git status --short",
+        "environment": "Same isolated clone",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors and the isolated clone remained clean.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      },
+      {
+        "command": "uv run mypy packages/computer-use-macos/src/computer_use_macos/client.py",
+        "environment": "Same isolated clone; uv-managed mypy runtime",
+        "head_sha": "74d589057f994a0918c441243259543bd61a9f63",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "29 existing strict errors across imported modules; no error intersects a remediation line.",
+        "evidence_ref": "docs/feature/accessibility-selector-engine/verification.md#f5-deterministic-closure-for-prr-020"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test",
+        "observed_at": "2026-07-14T14:59:34Z",
+        "status": "PASS",
+        "summary": "Exact reviewed head ba733dc passed all configured test, package, wheel, and distribution checks; GitHub reports MERGEABLE and CLEAN.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29342939601/job/87119164572"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Fresh real WeChat action or send",
+        "reason": "Synthetic subprocess frames and protocol results fully distinguish the recovery contract without a new desktop mutation."
+      },
+      {
+        "check": "Post-submit delivery read-back",
+        "reason": "Outside this worker recovery review."
+      },
+      {
+        "check": "Signed helper and real release publication",
+        "reason": "These are later F7 external gates."
+      },
+      {
+        "check": "Ruff",
+        "reason": "No Ruff executable or module is installed in the available project runtimes."
+      }
+    ]
+  },
+  "limitations": [
+    "The report is authoritative only for head ba733dc622f794b7e49bba17b96f64a0ac4c2e0a.",
+    "Local implementation validation ran at 74d5890; ba733dc adds only the corresponding verification document and passed exact-head CI.",
+    "No fresh real desktop mutation, signed helper, or publication was performed.",
+    "Private raw observations and unrelated dirty worktree files were excluded.",
+    "The GitHub PR remains draft and its platform body still requires synchronization."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "Protocol consumers use retryable as recovery guidance and may automate a retry when it is true.",
+    "A mutating request has an unknown outcome once stdin.write is attempted, even if write or flush later raises.",
+    "Missing dispatch evidence must fail closed for action timeouts.",
+    "Existing strict-mypy errors are outside this delta and are not a configured CI merge gate."
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-012",
+      "category": "maintainability",
+      "recommendation": "Remove the unreferenced legacy private focus implementation in a separate cleanup.",
+      "value": "Reduces dead code without mixing cleanup into this safety remediation."
+    },
+    {
+      "id": "NOTE-013",
+      "category": "testing",
+      "recommendation": "Add Ruff to the development dependency group or remove it as an unavailable documented gate.",
+      "value": "Makes the repository quality gate reproducible."
+    },
+    {
+      "id": "NOTE-014",
+      "category": "performance",
+      "recommendation": "Collect repeated live percentiles if the three-second target becomes an operational SLO.",
+      "value": "Separates representative proof from sustained latency guarantees."
+    },
+    {
+      "id": "NOTE-015",
+      "category": "documentation",
+      "recommendation": "Synchronize the GitHub PR body with this review and merge-readiness record before changing draft state.",
+      "value": "Prevents maintainers from acting on an obsolete request-changes summary."
+    }
+  ]
+}

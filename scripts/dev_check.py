@@ -75,6 +75,7 @@ CHECKS: tuple[DevCheck, ...] = (
         ),
         pythonpath=(
             "packages/app-control-protocol/src",
+            "packages/computer-use-macos/src",
             "packages/wechat-desktop-tool/src",
         ),
     ),
@@ -99,6 +100,8 @@ CHECKS: tuple[DevCheck, ...] = (
             "release-proof/wechat-focus-draft-smoke.json",
             "--wechat-smoke-report",
             "release-proof/wechat-submit-smoke.json",
+            "--wechat-smoke-report",
+            "release-proof/wechat-selector-engine-smoke.json",
             "--testpypi-install-report",
             "release-proof/testpypi-install.json",
             "--trusted-publisher-report",
@@ -216,14 +219,29 @@ def _select_checks(
 
 def _env_for_check(root: Path, check: DevCheck) -> dict[str, str]:
     env = dict(os.environ)
-    if not check.pythonpath:
-        return env
-    paths = [str(root / part) for part in check.pythonpath]
-    current = env.get("PYTHONPATH")
-    if current:
-        paths.append(current)
-    env["PYTHONPATH"] = os.pathsep.join(paths)
+    if check.name == "release-proof-preflight" and not env.get("GITHUB_SHA"):
+        env["GITHUB_SHA"] = _repository_head_sha(root)
+    if check.pythonpath:
+        paths = [str(root / part) for part in check.pythonpath]
+        current = env.get("PYTHONPATH")
+        if current:
+            paths.append(current)
+        env["PYTHONPATH"] = os.pathsep.join(paths)
     return env
+
+
+def _repository_head_sha(root: Path) -> str:
+    completed = subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    head_sha = completed.stdout.strip()
+    if completed.returncode != 0 or len(head_sha) != 40:
+        raise RuntimeError("could not resolve repository HEAD for strict proof")
+    return head_sha
 
 
 if __name__ == "__main__":

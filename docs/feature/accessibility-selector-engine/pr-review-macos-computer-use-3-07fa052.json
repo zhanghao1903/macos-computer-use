@@ -1,0 +1,868 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+    "reviewed_at": "2026-07-11T13:27:48Z",
+    "reviewer": "Codex (GPT-5)",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "complete PR metadata, commit range, 67 changed-file list and local base...head diff",
+      "app-control protocol config changes",
+      "computer-use-macos selector, client action/query and helper paths",
+      "wechat-desktop-tool profiles, control map, semantic tool, models and CLI paths",
+      "CI, release workflow, release preflight and proof bundle",
+      "feature design, verification, merge-readiness and PR description",
+      "targeted package/root tests and read-only counterexamples"
+    ],
+    "excluded_scope": [
+      "real WeChat desktop rerun; the referenced private smoke artifact was unavailable",
+      "signed/notarized helper app end-to-end smoke",
+      "real GitHub Release publication and PyPI/TestPyPI publishing",
+      "production logs, private messages and credentials",
+      "line-by-line review of every long historical feature-document paragraph"
+    ]
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "冻结快照存在 12 个未解决的 blocking findings：7 个 S1 涉及隐私泄露、潜在误操作、错误联系人读取、helper/依赖兼容与 release workflow；5 个 S2 直接破坏 cache、失败映射、batch、分页和 strict proof 等本 PR 核心契约。绿色 CI 未覆盖这些反例，因此不支持合并。",
+    "blocking_finding_ids": [
+      "PRR-001",
+      "PRR-002",
+      "PRR-003",
+      "PRR-004",
+      "PRR-005",
+      "PRR-006",
+      "PRR-007",
+      "PRR-008",
+      "PRR-009",
+      "PRR-010",
+      "PRR-011",
+      "PRR-012"
+    ]
+  },
+  "summary": "PR #3 新增内部 Accessibility selector engine，并把 WeChat 语义操作迁移到 selector profiles 与 control maps。当前 CI 和既有测试通过，但调用路径审查与针对性反例确认了 12 个会破坏安全、隐私、正确性、兼容性、可靠性或发布证明契约的阻塞问题，其中 7 个 S1、5 个 S2。结论为 REQUEST_CHANGES；修复后必须在新的 head snapshot 上重新检视。",
+  "change_map": [
+    {
+      "area": "Selector core",
+      "change": "新增 profile/parser/matcher/cache/resolver/collection engine。",
+      "external_behavior": "WeChat 语义读取依赖内部 selector 结果与诊断。",
+      "risk": "High",
+      "validation": "单元测试、调用路径审查、cache/failure/pagination counterexamples。"
+    },
+    {
+      "area": "WeChat semantic operations",
+      "change": "迁移 contacts/conversations/messages/open_contact，加入 control-map fast path。",
+      "external_behavior": "现有 API 的定位、点击、消歧和错误行为改变。",
+      "risk": "High",
+      "validation": "WeChat package tests、命令序列审查、同名/focus/override counterexamples。"
+    },
+    {
+      "area": "Desktop action safety",
+      "change": "加入 AXSetFocus、Quartz coordinate fallback 与固定坐标 hints。",
+      "external_behavior": "读取/导航 API 可能执行真实桌面点击和 Return。",
+      "risk": "High",
+      "validation": "安全边界审查与 fail-closed counterexamples；未执行真实桌面动作。"
+    },
+    {
+      "area": "Config and packaging",
+      "change": "新增 selector_profile_path，并让 WeChat 依赖 computer-use selector。",
+      "external_behavior": "新配置与跨包运行时依赖。",
+      "risk": "High",
+      "validation": "source/wheel metadata 审查与混合版本复现。"
+    },
+    {
+      "area": "Helper/runtime modes",
+      "change": "selector design 依赖 configured transport 的 AX operations。",
+      "external_behavior": "Helper backend 应支持相同 WeChat 语义路径。",
+      "risk": "High",
+      "validation": "生成 helper dispatch 审查与 unsupported_operation 复现。"
+    },
+    {
+      "area": "CI, release and proof",
+      "change": "扩展 preflight、proof bundle 与 Release workflow。",
+      "external_behavior": "发布前要求 selector smoke proof。",
+      "risk": "High",
+      "validation": "当前 CI、源码 preflight、release command 负例、proof validator counterexample。"
+    },
+    {
+      "area": "Docs and examples",
+      "change": "新增 feature design、verification、merge-readiness 与 live smoke examples。",
+      "external_behavior": "开发者获得新配置和 smoke 指引。",
+      "risk": "Medium",
+      "validation": "文档/实现一致性、隐私与耐久证据审查。"
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-011",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "deployment",
+      "title": "发布工作流缺少 computer-use 源码路径，WeChat 测试在干净环境无法收集",
+      "location": {
+        "path": ".github/workflows/release.yml",
+        "line_start": 28,
+        "line_end": 29,
+        "symbol": "jobs.publish / Run unit tests",
+        "side": "FILE",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "发布 workflow 的 WeChat package-test PYTHONPATH 只有 protocol 与 wechat 源码目录，但本 PR 使 wechat_desktop_tool.profiles 在导入时依赖 computer_use_macos.selectors。CI workflow 修复了同一问题，release workflow 与 preflight 检查却没有同步。",
+      "trigger": "从干净 checkout 触发 GitHub Release workflow，或原样运行该 WeChat package-test 命令且环境未预装当前 computer-use-macos。",
+      "impact": "发布任务在 test discovery 阶段失败，阻止构建与 PyPI 发布；当前源码 preflight 仍会错误报告 workflow 检查通过。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "按 release.yml 原样运行 WeChat tests，退出码 1，三个测试模块均因 ModuleNotFoundError: computer_use_macos 失败。",
+          "reference": ".github/workflows/release.yml:28-29"
+        },
+        {
+          "kind": "code",
+          "description": "WeChat profile loader 直接导入 computer_use_macos.selectors。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py:9-14"
+        },
+        {
+          "kind": "test",
+          "description": "workflow preflight 只验证 ci.yml 的完整 PYTHONPATH，没有 release.yml 负例。",
+          "reference": "tests/test_release_preflight.py:449-479"
+        }
+      ],
+      "remediation": "为 release workflow 的 WeChat test 命令加入 computer-use-macos/src，并让 release_preflight 校验 release.yml 的原样命令，补干净环境负例。",
+      "verification": "在无已安装 workspace packages 的干净 Python 3.12 环境运行 release workflow 全部 test/build/preflight 步骤，要求全部退出 0。",
+      "status": "open",
+      "fingerprint": "deployment:jobs.publish-run-unit-tests:prr-011"
+    },
+    {
+      "id": "PRR-001",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "privacy",
+      "title": "发布证明会把真实联系人、会话和消息正文上传为公开 Release 资产",
+      "location": {
+        "path": "examples/wechat_selector_engine_smoke_test.py",
+        "line_start": 225,
+        "line_end": 230,
+        "symbol": "run_selector_engine_smoke_test",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "selector smoke 报告把 inspectWindow、listConversations、readVisibleMessages 与 listContacts 的完整 observation 写入 JSON；release_proof_bundle 不脱敏地复制该文件，发布文档和 workflow 又要求将其附加到 GitHub Release。",
+      "trigger": "维护者按 docs/publishing.md 生成 proof bundle，并将 wechat-selector-engine-smoke.json 附加到公开 GitHub Release。",
+      "impact": "真实联系人名称、会话预览、消息正文、窗口标题及本机路径可能公开泄露，违反数据最小化和 PR 自身“private smoke JSON”声明。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "smoke payload 保存完整 WeChat observations。",
+          "reference": "examples/wechat_selector_engine_smoke_test.py:225-230"
+        },
+        {
+          "kind": "code",
+          "description": "release proof bundler 使用 shutil.copyfile 原样复制输入。",
+          "reference": "scripts/release_proof_bundle.py:68-83,137-140"
+        },
+        {
+          "kind": "spec",
+          "description": "发布文档要求将该文件附加到 GitHub Release。",
+          "reference": "docs/publishing.md:237-276"
+        }
+      ],
+      "remediation": "定义字段白名单的脱敏 proof schema，只保留协议 envelope、检查布尔值、计数、哈希和必要诊断；proof bundle 与 preflight 必须拒绝联系人、消息正文、窗口标题、本机路径及原始 observation，并生成绑定当前 head SHA 的耐久证据。",
+      "verification": "使用包含 canary 联系人、消息文本、窗口标题和本机路径的输入生成绑定 07fa052db38cd89eb11dab7a6465ac6642b670d0 的持久 proof，断言所有敏感 canary 均不出现在任何 release asset 中，且独立审查者仍可通过 strict preflight 校验来源与完整性。",
+      "status": "open",
+      "fingerprint": "privacy:run_selector_engine_smoke_test:prr-001"
+    },
+    {
+      "id": "PRR-005",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "Helper backend 不支持 selector 所需 AX 操作，语义 API 在该运行模式必然失败",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/helper/template.py",
+        "line_start": 475,
+        "line_end": 507,
+        "symbol": "handle_command",
+        "side": "FILE",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "生成的 helper enabledOperations 和 dispatch 都没有 accessibility_query 或 accessibility_action，但设计声明 selector resolver 会通过 configured transport 使用底层 AX query/action。",
+      "trigger": "应用配置 computer_use.backend=helper 后调用 selector-backed list_contacts、list_conversations、open_contact 或 read_visible_messages。",
+      "impact": "Helper 模式稳定返回 unsupported_operation，公开支持的运行模式与设计/文档不一致，核心 WeChat 语义能力不可用。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "直接调用生成 helper 的 handle_command(accessibility_query) 返回 failureKind=unsupported_operation。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/helper/template.py:475-507"
+        },
+        {
+          "kind": "spec",
+          "description": "技术设计声明 helper transport 只执行底层 AX operations，并应与 direct mode 产生同样语义结果。",
+          "reference": "docs/feature/accessibility-selector-engine/design.md:817-824"
+        }
+      ],
+      "remediation": "为 helper 实现并声明 bounded accessibility_query 与 accessibility_action，补 direct/helper parity 测试；若 MVP 明确不支持 helper，则配置阶段必须 fail fast 并更新契约。",
+      "verification": "从生成 helper app 运行 selector-backed contacts/open/messages parity tests，断言 direct 与 helper 的成功、失败种类和安全前置条件一致。",
+      "status": "open",
+      "fingerprint": "compatibility:handle_command:prr-005"
+    },
+    {
+      "id": "PRR-010",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "dependency",
+      "title": "声明的最低依赖版本不包含本 PR 必需的 selector 与配置字段",
+      "location": {
+        "path": "packages/wechat-desktop-tool/pyproject.toml",
+        "line_start": 15,
+        "line_end": 18,
+        "symbol": "project.dependencies",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "wechat-desktop-tool 声明 app-control-protocol>=0.1.0、computer-use-macos>=0.1.1，但新代码无条件导入 computer_use_macos.selectors 并读取 WeChatConfig.selector_profile_path；已发布/基线兼容版本不包含这些表面。",
+      "trigger": "pip 解析到满足当前 metadata 的旧 protocol 或 computer-use 版本，或用户在约束环境中升级 WeChat package。",
+      "impact": "包可成功解析依赖却在 import 时 ModuleNotFoundError，或构造配置时 AttributeError；这是发布级兼容性破坏。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "HEAD WeChat 与 v0.1.1 computer-use 组合导入失败：No module named computer_use_macos.selectors。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py:9-14"
+        },
+        {
+          "kind": "reproduction",
+          "description": "基线 protocol 与 HEAD packages 组合调用 WeChatDesktopConfig.from_app_control_config() 失败：selector_profile_path 不存在。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/models.py:130-142"
+        },
+        {
+          "kind": "test",
+          "description": "当前 wheel smoke 总是同批安装三个 HEAD wheels，无法覆盖最低允许版本组合。",
+          "reference": "scripts/wheel_check.py:49-109"
+        }
+      ],
+      "remediation": "把 protocol 与 computer-use 依赖下限绑定到首个同时提供 selectors 和 selector_profile_path 的兼容发行版本，或实现明确的兼容回退，并增加最低版本 clean-install 测试。",
+      "verification": "在干净环境分别安装每个声明下限与新 WeChat wheel，运行 import、config construction、profile loading 和 API smoke，全部必须通过。",
+      "status": "open",
+      "fingerprint": "dependency:project.dependencies:prr-010"
+    },
+    {
+      "id": "PRR-003",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "导航优先使用未经 AX 定位验证的固定全局坐标",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 855,
+        "line_end": 869,
+        "symbol": "WeChatDesktopTool._execute_mapped_control",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "mapped navigation 在 AX frame query/actionRef 之前先尝试 profile 中的 screen_coordinates；CGEvent 点击成功即返回，不验证目标 window、snapshot、frame 或 label。",
+      "trigger": "allow_coordinate_click=true，且 WeChat 窗口移动、缩放、分屏、显示器布局或 UI 位置与采样布局不同。",
+      "impact": "原本读取/导航性质的 list/open API 会点击 (264,179/227/275) 处任意 UI，可能切错聊天或触发非预期桌面动作；与 PR 描述“target frames come from bounded Accessibility queries”冲突。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "direct coordinate click 在 frame query 之前执行并可提前返回。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:855-909,963-991"
+        },
+        {
+          "kind": "code",
+          "description": "固定坐标来自 packaged profile，而非当前 AX frame。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles/wechat-macos.toml:243-268"
+        },
+        {
+          "kind": "test",
+          "description": "现有测试固定了 click 先于 accessibility_query 的顺序。",
+          "reference": "packages/wechat-desktop-tool/tests/test_tool.py"
+        }
+      ],
+      "remediation": "移除固定全局坐标优先路径；如必须保留坐标 fallback，只能使用当前、已验证的 AX frame 中心，并在动作后验证预期导航状态。",
+      "verification": "在移动/缩放窗口和双显示器 fixture 中运行导航测试，断言所有坐标来自当前 target frame，stale/missing frame 时 fail closed。",
+      "status": "open",
+      "fingerprint": "security:wechatdesktoptool._execute_mapped_control:prr-003"
+    },
+    {
+      "id": "PRR-004",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "mapped open_contact 的 limit=1 使同名联系人消歧分支不可达",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 1052,
+        "line_end": 1052,
+        "symbol": "WeChatDesktopTool._query_mapped_conversation_target",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "目标查询硬编码 limit=1，后续 len(candidates)>1 的 needs_disambiguation 分支无法观察多个匹配；打开后的标题验证也无法区分同名身份。",
+      "trigger": "可见会话存在两个 display name 相同的联系人或群聊。",
+      "impact": "API 静默打开第一项并可能让 read_contact_messages 返回错误联系人的私密消息，而不是要求调用方消歧。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "target query 最多返回一个 AXCell。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:1033-1071"
+        },
+        {
+          "kind": "code",
+          "description": "后续却依赖 len(candidates)>1 进入 needs_disambiguation。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:1372-1395"
+        },
+        {
+          "kind": "reproduction",
+          "description": "底层有两个 Ada 时结果仍 success=true/status=opened/query_limit=1。",
+          "reference": "targeted open_contact counterexample"
+        }
+      ],
+      "remediation": "执行有界查询时至少取得两个匹配候选，并在点击前返回 needs_disambiguation；使用稳定身份或足够上下文区分同名联系人。",
+      "verification": "添加两个完全同名候选的 mapped fast-path 测试，断言不执行点击或消息读取，并返回 needs_disambiguation 与可区分候选。",
+      "status": "open",
+      "fingerprint": "data-integrity:wechatdesktoptool._query_mapped_conversation_target:prr-004"
+    },
+    {
+      "id": "PRR-002",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "搜索焦点状态 unknown 被当作验证成功，可能把联系人名称发送到当前聊天",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 5027,
+        "line_end": 5028,
+        "symbol": "_search_focus_failure",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "将 no accessibility snapshot、snapshot unavailable、无 focused element 或不可识别 text field 归为 state=unknown 的条件早于本 PR；但本 PR 新增的 selector-backed open_contact 路径依赖该条件，并把 unknown 与 verified 一样放行，随后继续清空、输入联系人并按 Return，违反本 PR 声明的 fail-closed 安全边界。",
+      "trigger": "Command+F 或其他 focus 尝试未把焦点移出聊天 composer，同时 observe 无法给出可识别的 focused element。",
+      "impact": "focus_contact/open_contact 本身可能清除现有草稿并把联系人字符串作为消息发送，违反“消息提交显式、不会隐藏在 selector resolution 后”的安全契约。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "unknown 被与 verified 一起放行。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:5018-5028"
+        },
+        {
+          "kind": "code",
+          "description": "多种无法验证状态都会返回 unknown。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:5047-5102"
+        },
+        {
+          "kind": "code",
+          "description": "后续流程执行 clear、type_text 与 Return。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:1886-1940"
+        },
+        {
+          "kind": "reproduction",
+          "description": "no_accessibility_snapshot 得到 unknown，failure_returned=false。",
+          "reference": "targeted search-focus counterexample"
+        }
+      ],
+      "remediation": "只有焦点明确为 verified 才允许继续输入；所有 unknown reason 必须 fail closed，且 focus/open API 不得在未验证焦点时调用 type_text 或 Return。",
+      "verification": "为所有 unknown reason 添加 selector-backed open_contact 命令序列测试，断言不调用 type_text、Return 或 submit；仅 verified 状态可继续。",
+      "status": "open",
+      "fingerprint": "security:_search_focus_failure:prr-002"
+    },
+    {
+      "id": "PRR-009",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "正常的 limit+1 分页探测被误判为 selector_query_truncated",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "line_start": 78,
+        "line_end": 126,
+        "symbol": "CollectionExtractor.extract",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "extractor 有意查询 effective_limit+1 计算 has_more，但 AX worker 一达到 query limit 就标记 truncated=true；extractor 随后把这个正常分页信号降级为 partial/failed。",
+      "trigger": "调用 collection limit=N 且可见候选数量至少为 N+1。",
+      "impact": "成功取得完整一页的正常响应被标记为 partial 和 selector_query_truncated，破坏调用方错误处理、重试与分页契约。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "extractor 请求 N+1 后把任何 truncated 视为 partial/failed。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py:78-126"
+        },
+        {
+          "kind": "code",
+          "description": "worker 达到 limit 时无条件设置 truncated。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:3513-3531"
+        },
+        {
+          "kind": "reproduction",
+          "description": "limit=1、两行候选得到 status=partial, has_more=true, failure_kind=selector_query_truncated。",
+          "reference": "targeted collection counterexample"
+        }
+      ],
+      "remediation": "把正常 limit+1 lookahead 的 has_more sentinel 与 time/depth/node-budget truncation 分开；前者不得把成功页标为 partial/truncated。",
+      "verification": "新增 N、N+1、超过 N+1、time budget 截断四组测试；只有真实不完整结果可返回 partial/truncated。",
+      "status": "open",
+      "fingerprint": "correctness:collectionextractor.extract:prr-009"
+    },
+    {
+      "id": "PRR-008",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "performance",
+      "title": "Packaged collection 的 batch query 生成 maxDepth=11，超过客户端硬上限 8",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "line_start": 391,
+        "line_end": 397,
+        "symbol": "CollectionExtractor._batch_extract_fields",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "batch field extraction 直接把 item step 与 field step 的 max_depth 相加；packaged contacts profile 是 8+3=11，而 accessibility query normalizer 只接受 0..8。",
+      "trigger": "contacts collection 至少解析到两个 item 并进入 batch descendant field extraction。",
+      "impact": "真实 client 拒绝 batch request，优化路径每次失败或退化为逐行查询，重新引入大量 AX round trips、超时和性能目标失效。",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "batch maxDepth 使用两个 step 深度之和。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py:391-397"
+        },
+        {
+          "kind": "code",
+          "description": "client 将 query.maxDepth 上限固定为 8。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/client.py:2417-2423"
+        },
+        {
+          "kind": "reproduction",
+          "description": "按 packaged contacts profile 构造请求得到 batch_depth=11，并被 normalizer 以 query.maxDepth must be between 0 and 8 拒绝。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles/wechat-macos.toml:127-153"
+        }
+      ],
+      "remediation": "保证组合后的 batch maxDepth 不超过客户端上限 8，或改用语义等价的分段查询；不得依赖必然被 normalizer 拒绝的请求。",
+      "verification": "针对 contacts/conversations/messages 的 packaged profile 运行真实 normalizer-backed batch tests，断言 maxDepth<=8、batch 被执行且 query count 明显少于逐行路径。",
+      "status": "open",
+      "fingerprint": "performance:collectionextractor._batch_extract_fields:prr-008"
+    },
+    {
+      "id": "PRR-007",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "AX query 的权限和 transport 失败被吞掉并伪装为 selector_not_found",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "line_start": 155,
+        "line_end": 234,
+        "symbol": "SelectorResolver._resolve",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "resolver 的 query normalization 只消费 nodes 与 truncated，忽略 payload.available=false、failureKind 和 message；空 nodes 最终统一产生 selector_not_found。",
+      "trigger": "Accessibility 权限缺失、query timeout、helper/transport 失败或 backend 返回 unavailable。",
+      "impact": "调用方无法区分“控件不存在”和“环境不可用”，会采用错误恢复策略、隐藏权限故障并产生误导诊断。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "runner 返回 available=false, failureKind=missing_accessibility, message=permission denied；resolver 输出 not_found/selector_not_found。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py:155-234"
+        },
+        {
+          "kind": "code",
+          "description": "_normalize_query_payload 不保留 backend availability/failureKind/message。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py:685-692"
+        }
+      ],
+      "remediation": "保留底层 AX failure kind 与 message，并返回 selector_query_failed；只有成功执行且 nodes 为空的查询才能映射为 selector_not_found。",
+      "verification": "为 missing_accessibility、timeout、transport failure、真实 empty result 分别添加测试，断言 status、failureKind、retryable/recovery 信息不混淆。",
+      "status": "open",
+      "fingerprint": "reliability:selectorresolver._resolve:prr-007"
+    },
+    {
+      "id": "PRR-006",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Selector cache hit 未重新应用 matcher 与 constraints，UI 重排后可能返回错误控件",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "line_start": 388,
+        "line_end": 452,
+        "symbol": "SelectorResolver._validate_cached",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "cache validation 只比较 role 与显式 key_attributes，没有重新检查 attribute matcher、required actions、enabled/visible/selected constraints、relation 或 frame；默认 key_attributes 还可能为空。",
+      "trigger": "缓存 AX path 后 UI 重排，使同一路径指向另一个相同 role 的控件。",
+      "impact": "错误控件仍以 confidence=1.0/cache_status=hit 返回，后续可能聚焦、点击或输入到错误目标。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "首次缓存 Contacts，随后同 path 返回 Chats 且 role 不变；第二次仍 resolved、label=Chats、cache_status=hit。",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py:388-452"
+        },
+        {
+          "kind": "code",
+          "description": "packaged profile 部分 selector 没有足以唯一识别目标的 key_attributes。",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles/wechat-macos.toml"
+        }
+      ],
+      "remediation": "cache hit 必须重新验证完整 selector signature、matcher、required actions 与 constraints；任何不匹配都应使 cache 失效并 fresh resolve。",
+      "verification": "新增同 role 路径复用、action 消失、enabled/selected 变化、relation/frame 变化测试，断言 stale cache 不得返回 resolved。",
+      "status": "open",
+      "fingerprint": "correctness:selectorresolver._validate_cached:prr-006"
+    },
+    {
+      "id": "PRR-012",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "testing",
+      "title": "Strict selector smoke proof 接受零结果，未证明核心抽取路径",
+      "location": {
+        "path": "scripts/release_preflight.py",
+        "line_start": 2414,
+        "line_end": 2463,
+        "symbol": "_wechat_selector_engine_smoke_success",
+        "side": "RIGHT",
+        "commit_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0"
+      },
+      "observation": "strict validator 只检查 observation success 与 checklist booleans，不要求 conversations、contacts 或 messages 的 count 大于零，也不核对 count 与 rows/messages 内容；把 fixture 的三个 count 改为 0 并清空集合后仍返回 true。",
+      "trigger": "selector smoke backend 返回 success envelope 与 true checklist，但联系人、会话和消息抽取结果全部为空或计数与内容不一致。",
+      "impact": "release gate 可接受未实际覆盖本 PR 核心抽取路径的伪成功 proof，使 merge/release 结论缺少行为证据。",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "把 fixture 三个 count 改为 0、rows/messages 置空后 _wechat_selector_engine_smoke_success() 仍返回 true。",
+          "reference": "tests/test_release_preflight.py:2962-3034"
+        },
+        {
+          "kind": "code",
+          "description": "validator 只检查 success 与 checklist booleans，没有验证非零计数或 count/content 一致性。",
+          "reference": "scripts/release_preflight.py:2414-2463"
+        }
+      ],
+      "remediation": "验证 count 与 observation 内容一致，并为 contacts、conversations、messages 等要证明的抽取路径设定明确的最小证据阈值；零结果不得满足 strict proof。",
+      "verification": "添加零 count、空集合、count/content 不一致和 failedStep 负例，断言 strict preflight 全部拒绝；有效脱敏 fixture 仍应通过。",
+      "status": "open",
+      "fingerprint": "testing:_wechat_selector_engine_smoke_success:prr-012"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-001",
+      "action": "生成绑定 head SHA 的耐久、脱敏 proof，并让 bundle/preflight 拒绝敏感原始 observation。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-002",
+      "action": "让所有 unknown search-focus 状态 fail closed，确保不会调用 type_text 或 Return。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-003",
+      "action": "移除固定全局坐标优先路径，或只使用当前 AX frame 并进行动作后验证。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-004",
+      "action": "查询至少两个候选并在点击前返回 needs_disambiguation，补同名联系人回归测试。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-005",
+      "action": "实现 helper AX query/action parity，或明确排除 helper 并在配置阶段 fail fast。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-006",
+      "action": "cache hit 重新验证完整 matcher、required actions 与 constraints，不匹配时 fresh resolve。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-007",
+      "action": "传播底层 failure kind/message；只有成功空查询才能返回 selector_not_found。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-008",
+      "action": "使所有 packaged collection batch depth 不超过 8，或采用等价分段查询并验证真实 batch 路径。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-009",
+      "action": "区分正常 lookahead 与真实 truncation，补 resolved + has_more=true 回归测试。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-010",
+      "action": "修正兼容依赖下限，并验证最低支持版本的 clean-install 组合。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-011",
+      "action": "修正 release workflow 的 PYTHONPATH，并让 preflight 在干净环境校验原样 release 命令。",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-012",
+      "action": "校验 proof 的 count/content 一致性和最小证据阈值，拒绝零结果伪成功。",
+      "status": "open"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "High",
+      "description": "焦点不确定、固定坐标和未脱敏发布 proof 可造成真实桌面误操作或隐私泄露。",
+      "mitigation": "解决 PRR-001、PRR-002、PRR-003，并重新执行 fail-closed 与敏感 canary 审查。",
+      "owner": null
+    },
+    {
+      "category": "data-integrity",
+      "level": "High",
+      "description": "同名联系人、stale cache 与错误分页语义可能返回或读取错误的数据。",
+      "mitigation": "解决 PRR-004、PRR-006、PRR-009，并补端到端身份与冷热缓存回归。",
+      "owner": null
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "High",
+      "description": "helper 缺少操作、底层失败被误报以及 cache stale 会使恢复策略和诊断失效。",
+      "mitigation": "解决 PRR-005、PRR-006、PRR-007，验证 direct/helper 与失败契约一致。",
+      "owner": null
+    },
+    {
+      "category": "performance-scalability",
+      "level": "High",
+      "description": "packaged batch query 超出 maxDepth，可能稳定退化为大量逐行 AX 查询。",
+      "mitigation": "解决 PRR-008，并记录 packaged collection 的 query count 与 timing 证据。",
+      "owner": null
+    },
+    {
+      "category": "api-compatibility",
+      "level": "High",
+      "description": "声明的依赖下限与实际所需 selectors/config surface 不一致。",
+      "mitigation": "解决 PRR-010，并增加最低支持版本与 clean-install 组合测试。",
+      "owner": null
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "High",
+      "description": "release workflow 在干净环境失败，strict proof 又可在核心集合为空时通过。",
+      "mitigation": "解决 PRR-011、PRR-012，并在 release dry-run 上复核原样命令与 proof gate。",
+      "owner": null
+    },
+    {
+      "category": "maintainability",
+      "level": "Medium",
+      "description": "12 个 blocking finding 横跨 selector、WeChat、helper 与 release gate，显示跨层不变量尚未被统一测试。",
+      "mitigation": "按 Required Actions 分层修复，并把每个反例固化为回归测试。",
+      "owner": null
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "env PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python3 -m unittest discover -s tests",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "109 tests passed，包含 wheel build/install/API smoke 与 release-preflight coverage。",
+        "evidence_ref": null
+      },
+      {
+        "command": "env PYTHONPATH=packages/app-control-protocol/src python3 -m unittest discover -s packages/app-control-protocol/tests",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "54 tests passed。",
+        "evidence_ref": null
+      },
+      {
+        "command": "env PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src python3 -m unittest discover -s packages/computer-use-macos/tests",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "112 tests passed，1 skipped。",
+        "evidence_ref": null
+      },
+      {
+        "command": "env PYTHONPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src python3 -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "103 tests passed。",
+        "evidence_ref": null
+      },
+      {
+        "command": "env -u PYTHONPATH python3 scripts/release_preflight.py",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "源码 preflight 通过；Unix socket 与外部 proof 项按环境显示 warning，未被当作已验证。",
+        "evidence_ref": null
+      },
+      {
+        "command": "python3 -m compileall -q packages examples scripts tests",
+        "environment": "macOS; isolated local clone; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Python compile check passed。",
+        "evidence_ref": null
+      },
+      {
+        "command": "git diff --check fed652343ec73734247955d44dc8e60293a7b373...07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "environment": "macOS; isolated local clone; git; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors。",
+        "evidence_ref": null
+      },
+      {
+        "command": "env PYTHONPATH=packages/app-control-protocol/src:packages/wechat-desktop-tool/src python3 -m unittest discover -s packages/wechat-desktop-tool/tests",
+        "environment": "macOS; clean-source-path reproduction; CPython 3.13; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "3 test-discovery errors；均为 ModuleNotFoundError: computer_use_macos，复现 release workflow 缺失路径。",
+        "evidence_ref": ".github/workflows/release.yml:28-29"
+      },
+      {
+        "command": "env MYPYPATH=packages/app-control-protocol/src:packages/computer-use-macos/src:packages/wechat-desktop-tool/src mypy packages/app-control-protocol/src/app_control_protocol/config.py packages/computer-use-macos/src/computer_use_macos/selectors packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py packages/wechat-desktop-tool/src/wechat_desktop_tool/control_map.py",
+        "environment": "macOS; local environment; mypy 1.11.2; head 07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "head_sha": "07fa052db38cd89eb11dab7a6465ac6642b670d0",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "111 errors across 14 transitive files；包含新 selector 类型错误和既有 strict-type debt，未将其拆成独立 blocking finding。",
+        "evidence_ref": null
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test (run 29103716806)",
+        "observed_at": "2026-07-11T13:27:48Z",
+        "status": "PASS",
+        "summary": "GitHub Actions run 72 completed successfully for reviewed head; all 14 recorded steps passed.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29103716806"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "real WeChat selector-engine smoke rerun",
+        "reason": "The prior private artifact no longer exists; rerunning would inspect and mutate a real desktop session and was not authorized for report generation."
+      },
+      {
+        "check": "signed helper app end-to-end parity smoke",
+        "reason": "No reviewed signed helper artifact was available, and the generated template already reproduced unsupported_operation."
+      },
+      {
+        "check": "real PyPI/TestPyPI minimum-version installation",
+        "reason": "No publishing action was authorized; compatibility was reproduced with local tagged/baseline sources."
+      },
+      {
+        "check": "ruff check",
+        "reason": "ruff was not installed in the review environment (command not found)."
+      }
+    ]
+  },
+  "limitations": [
+    "本报告只对 head 07fa052db38cd89eb11dab7a6465ac6642b670d0 有效；任何新 commit 都会使报告变为 STALE。",
+    "此前文档引用的 /private/tmp live WeChat proof 已不可取得；本次未重新操作真实桌面，因此无法复核真实会话环境。",
+    "PR 当前仍为 Draft；绿色 CI 未执行 GitHub Release event，也未覆盖本报告列出的针对性反例。",
+    "ruff 在检视环境中不可用；定向 mypy 运行失败并混合了新增与既有类型债，因此未把静态类型结果拆成正式 finding。",
+    "未执行签名 helper app、真实 PyPI/TestPyPI 发布或生产环境验证。",
+    "本地工作树包含用户未提交变更；代码检视与测试证据来自冻结 head 的隔离 clone，报告文件仅写入当前工作树。"
+  ],
+  "open_questions": [
+    "哪个正式版本首次同时包含 computer_use_macos.selectors 与 WeChatConfig.selector_profile_path？",
+    "Helper backend parity 是否为本 MVP 必需；若不是，公开契约应如何明确排除？",
+    "团队接受的 live WeChat merge/release proof 脱敏 schema、保留位置和保留周期是什么？",
+    "同名联系人消歧应使用哪个稳定身份或上下文字段？"
+  ],
+  "assumptions": [
+    "公开仓库的 GitHub Release assets 可被任何人访问。",
+    "消费者可以合法安装 pyproject metadata 允许的任意依赖版本组合。",
+    "允许 coordinate click 只授权经过验证的目标点击，不授权使用陈旧的全局坐标点击任意桌面位置。",
+    "现有 WeChat 语义 API 应保持 fail-closed 的焦点与联系人身份行为。"
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-001",
+      "category": "correctness",
+      "recommendation": "修复 pick=all selector 在 cache hit 后退化为单元素的问题。",
+      "value": "保持冷/热 cache 返回集合语义一致。"
+    },
+    {
+      "id": "NOTE-002",
+      "category": "correctness",
+      "recommendation": "显式拒绝 override 中的空 any_of，而不是把它解释为无约束。",
+      "value": "避免配置错误扩大 selector 匹配范围。"
+    },
+    {
+      "id": "NOTE-003",
+      "category": "compatibility",
+      "recommendation": "统一 AXPlaceholderValue 在 worker、normalizer 与 matcher 中的字段名。",
+      "value": "避免 placeholder selector 在正常 payload 下产生假阴性。"
+    },
+    {
+      "id": "NOTE-004",
+      "category": "security",
+      "recommendation": "actionRef 的 selector fallback 应保留 snapshot 与 preconditions；无法表达时 fail closed。",
+      "value": "防止 UI 状态变化后绕过 stale-action guard。"
+    },
+    {
+      "id": "NOTE-005",
+      "category": "api-contract",
+      "recommendation": "无 AXPress 的行不要发布带 AXPress precondition 的不可执行 actionRef。",
+      "value": "让 list→execute_action 公共契约保持可执行。"
+    },
+    {
+      "id": "NOTE-006",
+      "category": "security",
+      "recommendation": "让 selector profile 与 control-map override 以同一原子验证结果激活或回退。",
+      "value": "避免无效 selector 回退后仍采用自定义坐标提示。"
+    },
+    {
+      "id": "NOTE-007",
+      "category": "maintainability",
+      "recommendation": "建立可执行的 ruff/mypy 基线，并逐步隔离本 PR 新增的类型问题。",
+      "value": "让后续 selector 变更具备稳定静态检查信号。"
+    },
+    {
+      "id": "NOTE-008",
+      "category": "documentation",
+      "recommendation": "修复后同步更新 lifecycle 历史文档，清楚区分当时证据与当前 head 证据。",
+      "value": "避免过期 merge-readiness 结论被误用为当前证明。"
+    }
+  ]
+}
