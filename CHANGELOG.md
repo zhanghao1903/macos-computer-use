@@ -57,6 +57,10 @@
 
 ### Fixed
 
+- Treat an exact frontmost bundle-id match as authoritative for generated
+  Accessibility query/action workers, so localized app names do not reject the
+  correct target, and publish all query/action/tree frontmost failures through
+  the stable `computer-use-macos` failure registry.
 - Route public WeChat focus/send through verified `open_contact`, enforce
   target-app and row action identity before Accessibility actions, and replace
   synthetic list continuation tokens with explicit visible-window semantics.

@@ -831,11 +831,23 @@ Warm accessibility worker process failures are also stable public constants:
 All four are exported from `computer_use_macos` and included exactly once in
 `COMPUTER_USE_FAILURE_KINDS`.
 
+Frontmost-target guard failures are stable public constants as well:
+
+- `ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST`
+- `TARGET_APP_NOT_FRONTMOST`
+- `ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST`
+
+They preserve the operation-specific serialized values already returned by the
+query, action, and legacy tree paths and are each included exactly once in
+`COMPUTER_USE_FAILURE_KINDS`.
+
 Accessibility query, action, and legacy tree workers operate only on the
-current usable frontmost application. A bundle-id or app-name mismatch,
-terminated app, hidden app, or unavailable frontmost app fails before an AX
-application element is created. The workers do not select a background process
-with the requested bundle identifier.
+current usable frontmost application. When a request contains a bundle id, an
+exact bundle match is authoritative and a localized display-name difference is
+ignored. App-name matching is the fallback only when no bundle id is supplied.
+A wrong identity, terminated app, hidden app, or unavailable frontmost app
+fails before an AX application element is created. The workers do not select a
+background process with the requested bundle identifier.
 
 The caller must own:
 

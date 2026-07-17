@@ -4283,6 +4283,36 @@ uv run --python .venv/bin/python pytest -q \
 
 No live macOS query, Accessibility action, or WeChat mutation was executed.
 
+## R6 Frontmost Identity And Failure Contract
+
+Status: implementation and deterministic package verification complete.
+
+Generated Accessibility query and action workers now use the exact requested
+bundle id as the authoritative identity for the current usable frontmost app.
+The localized `targetApp` alias is compared only when the request omitted a
+bundle id. This keeps wrong-bundle, hidden, terminated, missing-frontmost, and
+background-process cases fail-closed while accepting supported localized names
+such as `WeChat` and `微信` for the same bundle.
+
+The already-emitted query, action, and legacy tree mismatch values now have
+named constants, top-level package exports, and one entry each in
+`COMPUTER_USE_FAILURE_KINDS`. No serialized failure value was renamed.
+
+The generated-script regression executes both bundle-first and name-only paths
+and counts AX application creation and background lookup. Contract tests also
+execute all three mismatch producers and require every emitted value to be
+publicly importable and registry-routable. No real Accessibility operation or
+desktop mutation is part of this slice.
+
+Deterministic verification at the slice worktree:
+
+```text
+targeted generated-worker and registry tests: 4 passed
+computer-use-macos package suite: 158 passed, 1 skipped
+compileall computer-use-macos source/tests: passed
+git diff --check: passed
+```
+
 ## R3 Review Remediation: Trusted WeChat Boundaries
 
 Status: implementation and full WeChat package verification complete;

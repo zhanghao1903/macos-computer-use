@@ -35,10 +35,12 @@ from computer_use_macos.accessibility_limits import (
     MAX_ACCESSIBILITY_QUERY_LIMIT,
 )
 from computer_use_macos import (
+    ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
     ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
     ACCESSIBILITY_ACTION_WORKER_FAILED,
     ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
     ACCESSIBILITY_QUERY_WORKER_FAILED,
+    ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST,
     COMPUTER_USE_TOOL,
     COMPUTER_USE_FAILURE_KINDS,
     AppControlConfig,
@@ -46,6 +48,7 @@ from computer_use_macos import (
     ComputerUseError,
     HelperConfig,
     MacOSComputerUseClient,
+    TARGET_APP_NOT_FRONTMOST,
     UnixSocketServiceClient,
     accessibility_action_command,
     accessibility_query_command,
@@ -144,7 +147,7 @@ class _GeneratedScriptApp:
         return self._hidden
 
     def processIdentifier(self) -> int:
-        raise AssertionError("background app must not reach AX element creation")
+        return 60088
 
 
 def _run_generated_script_until_target_check(
@@ -2750,6 +2753,13 @@ for line in sys.stdin:
         }
         cases = (
             (
+                "query_missing",
+                _accessibility_query_script(),
+                ["query", json.dumps(request)],
+                None,
+                "accessibility_query_target_app_not_frontmost",
+            ),
+            (
                 "query_background",
                 _accessibility_query_script(),
                 ["query", json.dumps(request)],
@@ -2801,6 +2811,19 @@ for line in sys.stdin:
                 ),
                 "target_app_not_frontmost",
             ),
+            (
+                "query_wrong_name_without_bundle",
+                _accessibility_query_script(),
+                [
+                    "query",
+                    json.dumps({**request, "bundleId": ""}),
+                ],
+                _GeneratedScriptApp(
+                    name="微信",
+                    bundle_id=target_bundle,
+                ),
+                "accessibility_query_target_app_not_frontmost",
+            ),
         )
 
         for case, source, argv, frontmost, expected_failure in cases:
@@ -2812,6 +2835,104 @@ for line in sys.stdin:
                 )
                 self.assertEqual(result["failureKind"], expected_failure)
                 self.assertEqual(counters["createApplication"], 0)
+                self.assertEqual(counters["backgroundLookup"], 0)
+
+    def test_generated_accessibility_workers_use_bundle_before_localized_name(
+        self,
+    ) -> None:
+        target_bundle = "com.tencent.xinWeChat"
+        frontmost = _GeneratedScriptApp(
+            name="微信",
+            bundle_id=target_bundle,
+        )
+        query_request = {
+            "targetApp": "WeChat",
+            "bundleId": target_bundle,
+            "root": {"kind": "focusedWindow"},
+            "query": {"scope": "children", "limit": 1},
+        }
+        action_request = {
+            "targetApp": "WeChat",
+            "bundleId": target_bundle,
+            "action": "AXPress",
+            "target": {"kind": "axPath", "axPath": "0/1"},
+        }
+
+        for label, source, argv, mismatch_failure in (
+            (
+                "query",
+                _accessibility_query_script(),
+                ["query", json.dumps(query_request)],
+                ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
+            ),
+            (
+                "action",
+                _accessibility_action_script(),
+                ["action", json.dumps(action_request)],
+                TARGET_APP_NOT_FRONTMOST,
+            ),
+        ):
+            with self.subTest(label=label):
+                result, counters = _run_generated_script_until_target_check(
+                    source,
+                    argv,
+                    frontmost=frontmost,
+                )
+
+                self.assertNotEqual(result.get("failureKind"), mismatch_failure)
+                self.assertEqual(counters["createApplication"], 1)
+                self.assertEqual(counters["backgroundLookup"], 0)
+
+    def test_generated_accessibility_workers_accept_matching_name_without_bundle(
+        self,
+    ) -> None:
+        frontmost = _GeneratedScriptApp(
+            name="WeChat",
+            bundle_id="com.tencent.xinWeChat",
+        )
+        requests = (
+            (
+                "query",
+                _accessibility_query_script(),
+                [
+                    "query",
+                    json.dumps(
+                        {
+                            "targetApp": "WeChat",
+                            "root": {"kind": "focusedWindow"},
+                            "query": {"scope": "children", "limit": 1},
+                        }
+                    ),
+                ],
+                ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
+            ),
+            (
+                "action",
+                _accessibility_action_script(),
+                [
+                    "action",
+                    json.dumps(
+                        {
+                            "targetApp": "WeChat",
+                            "action": "AXPress",
+                            "target": {"kind": "axPath", "axPath": "0/1"},
+                        }
+                    ),
+                ],
+                TARGET_APP_NOT_FRONTMOST,
+            ),
+        )
+
+        for label, source, argv, mismatch_failure in requests:
+            with self.subTest(label=label):
+                result, counters = _run_generated_script_until_target_check(
+                    source,
+                    argv,
+                    frontmost=frontmost,
+                )
+
+                self.assertNotEqual(result.get("failureKind"), mismatch_failure)
+                self.assertEqual(counters["createApplication"], 1)
                 self.assertEqual(counters["backgroundLookup"], 0)
 
     def test_package_local_client_supports_hotkey_protocol_command(self) -> None:
@@ -4055,6 +4176,82 @@ for line in sys.stdin:
                 any(failure_kind in source for source in worker_sources),
                 failure_kind,
             )
+
+    def test_frontmost_target_failures_are_public_and_registered(self) -> None:
+        failure_kinds = {
+            ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
+            TARGET_APP_NOT_FRONTMOST,
+            ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST,
+        }
+
+        self.assertEqual(
+            failure_kinds,
+            {
+                "accessibility_query_target_app_not_frontmost",
+                "target_app_not_frontmost",
+                "accessibility_tree_target_app_not_frontmost",
+            },
+        )
+        self.assertLessEqual(failure_kinds, set(COMPUTER_USE_FAILURE_KINDS))
+        for failure_kind in failure_kinds:
+            self.assertEqual(COMPUTER_USE_FAILURE_KINDS.count(failure_kind), 1)
+            self.assertEqual(
+                getattr(computer_use_macos, failure_kind.upper()),
+                failure_kind,
+            )
+
+        producer_cases = (
+            (
+                _accessibility_query_script(),
+                [
+                    "query",
+                    json.dumps(
+                        {
+                            "targetApp": "WeChat",
+                            "bundleId": "com.tencent.xinWeChat",
+                            "root": {"kind": "focusedWindow"},
+                            "query": {"scope": "children", "limit": 1},
+                        }
+                    ),
+                ],
+                ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
+            ),
+            (
+                _accessibility_action_script(),
+                [
+                    "action",
+                    json.dumps(
+                        {
+                            "targetApp": "WeChat",
+                            "bundleId": "com.tencent.xinWeChat",
+                            "action": "AXPress",
+                            "target": {"kind": "axPath", "axPath": "0/1"},
+                        }
+                    ),
+                ],
+                TARGET_APP_NOT_FRONTMOST,
+            ),
+            (
+                _accessibility_tree_snapshot_script(),
+                ["tree", "1", "com.tencent.xinWeChat"],
+                ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST,
+            ),
+        )
+        background = _GeneratedScriptApp(
+            name="TextEdit",
+            bundle_id="com.apple.TextEdit",
+        )
+        for source, argv, expected_failure in producer_cases:
+            with self.subTest(expected_failure=expected_failure):
+                result, counters = _run_generated_script_until_target_check(
+                    source,
+                    argv,
+                    frontmost=background,
+                )
+
+                self.assertEqual(result["failureKind"], expected_failure)
+                self.assertIn(result["failureKind"], COMPUTER_USE_FAILURE_KINDS)
+                self.assertEqual(counters["createApplication"], 0)
 
 
 def _coerce_command(command: ToolCommand | Mapping[str, object]) -> ToolCommand:

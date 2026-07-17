@@ -3401,7 +3401,7 @@ def selected_running_app() -> Any:
                 "accessibility_query_target_app_not_frontmost",
                 f"Target bundle is not frontmost: {bundle_id}",
             )
-    if target_app:
+    elif target_app:
         if not app_matches_name(frontmost, target_app):
             fail(
                 "accessibility_query_target_app_not_frontmost",
@@ -4227,7 +4227,7 @@ def selected_running_app() -> Any:
                 "target_app_not_frontmost",
                 f"Target bundle is not frontmost: {bundle_id}",
             )
-    if target_app:
+    elif target_app:
         if not app_matches_name(frontmost, target_app):
             fail(
                 "target_app_not_frontmost",

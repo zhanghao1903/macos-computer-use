@@ -20,12 +20,15 @@ from .commands import (
     wait_command,
 )
 from .errors import (
+    ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST,
     ACCESSIBILITY_ACTION_WORKER_EMPTY_RESPONSE,
     ACCESSIBILITY_ACTION_WORKER_FAILED,
     ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE,
     ACCESSIBILITY_QUERY_WORKER_FAILED,
+    ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST,
     COMPUTER_USE_FAILURE_KINDS,
     ComputerUseError,
+    TARGET_APP_NOT_FRONTMOST,
 )
 from .helper import (
     HelperDoctorReport,
@@ -65,6 +68,8 @@ __all__ = [
     "ACCESSIBILITY_ACTION_WORKER_FAILED",
     "ACCESSIBILITY_QUERY_WORKER_EMPTY_RESPONSE",
     "ACCESSIBILITY_QUERY_WORKER_FAILED",
+    "ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST",
+    "ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST",
     "ComputerUseClient",
     "ComputerUseOperation",
     "ComputerUseReadiness",
@@ -87,6 +92,7 @@ __all__ = [
     "RiskDecision",
     "RiskLevel",
     "SafetyPolicy",
+    "TARGET_APP_NOT_FRONTMOST",
     "UnixSocketCommandService",
     "UnixSocketServiceClient",
     "__version__",
