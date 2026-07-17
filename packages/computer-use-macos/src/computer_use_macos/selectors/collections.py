@@ -278,7 +278,7 @@ class CollectionExtractor:
             if constraints_ok:
                 nodes.append(node)
         diagnostics = normalized.diagnostics
-        backend_truncated = bool(diagnostics.get("truncated", False))
+        backend_truncated = diagnostics.get("truncated") is True
         backend_truncation_reason = _normalized_truncation_reason(diagnostics)
         return nodes, selector_diagnostics(
             query_count=1,
@@ -395,7 +395,7 @@ class CollectionExtractor:
         if not normalized.succeeded:
             return _field_query_failure(normalized)
         diagnostics = normalized.diagnostics
-        truncated = bool(diagnostics.get("truncated", False))
+        truncated = diagnostics.get("truncated") is True
         truncation_reason = (
             _normalized_truncation_reason(diagnostics) if truncated else None
         )
@@ -496,7 +496,7 @@ class CollectionExtractor:
                     ),
                 )
             diagnostics = normalized.diagnostics
-            if diagnostics.get("truncated", False):
+            if diagnostics.get("truncated") is True:
                 truncated = True
                 truncation_reason = _normalized_truncation_reason(diagnostics)
             for node in normalized.nodes:

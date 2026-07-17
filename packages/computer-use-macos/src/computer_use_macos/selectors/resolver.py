@@ -205,7 +205,7 @@ class SelectorResolver:
                     )
                 nodes = normalized.nodes
                 diagnostics = normalized.diagnostics
-                if bool(diagnostics.get("truncated", False)):
+                if diagnostics.get("truncated") is True:
                     return self._truncated_query_result(
                         selector,
                         diagnostics,
@@ -467,7 +467,7 @@ class SelectorResolver:
                 cache_status="stale",
             )
         nodes = normalized.nodes
-        if bool(normalized.diagnostics.get("truncated", False)) and not (
+        if normalized.diagnostics.get("truncated") is True and not (
             len(nodes) == 1
             and _normalized_truncation_reason(normalized.diagnostics) == "limit"
         ):
@@ -894,21 +894,96 @@ class SelectorResolver:
 
 
 def _normalize_query_payload(payload: Mapping[str, Any]) -> _NormalizedQueryOutcome:
-    query_payload = _unwrap_query_payload(payload)
+    query_payload, unwrap_error = _unwrap_query_payload(payload)
+    if unwrap_error is not None:
+        return _invalid_query_outcome(unwrap_error)
+
+    schema = query_payload.get("schema")
+    if "schema" in query_payload and (
+        not isinstance(schema, str)
+        or schema != "macos.accessibility.query.v1"
+    ):
+        return _invalid_query_outcome("Accessibility query schema is invalid.")
+
     diagnostics_value = query_payload.get("diagnostics")
+    if "diagnostics" in query_payload and not isinstance(
+        diagnostics_value,
+        Mapping,
+    ):
+        return _invalid_query_outcome(
+            "Accessibility query diagnostics must be a mapping."
+        )
     diagnostics = (
         dict(diagnostics_value) if isinstance(diagnostics_value, Mapping) else {}
     )
+
     error_value = query_payload.get("error")
+    if "error" in query_payload and not isinstance(error_value, Mapping):
+        return _invalid_query_outcome(
+            "Accessibility query error must be a mapping."
+        )
     error = dict(error_value) if isinstance(error_value, Mapping) else {}
-    failure_kind = _first_non_empty_string(
-        query_payload.get("failureKind"),
-        query_payload.get("failure_kind"),
-        diagnostics.get("failureKind"),
-        diagnostics.get("failure_kind"),
-        error.get("failureKind"),
-        error.get("failure_kind"),
+
+    failure_kind, failure_error = _consistent_query_string(
+        (query_payload, diagnostics, error),
+        ("failureKind", "failure_kind"),
+        "failure kind",
     )
+    if failure_error is not None:
+        return _invalid_query_outcome(failure_error)
+
+    retryable, retryable_error = _consistent_query_bool(
+        (query_payload, diagnostics, error),
+        ("retryable",),
+        "retryable",
+    )
+    if retryable_error is not None:
+        return _invalid_query_outcome(retryable_error)
+
+    available_value = query_payload.get("available")
+    if "available" in query_payload and not isinstance(available_value, bool):
+        return _invalid_query_outcome(
+            "Accessibility query available must be a boolean."
+        )
+    available = available_value if isinstance(available_value, bool) else None
+
+    status_value = query_payload.get("status")
+    if "status" in query_payload and (
+        not isinstance(status_value, str) or status_value not in {"ok", "failed"}
+    ):
+        return _invalid_query_outcome(
+            "Accessibility query status must be 'ok' or 'failed'."
+        )
+    status = status_value if isinstance(status_value, str) else None
+    if schema is None and status is not None:
+        return _invalid_query_outcome(
+            "Legacy Accessibility query responses must not include status."
+        )
+
+    is_failure = available is False or status == "failed" or failure_kind is not None
+    if available is True and (status == "failed" or failure_kind is not None):
+        return _invalid_query_outcome(
+            "Accessibility query success fields contradict failure evidence."
+        )
+    if status == "ok" and (available is False or failure_kind is not None):
+        return _invalid_query_outcome(
+            "Accessibility query status contradicts failure evidence."
+        )
+
+    raw_nodes = query_payload.get("nodes")
+    if "nodes" in query_payload:
+        if not isinstance(raw_nodes, list | tuple):
+            return _invalid_query_outcome(
+                "Accessibility query nodes must be a list."
+            )
+        if any(not isinstance(node, Mapping) for node in raw_nodes):
+            return _invalid_query_outcome(
+                "Accessibility query nodes must contain only mappings."
+            )
+        nodes = tuple(dict(node) for node in raw_nodes)
+    else:
+        nodes = ()
+
     message = _bounded_message(
         _first_non_empty_string(
             query_payload.get("message"),
@@ -916,31 +991,43 @@ def _normalize_query_payload(payload: Mapping[str, Any]) -> _NormalizedQueryOutc
             error.get("message"),
         )
     )
-    retryable = _first_bool(
-        query_payload.get("retryable"),
-        diagnostics.get("retryable"),
-        error.get("retryable"),
-    )
-    available_value = query_payload.get("available")
-    if isinstance(available_value, bool):
-        available = available_value
-    else:
-        has_legacy_success_shape = (
-            "nodes" in query_payload or "diagnostics" in query_payload
+
+    if is_failure:
+        return _NormalizedQueryOutcome(
+            available=False,
+            snapshot_id=_first_non_empty_string(
+                query_payload.get("snapshotId"),
+                query_payload.get("snapshot_id"),
+            ),
+            nodes=nodes,
+            diagnostics=diagnostics,
+            failure_kind=failure_kind,
+            message=message,
+            retryable=retryable,
         )
-        available = failure_kind is None and has_legacy_success_shape
-    raw_nodes = query_payload.get("nodes")
-    nodes = (
-        tuple(dict(node) for node in raw_nodes if isinstance(node, Mapping))
-        if isinstance(raw_nodes, list | tuple)
-        else ()
-    )
+
+    if "nodes" not in query_payload:
+        return _invalid_query_outcome(
+            "Accessibility query success response is missing nodes."
+        )
+    if "diagnostics" not in query_payload:
+        return _invalid_query_outcome(
+            "Accessibility query success response is missing diagnostics."
+        )
+    if "truncated" not in diagnostics or not isinstance(
+        diagnostics.get("truncated"),
+        bool,
+    ):
+        return _invalid_query_outcome(
+            "Accessibility query diagnostics.truncated must be a boolean."
+        )
+
     snapshot_id = _first_non_empty_string(
         query_payload.get("snapshotId"),
         query_payload.get("snapshot_id"),
     )
     return _NormalizedQueryOutcome(
-        available=available,
+        available=True,
         snapshot_id=snapshot_id,
         nodes=nodes,
         diagnostics=diagnostics,
@@ -950,18 +1037,88 @@ def _normalize_query_payload(payload: Mapping[str, Any]) -> _NormalizedQueryOutc
     )
 
 
-def _unwrap_query_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    direct = payload.get("accessibilityQuery")
-    if isinstance(direct, Mapping):
-        return direct
-    observation = payload.get("observation")
-    if isinstance(observation, Mapping):
-        wrapped = observation.get("accessibilityQuery")
-        if isinstance(wrapped, Mapping):
-            return wrapped
-        if observation.get("schema") == "macos.accessibility.query.v1":
-            return observation
-    return payload
+def _unwrap_query_payload(
+    payload: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], str | None]:
+    if "accessibilityQuery" in payload:
+        direct = payload.get("accessibilityQuery")
+        if not isinstance(direct, Mapping):
+            return {}, "Accessibility query wrapper must contain a mapping."
+        return direct, None
+    if "observation" in payload:
+        observation = payload.get("observation")
+        if not isinstance(observation, Mapping):
+            return {}, "Accessibility query observation must be a mapping."
+        if "accessibilityQuery" in observation:
+            wrapped = observation.get("accessibilityQuery")
+            if not isinstance(wrapped, Mapping):
+                return {}, "Accessibility query observation wrapper is malformed."
+            return wrapped, None
+        if any(
+            key in observation
+            for key in (
+                "schema",
+                "available",
+                "status",
+                "failureKind",
+                "failure_kind",
+                "nodes",
+                "diagnostics",
+            )
+        ):
+            return observation, None
+        return {}, "Accessibility query observation payload is missing."
+    return payload, None
+
+
+def _invalid_query_outcome(message: str) -> _NormalizedQueryOutcome:
+    return _NormalizedQueryOutcome(
+        available=False,
+        snapshot_id=None,
+        nodes=(),
+        diagnostics={},
+        failure_kind="accessibility_query_failed",
+        message=_bounded_message(message),
+        retryable=False,
+    )
+
+
+def _consistent_query_string(
+    containers: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+    field_name: str,
+) -> tuple[str | None, str | None]:
+    values: list[str] = []
+    for container in containers:
+        for key in keys:
+            if key not in container:
+                continue
+            value = container[key]
+            if not isinstance(value, str) or not value.strip():
+                return None, f"Accessibility query {field_name} must be a string."
+            values.append(value.strip())
+    if len(set(values)) > 1:
+        return None, f"Accessibility query {field_name} values conflict."
+    return (values[0] if values else None), None
+
+
+def _consistent_query_bool(
+    containers: tuple[Mapping[str, Any], ...],
+    keys: tuple[str, ...],
+    field_name: str,
+) -> tuple[bool | None, str | None]:
+    values: list[bool] = []
+    for container in containers:
+        for key in keys:
+            if key not in container:
+                continue
+            value = container[key]
+            if not isinstance(value, bool):
+                return None, f"Accessibility query {field_name} must be a boolean."
+            values.append(value)
+    if len(set(values)) > 1:
+        return None, f"Accessibility query {field_name} values conflict."
+    return (values[0] if values else None), None
 
 
 def _first_non_empty_string(*values: object) -> str | None:

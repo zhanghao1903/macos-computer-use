@@ -4535,3 +4535,32 @@ computer-use-macos package suite: 163 passed, 1 skipped
 ```
 
 No AX query, Accessibility action, or live desktop operation was executed.
+
+## R10-B Strict Query Result Envelopes
+
+Status: implementation and cross-package verification complete; independent
+re-review remains pending.
+
+This slice addresses `PRR-042`. The shared query normalizer now validates the
+response wrapper and schema, presence/type of `available` and `status`, all
+failure-kind and retryability copies, node collection shape, diagnostics, and
+Boolean truncation evidence before exposing candidates. It rejects
+contradictory success/failure fields and never drops a malformed node or
+replaces malformed diagnostics with an empty success map.
+
+Canonical v1 responses, the generated query shape, the narrow legacy shape,
+and coherent lower-layer failures remain accepted. Invalid responses become
+`selector_query_failed` with no elements and cannot populate the selector
+cache. Collection extraction consumes the same strict normalizer.
+
+The dedicated contract matrix covers four valid success shapes, eleven
+malformed structures, six contradiction/duplicate cases, and invalid-then-
+valid cache recovery.
+
+```text
+selector query contract tests: 4 passed
+computer-use-macos package suite: 168 passed, 1 skipped
+wechat-desktop-tool package suite: 154 passed
+```
+
+No live Accessibility or WeChat mutation was executed.

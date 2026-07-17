@@ -1852,6 +1852,28 @@ class SelectorResolverTests(unittest.TestCase):
         self.assertEqual(empty.diagnostics.failure_kind, "selector_not_found")
         self.assertIsNone(empty.diagnostics.cause_failure_kind)
 
+    def test_resolver_accepts_strict_legacy_query_success_shape(self) -> None:
+        profile = parse_selector_profile(_valid_profile())
+        payload = {
+            "nodes": [
+                {
+                    "axPath": "0/2",
+                    "role": "AXRadioButton",
+                    "description": "Contacts",
+                    "actions": ["AXPress"],
+                }
+            ],
+            "diagnostics": {"truncated": False},
+        }
+
+        result = SelectorResolver(
+            profile,
+            FakeQueryRunner([payload]),
+        ).resolve("navigation.contacts")
+
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.elements[0].element_ref.ax_path, "0/2")
+
     def test_resolver_stops_when_fallback_query_fails(self) -> None:
         raw = _valid_profile()
         selector = raw["selectors"]["navigation"]["contacts"]  # type: ignore[index]

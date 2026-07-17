@@ -92,8 +92,8 @@ drops malformed entries or replaces malformed diagnostics with an empty map.
 
 | Shape | Required fields | Optional fields |
 | --- | --- | --- |
-| Canonical v1 | `schema = macos.accessibility.query.v1`, `available = true`, `nodes` is a list/tuple of mappings, `diagnostics` is a mapping with Boolean `truncated` | `status = ok`, snapshot metadata |
-| Legacy success | `nodes` is a list/tuple of mappings, `diagnostics` is a mapping with Boolean `truncated`; `schema`, `available`, and `status` are all absent | snapshot metadata |
+| Canonical v1 | `schema = macos.accessibility.query.v1`, `nodes` is a list/tuple of mappings, `diagnostics` is a mapping with Boolean `truncated` | `available = true`, `status = ok`, snapshot metadata |
+| Legacy success | `nodes` is a list/tuple of mappings, `diagnostics` is a mapping with Boolean `truncated`; `schema` and `status` are absent | `available` may be absent or `true`; snapshot metadata |
 
 Legacy inference is deliberately narrow. A partially modern envelope cannot
 omit schema or change field types and then fall back to legacy behavior.
