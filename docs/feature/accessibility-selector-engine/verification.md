@@ -2283,3 +2283,55 @@ still has no accepted clean baseline and is not a configured CI gate. No live
 Accessibility action, WeChat contact switch, message read, draft, or send was
 executed. Signed-helper, TestPyPI, PyPI, and trusted-publisher proof remain
 release-stage gates rather than merge-review evidence for this remediation.
+
+## R9 Remediation Evidence For Review `e86181a`
+
+Date: 2026-07-17.
+
+Reviewed head:
+`e86181a9c300cd9929d4ce61c08188a1a36f3bb9`.
+
+Latest implementation head:
+`45774fe`.
+
+The latest review reopened or introduced five blockers. The following
+implementation slices provide candidate remediation without changing the
+authoritative `REQUEST_CHANGES` decision:
+
+| Finding | Implementation | Deterministic evidence |
+| --- | --- | --- |
+| `PRR-037` | `60138f3` | Generated query/action workers accept exact bundle plus localized alias, retain name-only fallback, and reject wrong, hidden, terminated, or absent targets. |
+| `PRR-038` | `60138f3`, `7d870ac` | All three produced values are declared, exported, registered, normalized, documented, and imported from an isolated installed wheel. |
+| `PRR-026` | `7464ad1` | Result evidence `performed`, ToolError evidence `unknown`, nested `-25204`, and contradictory pre-dispatch evidence execute the original operation only and zero fallback mutations. |
+| `PRR-039` | `1967107` | Zero, one, and multiple candidates under limit, time-budget, and depth truncation across all three paths execute zero click, Accessibility action, Return, draft, and submit operations. |
+| `PRR-023` | F6 tracked-record update | Merge-readiness and PR-description records preserve the current decision and pending re-review instead of publishing obsolete approval. |
+
+An additional forward-risk regression in `45774fe` proves that failure of the
+final search-result query is not interpreted as an empty candidate list. The
+structured permission, timeout, transport, truncation, or generic query
+failure returns before Return, draft, or submit.
+
+### Latest Local Results
+
+| Scope | Result |
+| --- | --- |
+| Root repository | 128 passed, including wheel and release integration checks. |
+| `app-control-protocol` | 55 passed. |
+| `computer-use-macos` | 158 passed, 1 sandbox socket test skipped. |
+| `wechat-desktop-tool` | 154 passed after the final search-query regression. |
+| Compile and diff | Passed. |
+| Release preflight | Passed with the expected sandbox socket and unavailable external-release-proof warnings. |
+| Three-wheel package proof | Built and installed all packages in isolation, imported public APIs, checked metadata/content/no-bytecode rules, and rejected the incompatible old dependency set. |
+| Latest review result | `pr-review-macos-computer-use-3-e86181a.json` validates under the repository review-result validator. |
+
+### Limitations
+
+- These are implementation-owner claims. An independent exact-head re-review
+  must reproduce the blockers and decide whether they are closed.
+- No live Accessibility action, contact switch, message read, draft, or WeChat
+  send was executed.
+- At the time this record was prepared, GitHub access through the configured
+  local proxy returned HTTP 503. Remote push, exact-head CI observation, and
+  live PR-body synchronization therefore remained pending external gates.
+- Signed-helper, notarization, TestPyPI/PyPI, and trusted-publisher proof remain
+  release-stage work.

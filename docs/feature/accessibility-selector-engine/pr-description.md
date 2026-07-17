@@ -3,176 +3,103 @@
 ## Current Status
 
 The latest authoritative review is
-[`pr-review-macos-computer-use-3-59c6fb5.md`](./pr-review-macos-computer-use-3-59c6fb5.md)
-for head `59c6fb5`, published at `0a1e5cb`. Its decision is
-`REQUEST_CHANGES`. Runtime remediation is complete at `3abc501`, and the
-historical `f19cbd9` machine-result integrity defect has been corrected without
-changing its represented decision or inventing exact-head test runs. Full
-clean-clone verification and GitHub CI pass at exact lifecycle head `681170d`;
-a new re-review remains required before merge.
+[`pr-review-macos-computer-use-3-e86181a.md`](./pr-review-macos-computer-use-3-e86181a.md)
+for reviewed head `e86181a9c300cd9929d4ce61c08188a1a36f3bb9`.
+Its decision is `REQUEST_CHANGES`, with blockers `PRR-023`, `PRR-026`,
+`PRR-037`, `PRR-038`, and `PRR-039`.
+
+Candidate fixes are implemented through `45774fe`. The PR remains draft and
+must not be treated as approved or merged until the remote head passes CI and
+an independent exact-head re-review closes those findings.
 
 ## Problem
 
-WeChat semantic APIs previously depended on brittle Accessibility paths and
-broad scans. The selector-engine work added fast, bounded, identity-checked AX
-queries and actions, but a no-replay remediation later collapsed Apple's
-definite unsupported errors into the same class as uncertain attempted
-actions. Rows that safely rejected `AXPress` could therefore lose their one
-configured fallback. Later reviews found producer/proof defects and broader
-boundedness and trust-boundary gaps: truncated selector decisions, collection
-step drift and pagination errors, background-app targeting, non-atomic profile
-overrides, private AX evidence leakage, ambiguous failure routing, incomplete
-failure registration, and an invalid historical review artifact.
+The selector engine had five remaining correctness and lifecycle gaps:
 
-## Solution
+- legacy or pre-dispatch action evidence could authorize a second mutation
+  despite known `performed`, `unknown`, or `-25204` evidence;
+- a correct WeChat bundle could be rejected when the localized app name was
+  `微信` instead of `WeChat`;
+- three emitted frontmost-target failure values were missing from the stable
+  public failure registry;
+- truncated direct contact-target queries could still click, invoke an
+  Accessibility action, or press Return using an incomplete candidate set;
+- the live PR body still published an obsolete approval and CI snapshot.
 
-This PR provides an internal Accessibility selector engine owned by
-`computer-use-macos` and packaged WeChat selector/control maps owned by
-`wechat-desktop-tool`:
+## Candidate Remediation
 
-- validated selector, relation, confidence, cache, collection, and actionRef
-  contracts;
-- bounded AX queries with scoped/indexed roots, safe attributes, time and node
-  limits, timing diagnostics, and a warm query worker;
-- verified AX actions with a separate warm action worker and dispatch-aware
-  no-replay behavior;
-- packaged WeChat navigation, contact, conversation, search, chat, and message
-  maps with optional profile injection;
-- policy-gated current-frame or selector fallbacks and semantic
-  postconditions;
-- selector-backed inspect, list, open/focus, message-read, draft, and send
-  workflows;
-- privacy-safe source-bound release proof and coordinated package version
-  `0.2.0`.
-
-The latest remediation adds these invariants:
-
-- truncated selector/collection data cannot produce a normal match, cache
-  write, or false not-found result;
-- collection pages count accepted semantic records and enforce the public
-  query limit;
-- generated query/action/tree workers target only the current visible
-  frontmost application;
-- WeChat profile and control-map overrides activate as one validated pair;
-- all supported action-proof containers participate in one request-bound,
-  fail-closed consistency check;
-- query/action/observe evidence and events use privacy-safe allowlists;
-- structured permission, timeout, transport, and truncation causes take
-  precedence over message keywords;
-- all emitted worker failure kinds are exported and registered.
-
-The earlier action-recovery remediation adds precise native action effect
-evidence:
-
-- successful native calls publish `actionEffect=performed`;
-- `AXPress/-25206` and `AXSetFocus/-25205` publish
-  `failureKind=accessibility_action_unsupported`, the exact requested `action`,
-  `actionAttempted=true`, `actionEffect=none`, and `nativeErrorCode`;
-- all other native errors, including `-25204`, publish
-  `actionEffect=unknown` and remain fail-closed.
-
-`computer-use-macos` now declares
-`errors.ACCESSIBILITY_ACTION_UNSUPPORTED` and includes it in
-`COMPUTER_USE_FAILURE_KINDS`. Malformed action-effect or attempted values remain
-nested raw diagnostics and are not promoted as trusted metadata.
-
-The WeChat adapter permits exactly one existing fallback only when the new
-failure kind, action, attempted state, effect, and native code form the exact
-`AXPress/-25206` or `AXSetFocus/-25205` no-effect proof. Every public,
-metadata, alias, and nested occurrence must have the expected type, agree, and
-match the outbound request action. Attempted and dispatch evidence is parsed as
-absent, valid true, valid false, or invalid without truthiness coercion. It does
-not replay EOF, timeout, malformed container/value, missing, contradictory,
-request-mismatched, wrong-code, generic attempted, or unknown-dispatch outcomes.
-
-No public `resolve_selector` or `extract_collection` protocol operation is
-introduced. No command or schema version changes in the remediation.
+- `60138f3` restores bundle-first frontmost identity. Name matching is used
+  only when no bundle was requested.
+- `60138f3` declares, exports, registers, documents, and producer-tests the
+  query, action, and tree frontmost-target failure values.
+- `7464ad1` requires semantically coherent recovery evidence. Legacy and
+  pre-dispatch paths reject known effects and native codes unless the strict
+  native unsupported/no-effect contract is complete.
+- `1967107` rejects limit, time-budget, and depth truncation before parsing or
+  mutating across control-map, visible-row, and search-result contact paths.
+- `7d870ac` proves the new public failures survive wheel build, isolated
+  install, import, and registry routing.
+- `45774fe` closes an adjacent fail-open path: a failed final search-result
+  query now returns its structured failure instead of being treated as zero
+  candidates and followed by Return.
+- The tracked F6 records now state the current `REQUEST_CHANGES` decision and
+  pending re-review instead of claiming obsolete approval.
 
 ## Consumer Impact
 
-Consumers continue using the existing semantic methods:
+Existing semantic APIs and request schemas are unchanged. Public consumers can
+now import and route these additional package-owned failure constants:
 
-- `inspect_window`
-- `list_contacts`
-- `list_conversations`
-- `open_contact`
-- `focus_contact`
-- `read_visible_messages`
-- `read_contact_messages`
-- `send_message`
+- `ACCESSIBILITY_QUERY_TARGET_APP_NOT_FRONTMOST`
+- `TARGET_APP_NOT_FRONTMOST`
+- `ACCESSIBILITY_TREE_TARGET_APP_NOT_FRONTMOST`
 
-Direct `accessibility_action` observations now add `actionEffect` and, for
-native failures, the requested `action` plus `nativeErrorCode`. Existing fields
-remain compatible.
-Applications routing failures through `COMPUTER_USE_FAILURE_KINDS` now receive
-the emitted `accessibility_action_unsupported` value as a declared package
-failure.
-Truncated WeChat selector reads return the stable
-`wechat_query_truncated` failure rather than an operation-specific not-found
-result. Raw Accessibility query payloads are available only through explicit
-`inspect_window(include_raw=True)` result data, not normal evidence or events.
+The values are members of `COMPUTER_USE_FAILURE_KINDS`. WeChat contact-target
+workflows return structured query or `wechat_query_truncated` failures before
+any mutation when target-selection data is failed or incomplete.
 
 ## Safety
 
-- App, bundle, window, snapshot, role, label, enabled state, and action
-  preconditions are checked before native actions.
-- A definite unsupported/no-effect result may use only one already configured,
-  policy-gated fallback.
-- `-25204`, transport loss, malformed response, missing proof, wrong
-  action/code pairing, request/response action mismatch, malformed truthy or
-  falsey values, malformed containers, contradictory duplicates, and unknown
-  dispatch remain non-replayable.
-- A failed fallback is final.
-- Contact identity is verified before reads, drafts, or sends continue.
-- Private UI content and raw observations are excluded from release proof.
-- Background or hidden applications cannot receive generated AX query, action,
-  or tree work.
-- Truncated data and malformed selector profile steps cannot drive a semantic
-  decision.
+- Exact bundle identity takes precedence over a localized display-name alias.
+- Contradictory action evidence cannot authorize replay.
+- Native `-25204`, `performed`, and `unknown` outcomes remain non-replayable.
+- Truncation is checked before candidates are ranked or acted upon.
+- A failed final target query cannot fall through to Return, draft, or send.
+- Composite send regressions assert zero target action, Return, message draft,
+  and submit for unsafe target-selection outcomes.
+- No live WeChat mutation was used as remediation evidence.
 
 ## Verification
 
-Clean-clone verification at exact head `681170d` passed:
+Latest broad local remediation verification passed:
 
-- root repository: 127 tests;
+- root repository: 128 tests;
 - `app-control-protocol`: 55 tests;
-- `computer-use-macos`: 155 tests, 1 sandbox socket skip;
-- `wechat-desktop-tool`: 149 tests;
-- compilation, release preflight, all three wheel build/content/install/API
-  smoke checks, old dependency rejection, whitespace, and clean-tree checks;
-- both review machine results validate under schema/invariant validator `1.1`;
-- corrected `f19cbd9` result SHA-256:
-  `01ed707a583c533e50c7a736d3dd235832211701db42552f3419d47c72b04653`;
-- exact-head GitHub `CI / test` run
-  [`29519349230`](https://github.com/zhanghao1903/macos-computer-use/actions/runs/29519349230):
-  passed.
+- `computer-use-macos`: 158 tests, 1 sandbox socket skip;
+- `wechat-desktop-tool`: 154 tests;
+- compilation, release preflight, three-wheel build and isolated API smoke,
+  old dependency rejection, review-result validation, and whitespace checks.
 
-No fresh real WeChat mutation was needed for this error-classification fix.
-Historical authorized live evidence remains recorded separately and is not
-represented as post-remediation proof.
+The new counterexamples execute real generated workers, all shared action
+recovery entry points, all three contact-target paths, and the full
+`send_message` operation sequence. GitHub CI must still pass on the pushed
+exact head.
 
 ## Finding State
 
-- `PRR-001` through `PRR-020`, plus `PRR-022` through `PRR-025`: previously
-  resolved; final regression revalidation remains part of the next review.
-- `PRR-021`, `PRR-026`, `PRR-030`, `PRR-033`, `PRR-035`: remediated in
-  `3abc501`.
-- `PRR-028`, `PRR-029`, `PRR-031`, `PRR-032`, `PRR-034`, `PRR-036`:
-  remediated in `b9493a8`.
-- `PRR-027`: historical machine result corrected and validator-clean; final
-  downstream re-review remains pending.
+| Finding | State |
+| --- | --- |
+| `PRR-026` | Candidate fix in `7464ad1`; independent revalidation pending. |
+| `PRR-037` | Candidate fix in `60138f3`; independent revalidation pending. |
+| `PRR-038` | Candidate fix in `60138f3` and wheel proof in `7d870ac`; independent revalidation pending. |
+| `PRR-039` | Candidate fix in `1967107`, with adjacent query-failure hardening in `45774fe`; independent revalidation pending. |
+| `PRR-023` | Tracked records corrected; live PR body synchronization and independent revalidation pending. |
 
-## Release Record
-
-The existing Unreleased changelog records the selector engine and fallback for
-WeChat rows that omit or reject `AXPress`. The final release note should
-explicitly mention both
-dispatch/attempt-aware no-replay and the definite unsupported/no-effect single
-fallback exception.
+All previously resolved findings remain subject to regression review at the
+new exact head.
 
 ## Merge Decision
 
-The current authoritative decision remains `REQUEST_CHANGES`. Exact-head local
-validation and GitHub CI are green; do not mark the PR ready or merge until a
-new schema-valid review closes all findings and grants approval. Signed-helper
-proof and publication remain separate release actions.
+The authoritative decision remains `REQUEST_CHANGES`. Keep the PR draft. Do
+not mark ready, approve, or merge until exact-head CI is green, the live and
+tracked F6 surfaces agree, and a new independent review grants approval.
