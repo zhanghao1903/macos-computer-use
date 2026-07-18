@@ -7,7 +7,8 @@
 | Lifecycle phase | F7 release preparation and publishing proof |
 | Release branch | `codex/release-0.3.0` |
 | Release-blocker branch | `codex/release-0.3.0-control-map-fallback` |
-| Source baseline | merged release head `ca9352e` |
+| Publishing branch | `codex/release-token-publishing` |
+| Source baseline | latest merged release head `1b2c9a5` |
 | Target version | `0.3.0` for all three packages |
 | Target tag | `v0.3.0` |
 | Last PyPI version | `0.1.1` |
@@ -61,7 +62,7 @@ required.
 | WeChat submit smoke | Exact-head sanitized report with explicit one-shot authorization. | Pending |
 | Selector-engine live proof | Exact-head v2 report, non-empty collections, all timings at most 3000 ms. | Pending |
 | TestPyPI coordinated install | Strict isolated `testpypi-install.json` for all `0.3.0` packages. | Pending |
-| PyPI Trusted Publisher | All three project/workflow bindings in `trusted-publisher.json`. | Pending manual verification |
+| PyPI publish authentication | `PYPI_API_TOKEN` GitHub secret metadata and sanitized `pypi-auth.json`. | Pending final configuration |
 | Strict proof bundle | Eight exact-name assets accepted with `--require-external`. | Pending |
 | Release PR and CI | Release commit merged and final `main` CI green. | Pending |
 | GitHub Release and PyPI | Published `v0.3.0` workflow succeeds and PyPI reports all packages. | Pending |
@@ -135,11 +136,13 @@ must never trigger an automatic replay.
    proof.
 4. Upload all six distributions to TestPyPI and generate the isolated install
    report.
-5. Verify Trusted Publisher settings for all three PyPI projects.
+5. Configure the production `PYPI_API_TOKEN` GitHub repository secret and
+   generate sanitized `pypi-auth.json` metadata.
 6. Generate and strictly validate the eight-file release proof bundle.
 7. Create tag `v0.3.0`, create a draft GitHub Release, and attach every proof
    asset.
-8. Publish the GitHub Release to trigger Trusted Publishing.
+8. Publish the GitHub Release to trigger the macOS build/proof job followed by
+   the token-authenticated Ubuntu publish job.
 9. Verify the workflow, PyPI versions, installed public API, and skill bundle.
 10. Record F8 post-release traceability in a separate commit and PR.
 
