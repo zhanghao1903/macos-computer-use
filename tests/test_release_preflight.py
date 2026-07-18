@@ -173,6 +173,9 @@ class ReleasePreflightTests(unittest.TestCase):
 
         self.assertIn("build_wechat_tool", expected)
         self.assertIn("send_message", expected)
+        self.assertIn("WeChatAgentSkill", expected)
+        self.assertIn("load_wechat_use_skill", expected)
+        self.assertIn("export_wechat_use_skill", expected)
 
     def test_module_entrypoint_check_reports_missing_help_term(self) -> None:
         preflight = _load_preflight()
@@ -1510,6 +1513,26 @@ class ReleasePreflightTests(unittest.TestCase):
         )
         self.assertIn(
             "wheel-content:wechat-desktop-tool:"
+            "wechat_desktop_tool/agent_skill.py",
+            names,
+        )
+        self.assertIn(
+            "wheel-content:wechat-desktop-tool:"
+            "wechat_desktop_tool/skills/wechat-use/SKILL.md",
+            names,
+        )
+        self.assertIn(
+            "wheel-content:wechat-desktop-tool:"
+            "wechat_desktop_tool/skills/wechat-use/manifest.json",
+            names,
+        )
+        self.assertIn(
+            "wheel-content:wechat-desktop-tool:"
+            "wechat_desktop_tool/skills/wechat-use/references/recovery.md",
+            names,
+        )
+        self.assertIn(
+            "wheel-content:wechat-desktop-tool:"
             "wechat_desktop_tool/examples/wechat_smoke.py",
             names,
         )
@@ -1693,6 +1716,31 @@ class ReleasePreflightTests(unittest.TestCase):
             failures,
         )
 
+    def test_wheel_dir_reports_missing_wechat_agent_skill(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            wheel_dir = Path(tmpdir) / "dist"
+            wheel_dir.mkdir()
+            _write_fake_wheel_set(
+                preflight,
+                wheel_dir,
+                omitted_content={
+                    "wechat-desktop-tool": {
+                        "wechat_desktop_tool/skills/wechat-use/SKILL.md"
+                    }
+                },
+            )
+
+            results = preflight.run_preflight(ROOT, wheel_dir=wheel_dir)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "wheel-content:wechat-desktop-tool:"
+            "wechat_desktop_tool/skills/wechat-use/SKILL.md",
+            failures,
+        )
+
     def test_sdist_dir_accepts_complete_built_artifacts(self) -> None:
         preflight = _load_preflight()
 
@@ -1750,6 +1798,21 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn(
             "sdist-content:wechat-desktop-tool:"
             "src/wechat_desktop_tool/models.py",
+            names,
+        )
+        self.assertIn(
+            "sdist-content:wechat-desktop-tool:"
+            "src/wechat_desktop_tool/agent_skill.py",
+            names,
+        )
+        self.assertIn(
+            "sdist-content:wechat-desktop-tool:"
+            "src/wechat_desktop_tool/skills/wechat-use/SKILL.md",
+            names,
+        )
+        self.assertIn(
+            "sdist-content:wechat-desktop-tool:"
+            "src/wechat_desktop_tool/skills/wechat-use/manifest.json",
             names,
         )
         self.assertIn("sdist-metadata-deps:computer-use-macos", names)
@@ -1846,6 +1909,31 @@ class ReleasePreflightTests(unittest.TestCase):
         failures = [result.name for result in results if result.status == "fail"]
         self.assertIn(
             "sdist-content:wechat-desktop-tool:src/wechat_desktop_tool/tool.py",
+            failures,
+        )
+
+    def test_sdist_dir_reports_missing_wechat_agent_skill(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            sdist_dir = Path(tmpdir) / "dist"
+            sdist_dir.mkdir()
+            _write_fake_sdist_set(
+                preflight,
+                sdist_dir,
+                omitted_content={
+                    "wechat-desktop-tool": {
+                        "src/wechat_desktop_tool/skills/wechat-use/manifest.json"
+                    }
+                },
+            )
+
+            results = preflight.run_preflight(ROOT, sdist_dir=sdist_dir)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "sdist-content:wechat-desktop-tool:"
+            "src/wechat_desktop_tool/skills/wechat-use/manifest.json",
             failures,
         )
 
@@ -2162,6 +2250,9 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertIn("from wechat_desktop_tool import adapter, observations, recipes", snippet)
         self.assertIn("from wechat_desktop_tool.examples import wechat_smoke", snippet)
         self.assertIn("wechat_smoke.main", snippet)
+        self.assertIn("load_wechat_use_skill", snippet)
+        self.assertIn("WeChatAgentSkill", snippet)
+        self.assertIn("references/recovery.md", snippet)
 
 
 class TrustedPublisherReportTests(unittest.TestCase):

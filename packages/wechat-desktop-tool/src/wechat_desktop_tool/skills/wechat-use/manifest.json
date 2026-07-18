@@ -1,0 +1,13 @@
+{
+  "schema": "wechat.agent-skill.v1",
+  "name": "wechat-use",
+  "version": "1.0.0",
+  "description": "Operate WeChat through registered wechat-desktop-tool semantic operations. Use when an Agent must inspect WeChat, list or open contacts and conversations, read visible messages, prepare a draft, or send a text message with explicit authorization and safe recovery.",
+  "entrypoint": "SKILL.md",
+  "files": [
+    "SKILL.md",
+    "agents/openai.yaml",
+    "references/operations.md",
+    "references/recovery.md"
+  ]
+}

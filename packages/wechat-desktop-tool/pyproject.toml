@@ -43,7 +43,14 @@ where = ["src"]
 exclude = ["*.__pycache__", "*.__pycache__.*"]
 
 [tool.setuptools.package-data]
-wechat_desktop_tool = ["py.typed", "profiles/*.toml"]
+wechat_desktop_tool = [
+  "py.typed",
+  "profiles/*.toml",
+  "skills/wechat-use/*.json",
+  "skills/wechat-use/*.md",
+  "skills/wechat-use/agents/*.yaml",
+  "skills/wechat-use/references/*.md",
+]
 
 [tool.ruff]
 line-length = 88
