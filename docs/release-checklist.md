@@ -128,6 +128,8 @@ Use this checklist before publishing the app-control tool package suite.
 - [ ] Packages import no UI frameworks.
 - [ ] `computer-use-macos` imports no `wechat-desktop-tool`.
 - [ ] `wechat-desktop-tool` imports no macOS backend package.
+- [ ] The release workflow keeps `PYPI_API_TOKEN` out of the macOS build job and
+      runs the Docker-based publish action only in the dependent Ubuntu job.
 - [ ] High-risk direct primitive calls return blocked `ComputerUseResult`
       metadata, while protocol `run_command(...)` returns a structured failed
       `ToolObservation` with the original direct status preserved as

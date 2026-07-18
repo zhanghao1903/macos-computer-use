@@ -121,6 +121,9 @@
   value or local credential path.
 - `release.yml` supplies `${{ secrets.PYPI_API_TOKEN }}` to the official PyPI
   publish action and does not request OIDC permission in token mode.
+- The official Docker publish action runs in a dependent Linux job; the macOS
+  test/build/proof job transfers verified distributions but cannot access the
+  production token.
 - Automated tests cover success, missing/malformed report, wrong index, wrong
   secret name, proof precedence, bundle output, and workflow contract.
 - Documentation clearly distinguishes TestPyPI credentials, production token

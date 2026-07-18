@@ -315,9 +315,11 @@ The bundle validates selector proof v2 before copying any asset. Unknown keys,
 raw/sensitive fields, absolute local paths, invalid counts, non-null
 `failedStep`, timings above 3000 ms, and a source SHA mismatch stop bundling.
 
-The GitHub release workflow enforces the same strict preflight before the PyPI
-publish step. Attach these JSON files to the GitHub Release before publishing
-it:
+The GitHub release workflow enforces the same strict preflight in a macOS build
+job, then transfers the verified distributions through a GitHub Actions artifact
+to a dependent Ubuntu publish job. The official publish action is Docker-based
+and must run on GNU/Linux. Only the Ubuntu job can access `PYPI_API_TOKEN`.
+Attach these JSON files to the GitHub Release before publishing it:
 
 ```text
 helper-doctor.json
@@ -347,8 +349,9 @@ After TestPyPI validation:
 7. Create a draft GitHub Release from that tag.
 8. Attach the external proof JSON files listed above.
 9. Publish the GitHub Release.
-10. The `Release` workflow builds distributions, downloads the proof assets,
-   runs strict preflight, and publishes to PyPI only if all proofs pass.
+10. The `Release` workflow builds distributions and runs strict proof on macOS,
+    then the dependent Ubuntu job publishes the transferred distributions only
+    if every build gate passed.
 
 The workflow fails before the publish action if `PYPI_API_TOKEN` is empty. It
 uses `user: __token__` and passes the secret directly to the official PyPI

@@ -604,6 +604,53 @@ class ReleasePreflightTests(unittest.TestCase):
         failures = {result.name for result in results if result.status == "fail"}
         self.assertIn("workflow:release-omits-unused-oidc", failures)
 
+    def test_workflow_check_requires_separate_linux_publish_job(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = (ROOT / ".github/workflows/release.yml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "  publish:\n    needs: build\n    runs-on: ubuntu-latest",
+                "  publish:\n    needs: build\n    runs-on: macos-latest",
+            )
+            _write_workflow_fixture(root, release)
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "workflow:release-separates-build-and-linux-publish",
+            failures,
+        )
+
+    def test_workflow_check_rejects_pypi_secret_in_build_job(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = (ROOT / ".github/workflows/release.yml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "  build:\n    runs-on: macos-latest\n",
+                (
+                    "  build:\n"
+                    "    runs-on: macos-latest\n"
+                    "    env:\n"
+                    "      LEAKED_SECRET: ${{ secrets.PYPI_API_TOKEN }}\n"
+                ),
+            )
+            _write_workflow_fixture(root, release)
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn(
+            "workflow:release-limits-pypi-token-to-publish-job",
+            failures,
+        )
+
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()
 

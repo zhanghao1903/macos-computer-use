@@ -52,7 +52,7 @@ deriving any credential material.
 | `scripts/pypi_auth_report.py` | Create sanitized metadata asserting that the expected GitHub secret was configured. It never reads a token. |
 | `scripts/release_preflight.py` | Validate exactly one supported PyPI authentication report and all other release proofs. |
 | `scripts/release_proof_bundle.py` | Copy the exact validated auth report into a release proof bundle and produce the aggregate manifest. |
-| `.github/workflows/release.yml` | Check the secret is non-empty, validate proof, and pass the secret to the official publish action. |
+| `.github/workflows/release.yml` | Validate and build on macOS, transfer verified distributions, then check and use the secret only in a Linux publish job. |
 | PyPI publish action | Exchange the secret for authenticated uploads to production PyPI. |
 
 Runtime packages do not depend on these scripts, reports, or credentials.
@@ -161,18 +161,25 @@ python scripts/release_proof_bundle.py \
 ```mermaid
 flowchart LR
     A["Maintainer-owned PyPI token"] -->|"stdin; one-time setup"| B["GitHub encrypted repository secret"]
-    B -->|"release-job environment only"| C["Official PyPI publish action"]
+    B -->|"publish job only"| J["Ubuntu publish job"]
+    J --> C["Official PyPI publish action"]
     C -->|"authenticated HTTPS upload"| D["Production PyPI"]
 
     E["GitHub secret metadata check"] --> F["Sanitized pypi-auth.json"]
     F --> G["Release proof bundle"]
     G --> H["Strict release preflight"]
-    H -->|"all proofs pass"| C
+    M["macOS test and build job"] --> H
+    H -->|"all proofs pass"| I["Verified distributions artifact"]
+    I --> J
 
     B -. "no credential data" .-> F
 ```
 
-The credential path and proof path are deliberately separate. The report
+The credential path and proof path are deliberately separate. The macOS build
+job validates source, artifacts, and proofs without receiving the production
+secret. Its verified distributions move through a GitHub Actions artifact to a
+dependent Ubuntu publish job, because the official publish action is a Docker
+action supported only on GNU/Linux runners. The report
 states that the expected secret metadata was configured; it cannot authenticate
 an upload and contains no material from which the token can be recovered.
 
@@ -182,8 +189,9 @@ an upload and contains no material from which the token can be recovered.
 sequenceDiagram
     participant M as Maintainer
     participant GH as GitHub repository
-    participant R as Release workflow
+    participant B as macOS build job
     participant P as Strict preflight
+    participant U as Ubuntu publish job
     participant A as PyPI publish action
     participant PY as Production PyPI
 
@@ -192,13 +200,14 @@ sequenceDiagram
     M->>M: Generate sanitized pypi-auth.json
     M->>GH: Attach exact artifacts and proof bundle
     M->>GH: Publish GitHub release
-    GH->>R: Trigger published-release workflow
-    R->>R: Run source tests and build artifacts
-    R->>R: Match built artifacts to release assets
-    R->>P: Validate strict proof and pypi-auth.json
-    P-->>R: Pass only when every required proof succeeds
-    R->>R: Assert PYPI_API_TOKEN is non-empty
-    R->>A: Supply __token__ and encrypted secret
+    GH->>B: Trigger published-release workflow
+    B->>B: Run source tests and build artifacts
+    B->>B: Match built artifacts to release assets
+    B->>P: Validate strict proof and pypi-auth.json
+    P-->>B: Pass only when every required proof succeeds
+    B->>U: Transfer verified distributions artifact
+    U->>U: Assert PYPI_API_TOKEN is non-empty
+    U->>A: Supply __token__ and encrypted secret
     A->>PY: Upload three wheels and three sdists
     PY-->>A: Accept immutable 0.3.0 distributions
 ```
@@ -221,6 +230,8 @@ sequenceDiagram
   disabled and token values are never printed.
 - The release workflow references only `${{ secrets.PYPI_API_TOKEN }}` and
   contains no fallback credential.
+- The macOS build/test/proof job cannot access the production token. Only the
+  dependent Ubuntu publish job references the secret and publish action.
 - The secret non-empty check emits no token content.
 - Proof generation never reads the token or a token file.
 - Report validation uses exact keys and values and rejects extensions.
@@ -250,8 +261,9 @@ sequenceDiagram
 - Unit-test proof bundle filenames, aggregate key, and absence of credential
   data.
 - Contract-test the release workflow for explicit secret use, pre-upload
-  non-empty validation, token username, token-mode proof argument, and absence
-  of OIDC permission.
+  non-empty validation, token username, token-mode proof argument, absence of
+  OIDC permission, Linux action compatibility, artifact handoff, and secret
+  isolation from the build job.
 - Run full repository tests and release preflight.
 - Verify GitHub secret name metadata, CI, exact release assets, production PyPI
   project versions, and isolated post-publish installation without recording

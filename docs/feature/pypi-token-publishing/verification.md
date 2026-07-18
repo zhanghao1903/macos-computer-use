@@ -38,7 +38,7 @@ python -m unittest tests.test_release_preflight
 
 Result:
 
-- `108` tests passed;
+- `110` tests passed;
 - report producer, strict loader, malformed/mismatched input, boolean-type
   checks, unknown-field rejection, dual-mode ambiguity, proof bundle,
   compatibility, workflow, and developer-check contracts were covered.
@@ -55,7 +55,7 @@ Result:
 
 | Check | Result |
 | --- | --- |
-| Root repository suite | `145` passed |
+| Root repository suite | `147` passed |
 | `app-control-protocol` suite | `55` passed |
 | `computer-use-macos` suite | `168` passed, `1` skipped |
 | `wechat-desktop-tool` suite | `172` passed |
@@ -85,6 +85,9 @@ The release preflight also validated all JSON examples in the updated
 publishing documents and confirmed that the workflow:
 
 - omits unused OIDC permission;
+- separates the macOS build/proof job from the Ubuntu publish job;
+- transfers only the verified distribution artifact between jobs;
+- keeps every production-token reference out of the build job;
 - checks the expected GitHub Secret before publication;
 - downloads `pypi-auth.json`;
 - runs strict external proof with `--pypi-auth-report`;
@@ -101,6 +104,8 @@ publishing documents and confirmed that the workflow:
 - Token and Trusted Publisher reports cannot coexist in preflight or bundling.
 - The workflow contains no plaintext credential, `.pypirc` fallback, workflow
   token input, or `id-token: write` permission.
+- The Docker-based official publish action runs on `ubuntu-latest`, while the
+  `macos-latest` build job has no production PyPI secret reference.
 - The feature branch contains no generated auth report, local proof bundle,
   distribution, or credential file.
 

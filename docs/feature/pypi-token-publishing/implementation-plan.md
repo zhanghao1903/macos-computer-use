@@ -28,7 +28,7 @@ operation, or distribution content changes in this slice.
 | `scripts/release_preflight.py` | Add token report loader, generic `pypi_publish_auth` proof, exact-one-mode validation, and workflow contract checks. | Release tooling |
 | `scripts/release_proof_bundle.py` | Accept exactly one auth report mode and bundle `pypi-auth.json` for token releases. | Release tooling |
 | `scripts/dev_check.py` | Point strict local proof validation at `pypi-auth.json`. | Developer checks |
-| `.github/workflows/release.yml` | Remove OIDC permission, require non-empty secret, use token proof, and pass token credentials to the official action. | GitHub release automation |
+| `.github/workflows/release.yml` | Keep macOS validation/build separate from the Linux publish action, remove OIDC permission, require the secret, and pass token credentials only in the publish job. | GitHub release automation |
 | `tests/test_release_preflight.py` | Add report, preflight, bundle, ambiguity, and workflow-contract regression coverage. | Root release tests |
 | `docs/publishing.md` | Document secure secret setup, token proof generation, workflow behavior, failure recovery, and optional OIDC compatibility. | Maintainer documentation |
 | `docs/release-checklist.md` | Replace the `0.3.0` Trusted Publisher steps and proof names with token-mode steps. | Release operations |
@@ -83,6 +83,11 @@ test exposes a defect. It remains an alternate report producer, not the active
 - Pass `--pypi-auth-report` to strict preflight.
 - Add a non-echoing step that fails when `${{ secrets.PYPI_API_TOKEN }}` is
   empty before the publish action begins.
+- Run source tests, macOS checks, builds, and strict proof in a `macos-latest`
+  build job, upload the verified distributions, and download them in a dependent
+  `ubuntu-latest` publish job supported by the Docker action.
+- Keep every `PYPI_API_TOKEN` reference and the publish action out of the build
+  job.
 - Configure `pypa/gh-action-pypi-publish@release/v1` with `user: __token__`
   and `password: ${{ secrets.PYPI_API_TOKEN }}`.
 - Do not add fallback credentials, workflow inputs, or shell interpolation that
@@ -103,7 +108,8 @@ Add focused tests for:
 - token-mode proof bundle asset names and aggregate proof;
 - incomplete bundle behavior;
 - release workflow secret gate, username, password expression, proof filename,
-  proof argument, and absence of OIDC permission;
+  proof argument, absence of OIDC permission, Linux publish runner, artifact
+  handoff, and build-job secret isolation;
 - local script inventory and `dev_check` strict command.
 
 Existing release tests will be updated only where the pre-release generic proof

@@ -75,6 +75,10 @@ release-proof check.
 
 `.github/workflows/release.yml` now:
 
+- runs tests, macOS checks, builds, and strict proof in a `macos-latest` build
+  job that receives no production PyPI secret;
+- uploads verified distributions and downloads them in a dependent
+  `ubuntu-latest` publish job, as required by the Docker-based official action;
 - omits unused `id-token: write` permission in API-token mode;
 - downloads and validates `pypi-auth.json`;
 - fails before the PyPI action when `PYPI_API_TOKEN` is empty;
@@ -102,6 +106,8 @@ There is no plaintext, local-file, workflow-input, or unauthenticated fallback.
 - active token-mode bundle assets and exact-one-mode bundle behavior;
 - retained Trusted Publisher compatibility;
 - workflow Secret gate, token action inputs, and absence of OIDC permission;
+- Linux publish-runner compatibility, verified artifact handoff, and absence of
+  the production secret from the build job;
 - strict `dev_check` token proof asset selection.
 
 Focused result at F4: `108` release preflight tests passed.

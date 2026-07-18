@@ -2037,6 +2037,10 @@ def _check_source_boundaries(root: Path) -> list[CheckResult]:
 def _check_workflows(root: Path) -> list[CheckResult]:
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     release = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    _, build_marker, build_and_publish = release.partition("\n  build:\n")
+    build_job, publish_marker, publish_job = build_and_publish.partition(
+        "\n  publish:\n"
+    )
     workflow_checks = {
         "ci-runs-root-tests": "python -m unittest discover -s tests" in ci,
         "ci-runs-protocol-tests": "packages/app-control-protocol/tests" in ci,
@@ -2074,6 +2078,23 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "user: __token__",
                 "password: ${{ secrets.PYPI_API_TOKEN }}",
             )
+        ),
+        "release-separates-build-and-linux-publish": all(
+            item in release
+            for item in (
+                "  build:\n    runs-on: macos-latest",
+                "  publish:\n    needs: build\n    runs-on: ubuntu-latest",
+                "uses: actions/upload-artifact@v4",
+                "uses: actions/download-artifact@v4",
+                "name: Download verified distributions",
+            )
+        ),
+        "release-limits-pypi-token-to-publish-job": (
+            bool(build_marker)
+            and bool(publish_marker)
+            and "secrets.PYPI_API_TOKEN" not in build_job
+            and "secrets.PYPI_API_TOKEN" in publish_job
+            and "pypa/gh-action-pypi-publish" in publish_job
         ),
         "release-builds-all-packages": all(
             item in release
