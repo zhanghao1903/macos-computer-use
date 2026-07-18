@@ -1,0 +1,18 @@
+{
+  "name": "codex-feature-lifecycle",
+  "version": "0.1.0",
+  "description": "Run a complete feature lifecycle with coordinated Codex tasks.",
+  "author": {
+    "name": "zhanghao"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Feature Lifecycle",
+    "shortDescription": "Coordinate feature work, review, and merge in Codex.",
+    "longDescription": "Coordinate a complete feature lifecycle between dedicated Codex main-work and review-and-merge tasks.",
+    "developerName": "zhanghao",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Initialize and run the Codex-only feature lifecycle workflow for this repository."
+  }
+}

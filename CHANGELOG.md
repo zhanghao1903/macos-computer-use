@@ -4,6 +4,8 @@
 
 ### Internal
 
+- Scaffold a Codex-only feature lifecycle plugin workspace under
+  `plugins/codex-feature-lifecycle` and record its initial scope and non-goals.
 - Add repository-local `pr-review`, `technical-plan-write`, and
   `technical-plan-review` skills for evidence-driven pull request review and
   implementation-ready technical plan authoring and review.
