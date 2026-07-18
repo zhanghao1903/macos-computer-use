@@ -7,7 +7,7 @@
 | Feature | `wechat-agent-skill` |
 | Branch | `codex/wechat-agent-skill` |
 | Baseline | `origin/main` at `95f6364` |
-| Current phase | F0-F1 complete; F2 pending |
+| Current phase | F0-F2 complete; F3 pending |
 | Started | 2026-07-18 |
 | Affected package | `wechat-desktop-tool` |
 
@@ -83,17 +83,17 @@ The feature branch was created from `origin/main` so that the unrelated local
 outputs, raw WeChat window captures, build artifacts, and generated lock files
 remain untracked and are excluded from every feature phase commit.
 
-## Assumptions Entering F2
+## F2 Design Decisions
 
 - The distributable artifact will use the repository's standard skill shape:
-  a `SKILL.md` file with optional `agents/openai.yaml` and focused references.
+  a `SKILL.md` file with `agents/openai.yaml` and focused references.
 - The package will remain independent of Codex, OpenAI Agents SDK, LangChain,
   and other Agent runtimes.
 - Application developers will be able to consume structured skill content from
   Python and materialize the standard directory when their runtime expects
   filesystem-based skills.
-- The exact loading API, version contract, overwrite behavior, and supported
-  workflows are not confirmed until F2 is complete.
+- The loading API, version contract, no-overwrite export behavior, and supported
+  workflows are defined in [design.md](./design.md).
 
 ## F1 Consumer Requirements
 
