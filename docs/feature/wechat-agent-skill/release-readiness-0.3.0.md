@@ -6,7 +6,8 @@
 | --- | --- |
 | Lifecycle phase | F7 release preparation and publishing proof |
 | Release branch | `codex/release-0.3.0` |
-| Source baseline | `origin/main` at `580d3ef` |
+| Release-blocker branch | `codex/release-0.3.0-control-map-fallback` |
+| Source baseline | merged release head `ca9352e` |
 | Target version | `0.3.0` for all three packages |
 | Target tag | `v0.3.0` |
 | Last PyPI version | `0.1.1` |
@@ -68,6 +69,22 @@ required.
 No gate may be marked complete from an old source SHA or from a manually
 invented success report. The selector proof must bind to the exact release
 source commit. Detailed reports override manual proof booleans.
+
+## Live Proof Blocker Remediation
+
+Exact-head WeChat submit proof on 2026-07-18 exposed a deterministic fallback
+defect before any row action, message draft, or submit occurred. The packaged
+control map listed both `0/12/1/0` and `0/11/1/0` conversation roots. The live
+window exposed the second root, but `open_contact` returned immediately when
+the first candidate produced `accessibility_query_root_not_found`.
+
+The release-blocker fix treats only that explicit missing-root result as a
+candidate miss and continues to the next configured path. Timeout, transport,
+permission, malformed, contradictory, and truncated target-query evidence
+remains fail-closed. Regression proof must cover the missing-first-root success
+path and retain the existing failed/truncated query safety tests. After merge,
+all exact-head desktop and distribution proofs must be regenerated against the
+new `main` SHA before tagging.
 
 ## Local Candidate Evidence
 

@@ -10,6 +10,12 @@
   `wechat-desktop-tool`, with in-memory loading, safe filesystem export,
   semantic WeChat operation guidance, and wheel/sdist verification.
 
+### Fixed
+
+- Continue through configured WeChat conversation-root candidates when an
+  earlier AX path is absent, while preserving fail-closed handling for timeout,
+  malformed, truncated, and other failed target queries.
+
 ### Internal
 
 - Add repository-local `pr-review`, `technical-plan-write`, and

@@ -4577,6 +4577,58 @@ class WeChatDesktopToolTests(unittest.TestCase):
             ["0/12/1/0", "0/11/1/0", "0/11/4"],
         )
 
+    def test_open_contact_tries_second_mapped_root_after_first_is_missing(
+        self,
+    ) -> None:
+        app_control = FakeAppControl(
+            [
+                {},
+                _failed_accessibility_query_response(
+                    "accessibility_query_root_not_found",
+                    "Could not resolve query root.",
+                    retryable=False,
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_row(
+                            "0/11/1/0/0",
+                            "文件传输助手,hello,09:00,置顶",
+                        )
+                    ]
+                ),
+                _accessibility_action_response(
+                    ax_path="0/11/1/0/0",
+                    role="AXRow",
+                    label="文件传输助手,hello,09:00,置顶",
+                ),
+                _accessibility_query_response(
+                    [
+                        _normalized_node(
+                            "0/11/4/2",
+                            "AXStaticText",
+                            value="文件传输助手",
+                        )
+                    ]
+                ),
+            ]
+        )
+
+        result = WeChatDesktopTool(app_control).open_contact("文件传输助手")
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.observation["currentChat"]["title"],
+            "文件传输助手",
+        )
+        self.assertEqual(
+            [
+                command.input["root"]["axPath"]
+                for command in app_control.commands
+                if command.operation == "accessibility_query"
+            ],
+            ["0/12/1/0", "0/11/1/0", "0/11/4"],
+        )
+
     def test_open_contact_retries_chat_panel_after_layout_path_changes(
         self,
     ) -> None:

@@ -1261,7 +1261,14 @@ class WeChatDesktopTool:
                 evidence=evidence,
                 phase_events=phase_events,
             )
-            if _contact_target_query_issue(result) is not None:
+            query_issue = _contact_target_query_issue(result)
+            if (
+                query_issue is not None
+                and query_issue[0] == "failed"
+                and result.failure_kind == "accessibility_query_root_not_found"
+            ):
+                continue
+            if query_issue is not None:
                 return result, collection, []
             rows = _conversation_rows_from_cells(_query_nodes(result))
             if rows:
