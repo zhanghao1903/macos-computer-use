@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-feature-lifecycle/schemas/review-request.schema.json",
+  "title": "Codex Feature Lifecycle ReviewRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "messageType",
+    "workflowId",
+    "dispatchId",
+    "repository",
+    "pullRequest",
+    "routes",
+    "mergePolicy",
+    "evidence",
+    "checks",
+    "limitations",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "messageType": {"const": "ReviewRequest"},
+    "workflowId": {"type": "string", "format": "uuid"},
+    "dispatchId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "origin"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+        "origin": {"type": "string", "minLength": 1}
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "url", "baseSha", "headSha", "branch"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "baseSha": {"$ref": "#/$defs/gitSha"},
+        "headSha": {"$ref": "#/$defs/gitSha"},
+        "branch": {"type": "string", "minLength": 1}
+      }
+    },
+    "routes": {"$ref": "#/$defs/routes"},
+    "mergePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mergeOnApprove", "mergeMethod", "deleteBranch", "requireGreenChecks", "requireExactHead"],
+      "properties": {
+        "mergeOnApprove": {"type": "boolean"},
+        "mergeMethod": {"enum": ["squash", "merge", "rebase"]},
+        "deleteBranch": {"type": "boolean"},
+        "requireGreenChecks": {"const": true},
+        "requireExactHead": {"const": true}
+      }
+    },
+    "evidence": {"$ref": "#/$defs/stringArray"},
+    "checks": {"$ref": "#/$defs/stringArray"},
+    "limitations": {"$ref": "#/$defs/stringArray"},
+    "createdAt": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceThreadId", "destinationThreadId"],
+      "properties": {
+        "sourceThreadId": {"type": "string", "minLength": 1},
+        "destinationThreadId": {"type": "string", "minLength": 1},
+        "hostId": {"type": "string", "minLength": 1}
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

@@ -3,8 +3,20 @@
   "version": "0.1.0",
   "description": "Run a complete feature lifecycle with coordinated Codex tasks.",
   "author": {
-    "name": "zhanghao"
+    "name": "zhanghao",
+    "email": "zhanghao1903@qq.com",
+    "url": "https://github.com/zhanghao1903"
   },
+  "homepage": "https://github.com/zhanghao1903/macos-computer-use/tree/main/plugins/codex-feature-lifecycle",
+  "repository": "https://github.com/zhanghao1903/macos-computer-use",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "feature-lifecycle",
+    "pull-request",
+    "code-review",
+    "workflow"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Feature Lifecycle",
@@ -12,7 +24,16 @@
     "longDescription": "Coordinate a complete feature lifecycle between dedicated Codex main-work and review-and-merge tasks.",
     "developerName": "zhanghao",
     "category": "Productivity",
-    "capabilities": [],
-    "defaultPrompt": "Initialize and run the Codex-only feature lifecycle workflow for this repository."
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Initialize the Codex feature lifecycle workflow for this repository.",
+      "Use the main-work role to implement this feature and dispatch it for review.",
+      "Inspect the configured feature workflow and explain its current status."
+    ],
+    "composerIcon": "./assets/codex-feature-lifecycle.svg",
+    "logo": "./assets/codex-feature-lifecycle.svg"
   }
 }

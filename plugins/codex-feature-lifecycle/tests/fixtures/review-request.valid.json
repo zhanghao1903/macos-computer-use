@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "messageType": "ReviewRequest",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "dispatchId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "repository": {
+    "key": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "origin": "https://github.com/example/project"
+  },
+  "pullRequest": {
+    "number": 42,
+    "url": "https://github.com/example/project/pull/42",
+    "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "headSha": "dddddddddddddddddddddddddddddddddddddddd",
+    "branch": "codex/example"
+  },
+  "routes": {
+    "sourceThreadId": "main-thread",
+    "destinationThreadId": "review-thread",
+    "hostId": "local"
+  },
+  "mergePolicy": {
+    "mergeOnApprove": true,
+    "mergeMethod": "squash",
+    "deleteBranch": false,
+    "requireGreenChecks": true,
+    "requireExactHead": true
+  },
+  "evidence": ["docs/feature/example/verification.md"],
+  "checks": ["unit tests: passed"],
+  "limitations": [],
+  "createdAt": "2026-07-18T12:00:00Z"
+}

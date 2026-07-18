@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex Feature Main"
+  short_description: "Implement features and dispatch immutable PR reviews."
+  default_prompt: "Use $codex-feature-main to carry this feature from intake through review handoff and traceability."
+policy:
+  allow_implicit_invocation: true
