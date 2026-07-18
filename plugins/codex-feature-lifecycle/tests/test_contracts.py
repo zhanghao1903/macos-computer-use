@@ -42,6 +42,23 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(self.workflowctl.WorkflowError):
             self.workflowctl.validate_review_result(self.load_fixture("review-result.invalid.approve-blocker.json"))
 
+    def test_stale_requires_not_attempted_merge_status(self) -> None:
+        result = self.load_fixture("review-result.approve.valid.json")
+        result["decision"] = "STALE"
+        result["merge"] = {"status": "DEFERRED"}
+        with self.assertRaises(self.workflowctl.WorkflowError):
+            self.workflowctl.validate_review_result(result)
+
+    def test_non_merge_status_rejects_merge_artifacts(self) -> None:
+        result = self.load_fixture("review-result.approve.valid.json")
+        result["decision"] = "COMMENT"
+        result["merge"] = {
+            "status": "NOT_ATTEMPTED",
+            "url": "https://github.com/acme/project/pull/7",
+        }
+        with self.assertRaises(self.workflowctl.WorkflowError):
+            self.workflowctl.validate_review_result(result)
+
     def test_contract_verifier_accepts_expected_positive_and_negative_fixtures(self) -> None:
         result = subprocess.run(
             [
@@ -60,7 +77,11 @@ class ContractTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["failures"], 0)
-        self.assertEqual(payload["fixtures"], 5)
+        self.assertEqual(payload["fixtures"], 6)
+        if payload["schemaEngine"] == "jsonschema+runtime":
+            for fixture in payload["results"]:
+                self.assertEqual(fixture["runtimeValid"], fixture["expectedValid"], fixture)
+                self.assertEqual(fixture["schemaValid"], fixture["expectedValid"], fixture)
 
 
 if __name__ == "__main__":

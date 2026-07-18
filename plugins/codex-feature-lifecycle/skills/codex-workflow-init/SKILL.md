@@ -84,7 +84,8 @@ Before first initialization or explicit reconfiguration, obtain these choices:
 1. May the reviewer automatically merge an approved exact head after all gates
    pass? Default to `review-only` unless the user explicitly answers yes.
 2. If merge is authorized, choose `squash`, `merge`, or `rebase`. Recommend
-   `squash` when repository policy does not choose.
+   `squash` when repository policy does not choose. For `review-only`, persist
+   `squash` as the inert default so configuration is deterministic.
 3. Whether to delete the branch after merge. Default to false.
 
 Explain that durable authorization applies only to exact-head, green-check,
@@ -121,8 +122,9 @@ validated ReviewRequest and never edit the feature branch. Reply with exactly
 REVIEW_READY when the role is loaded and the checkout is accessible.
 ```
 
-6. Wait for both tasks. A task is ready only when its final response contains
-   the exact expected marker and no approval/user-input request.
+6. Wait for both tasks. After trimming surrounding whitespace, the entire final
+   response must equal the expected marker (`MAIN_READY` or `REVIEW_READY`) and
+   contain no other text. Substring matches such as `NOT_MAIN_READY` fail.
 7. If either task fails, do not write ready config. Archive only tasks created
    by this failed attempt when the host supports recoverable archive and the
    target is exact. Otherwise report their IDs for manual recovery.
@@ -177,4 +179,5 @@ Return:
 - Config path and validation result
 - GitHub capability used
 - Any partial resources or recovery action
-- Next action: send the feature request to the main task
+- Next action: on success, send the feature request to the main task; on
+  failure, resolve the reported preflight/recovery issue and rerun Init

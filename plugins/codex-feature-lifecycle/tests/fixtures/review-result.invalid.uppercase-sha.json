@@ -6,7 +6,7 @@
   "reviewedSnapshot": {
     "repositoryKey": "bbbbbbbbbbbbbbbbbbbbbbbb",
     "pullRequestNumber": 42,
-    "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "baseSha": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     "headSha": "dddddddddddddddddddddddddddddddddddddddd"
   },
   "routes": {
@@ -14,18 +14,8 @@
     "destinationThreadId": "main-thread"
   },
   "decision": "APPROVE",
-  "findings": [
-    {
-      "id": "FINDING-001",
-      "severity": "blocker",
-      "summary": "Blocking defect",
-      "file": "workflow.py",
-      "impact": "The workflow is unsafe.",
-      "evidence": "A blocking path is reachable.",
-      "requiredAction": "Fix before approval."
-    }
-  ],
-  "verification": [],
+  "findings": [],
+  "verification": ["review completed"],
   "limitations": [],
   "merge": {
     "status": "NOT_AUTHORIZED"

@@ -25,7 +25,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 SCHEMA_VERSION = 1
-SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 REPO_KEY_RE = re.compile(r"^[0-9a-f]{24}$")
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9_-]{1,63}$")
@@ -41,6 +41,13 @@ MERGE_STATUSES = {
     "FAILED",
 }
 SEVERITIES = {"blocker", "high", "medium", "low"}
+DECISION_MERGE_STATUSES = {
+    "APPROVE": {"NOT_AUTHORIZED", "DEFERRED", "MERGED", "FAILED"},
+    "COMMENT": {"NOT_ATTEMPTED"},
+    "REQUEST_CHANGES": {"NOT_ATTEMPTED"},
+    "STALE": {"NOT_ATTEMPTED"},
+    "FAILED": {"NOT_ATTEMPTED"},
+}
 
 
 class WorkflowError(RuntimeError):
@@ -125,9 +132,9 @@ def require_uuid(value: Any, field: str) -> str:
 
 
 def require_sha(value: Any, field: str) -> str:
-    text = require_string(value, field).lower()
+    text = require_string(value, field)
     if not SHA_RE.fullmatch(text):
-        raise WorkflowError("invalid_payload", f"{field} must be a full 40-character git SHA")
+        raise WorkflowError("invalid_payload", f"{field} must be a lowercase full 40-character git SHA")
     return text
 
 
@@ -195,6 +202,21 @@ def sanitize_origin(origin: str) -> str:
     if local.exists() or raw.startswith((".", "/", "~")):
         return f"file://{local.resolve()}"
     raise WorkflowError("invalid_origin", "Origin must be a URL, scp-style git remote, or local path")
+
+
+def require_github_origin(origin: str) -> str:
+    sanitized = sanitize_origin(origin)
+    parsed = urlsplit(sanitized)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.hostname != "github.com" or len(parts) != 2:
+        raise WorkflowError("unsupported_repository", "Codex Feature Lifecycle 0.1 supports github.com repositories only")
+    return sanitized
+
+
+def github_pull_request_url(origin: str, number: int) -> str:
+    parsed = urlsplit(require_github_origin(origin))
+    owner, repository = [part for part in parsed.path.split("/") if part]
+    return f"https://github.com/{owner}/{repository}/pull/{number}"
 
 
 def repository_key(repo_root: Path, sanitized_origin: str) -> str:
@@ -326,7 +348,7 @@ def validate_config(config: Any, *, expected_root: Path | None = None, expected_
     require_uuid(value["workflowId"], "config.workflowId")
     repository = require_exact_keys(value["repository"], "config.repository", {"root", "origin", "key"})
     root = Path(require_string(repository["root"], "config.repository.root")).resolve()
-    origin = sanitize_origin(require_string(repository["origin"], "config.repository.origin"))
+    origin = require_github_origin(require_string(repository["origin"], "config.repository.origin"))
     key = require_string(repository["key"], "config.repository.key")
     if not REPO_KEY_RE.fullmatch(key) or key != repository_key(root, origin):
         raise WorkflowError("repository_mismatch", "Configured repository key does not match root and origin")
@@ -369,6 +391,104 @@ def initial_state(workflow_id: str) -> dict[str, Any]:
     }
 
 
+def validate_dispatch_record(dispatch_id: str, record: Any) -> dict[str, Any]:
+    if not HEX_64_RE.fullmatch(dispatch_id):
+        raise WorkflowError("invalid_state", "State contains an invalid dispatch ID")
+    value = require_exact_keys(
+        record,
+        f"state.dispatches.{dispatch_id}",
+        {
+            "pullRequestNumber",
+            "pullRequestUrl",
+            "baseSha",
+            "headSha",
+            "branch",
+            "sourceThreadId",
+            "destinationThreadId",
+            "requestCreatedAt",
+            "requestDigest",
+            "status",
+            "preparedAt",
+        },
+        {
+            "dispatchedAt",
+            "deliveryFailedAt",
+            "deliveryError",
+            "reviewingAt",
+            "decision",
+            "mergeStatus",
+            "resultDigest",
+            "resultCreatedAt",
+            "resultPreparedAt",
+            "resultAcceptedAt",
+            "cancelledAt",
+            "cancelReason",
+        },
+    )
+    field = f"state.dispatches.{dispatch_id}"
+    require_int(value["pullRequestNumber"], f"{field}.pullRequestNumber", minimum=1)
+    require_https_url(value["pullRequestUrl"], f"{field}.pullRequestUrl")
+    require_sha(value["baseSha"], f"{field}.baseSha")
+    require_sha(value["headSha"], f"{field}.headSha")
+    for name in ("branch", "sourceThreadId", "destinationThreadId"):
+        require_string(value[name], f"{field}.{name}")
+    if value["sourceThreadId"] == value["destinationThreadId"]:
+        raise WorkflowError("invalid_state", f"{field} routes must use different task IDs")
+    parse_rfc3339(value["requestCreatedAt"], f"{field}.requestCreatedAt")
+    if not HEX_64_RE.fullmatch(require_string(value["requestDigest"], f"{field}.requestDigest")):
+        raise WorkflowError("invalid_state", f"{field}.requestDigest must be 64 lowercase hex characters")
+    status = require_string(value["status"], f"{field}.status")
+    statuses = {
+        "prepared",
+        "delivery_failed",
+        "dispatched",
+        "reviewing",
+        "merge_ready",
+        "merged",
+        "comment",
+        "changes_requested",
+        "stale",
+        "failed",
+        "cancelled",
+    }
+    if status not in statuses:
+        raise WorkflowError("invalid_state", f"{field}.status is unsupported")
+    timestamp_fields = (
+        "preparedAt",
+        "dispatchedAt",
+        "deliveryFailedAt",
+        "reviewingAt",
+        "resultCreatedAt",
+        "resultPreparedAt",
+        "resultAcceptedAt",
+        "cancelledAt",
+    )
+    for name in timestamp_fields:
+        if name in value:
+            parse_rfc3339(value[name], f"{field}.{name}")
+    for name in ("deliveryError", "cancelReason"):
+        if name in value:
+            require_string(value[name], f"{field}.{name}")
+    if "resultDigest" in value and not HEX_64_RE.fullmatch(
+        require_string(value["resultDigest"], f"{field}.resultDigest")
+    ):
+        raise WorkflowError("invalid_state", f"{field}.resultDigest must be 64 lowercase hex characters")
+    if "decision" in value and require_string(value["decision"], f"{field}.decision") not in DECISIONS:
+        raise WorkflowError("invalid_state", f"{field}.decision is unsupported")
+    if "mergeStatus" in value and require_string(value["mergeStatus"], f"{field}.mergeStatus") not in MERGE_STATUSES:
+        raise WorkflowError("invalid_state", f"{field}.mergeStatus is unsupported")
+    terminal_statuses = {"merge_ready", "merged", "comment", "changes_requested", "stale", "failed"}
+    if status in terminal_statuses:
+        for name in ("decision", "mergeStatus", "resultDigest", "resultCreatedAt", "resultPreparedAt"):
+            if name not in value:
+                raise WorkflowError("invalid_state", f"{field}.{name} is required for terminal result state")
+    if status == "delivery_failed" and not {"deliveryFailedAt", "deliveryError"}.issubset(value):
+        raise WorkflowError("invalid_state", f"{field} delivery failure metadata is incomplete")
+    if status == "cancelled" and not {"cancelledAt", "cancelReason"}.issubset(value):
+        raise WorkflowError("invalid_state", f"{field} cancellation metadata is incomplete")
+    return value
+
+
 def validate_state(state: Any, config: Mapping[str, Any]) -> dict[str, Any]:
     value = require_exact_keys(state, "state", {"schemaVersion", "workflowId", "dispatches", "updatedAt"})
     if require_int(value["schemaVersion"], "state.schemaVersion") != SCHEMA_VERSION:
@@ -378,13 +498,15 @@ def validate_state(state: Any, config: Mapping[str, Any]) -> dict[str, Any]:
         raise WorkflowError("state_mismatch", "State workflow ID does not match configuration")
     if not isinstance(value["dispatches"], dict):
         raise WorkflowError("invalid_state", "state.dispatches must be an object")
+    for dispatch_id, record in value["dispatches"].items():
+        validate_dispatch_record(dispatch_id, record)
     parse_rfc3339(value["updatedAt"], "state.updatedAt")
     return value
 
 
 def load_context(repo_root_arg: str) -> tuple[Path, str, dict[str, Path | str], dict[str, Any], dict[str, Any]]:
     root = canonical_repo_root(repo_root_arg)
-    origin = discover_origin(root)
+    origin = require_github_origin(discover_origin(root))
     paths = workflow_paths(root, origin)
     config = validate_config(read_json(paths["config"], code="not_initialized"), expected_root=root, expected_origin=origin)  # type: ignore[arg-type]
     state_path = paths["state"]
@@ -422,7 +544,7 @@ def validate_review_request(value: Any) -> dict[str, Any]:
     repository = require_exact_keys(request["repository"], "ReviewRequest.repository", {"key", "origin"})
     if not REPO_KEY_RE.fullmatch(require_string(repository["key"], "ReviewRequest.repository.key")):
         raise WorkflowError("invalid_payload", "ReviewRequest.repository.key must be 24 lowercase hex characters")
-    sanitize_origin(require_string(repository["origin"], "ReviewRequest.repository.origin"))
+    require_github_origin(require_string(repository["origin"], "ReviewRequest.repository.origin"))
     pull_request = require_exact_keys(
         request["pullRequest"],
         "ReviewRequest.pullRequest",
@@ -433,6 +555,9 @@ def validate_review_request(value: Any) -> dict[str, Any]:
     require_sha(pull_request["baseSha"], "ReviewRequest.pullRequest.baseSha")
     require_sha(pull_request["headSha"], "ReviewRequest.pullRequest.headSha")
     require_string(pull_request["branch"], "ReviewRequest.pullRequest.branch")
+    expected_pr_url = github_pull_request_url(repository["origin"], pull_request["number"])
+    if pull_request["url"] != expected_pr_url:
+        raise WorkflowError("repository_mismatch", "ReviewRequest PR URL does not match its repository and PR number")
     routes = require_exact_keys(request["routes"], "ReviewRequest.routes", {"sourceThreadId", "destinationThreadId"}, {"hostId"})
     source = require_string(routes["sourceThreadId"], "ReviewRequest.routes.sourceThreadId")
     destination = require_string(routes["destinationThreadId"], "ReviewRequest.routes.destinationThreadId")
@@ -561,8 +686,18 @@ def validate_review_result(value: Any) -> dict[str, Any]:
         raise WorkflowError("invalid_payload", "MERGED must include the merge URL and merge SHA")
     if merge_status == "FAILED" and "error" not in merge:
         raise WorkflowError("invalid_payload", "FAILED merge status must include an error summary")
-    if decision in {"STALE", "FAILED", "REQUEST_CHANGES"} and merge_status == "MERGED":
-        raise WorkflowError("invalid_payload", f"{decision} cannot report MERGED")
+    if merge_status not in DECISION_MERGE_STATUSES[decision]:
+        raise WorkflowError("invalid_payload", f"{decision} cannot use merge status {merge_status}")
+    merge_keys = set(merge)
+    expected_merge_keys = {
+        "MERGED": {"status", "url", "sha"},
+        "FAILED": {"status", "error"},
+    }.get(merge_status, {"status"})
+    if merge_keys != expected_merge_keys:
+        raise WorkflowError(
+            "invalid_payload",
+            f"Merge status {merge_status} requires exactly: {', '.join(sorted(expected_merge_keys))}",
+        )
     return result
 
 
@@ -575,12 +710,13 @@ def load_payload(path: str, *, expected: str) -> dict[str, Any]:
     raise AssertionError(expected)
 
 
-def compute_dispatch_id(config: Mapping[str, Any], pr_number: int, head_sha: str) -> str:
+def compute_dispatch_id(config: Mapping[str, Any], pr_number: int, base_sha: str, head_sha: str) -> str:
     material = "\n".join(
         [
             config["workflowId"],
             config["repository"]["key"],
             str(pr_number),
+            base_sha.lower(),
             head_sha.lower(),
             config["threads"]["reviewer"],
         ]
@@ -617,9 +753,24 @@ def validate_request_against_config(request: Mapping[str, Any], config: Mapping[
         raise WorkflowError("route_mismatch", "ReviewRequest routes do not match local config")
     if request["mergePolicy"] != config["policy"]:
         raise WorkflowError("policy_mismatch", "ReviewRequest merge policy does not match local config")
-    expected_id = compute_dispatch_id(config, request["pullRequest"]["number"], request["pullRequest"]["headSha"])
+    expected_pr_url = github_pull_request_url(config["repository"]["origin"], request["pullRequest"]["number"])
+    if request["pullRequest"]["url"] != expected_pr_url:
+        raise WorkflowError("repository_mismatch", "ReviewRequest PR URL does not match its configured GitHub repository")
+    expected_id = compute_dispatch_id(
+        config,
+        request["pullRequest"]["number"],
+        request["pullRequest"]["baseSha"],
+        request["pullRequest"]["headSha"],
+    )
     if request["dispatchId"] != expected_id:
         raise WorkflowError("dispatch_mismatch", "ReviewRequest dispatch ID is invalid")
+
+
+def validate_request_against_dispatch(request: Mapping[str, Any], dispatch: Mapping[str, Any]) -> None:
+    expected = expected_dispatch_metadata(request)
+    for key, value in expected.items():
+        if dispatch.get(key) != value:
+            raise WorkflowError("dispatch_mismatch", f"ReviewRequest does not match stored dispatch field: {key}")
 
 
 def validate_result_against_request(result: Mapping[str, Any], request: Mapping[str, Any], config: Mapping[str, Any]) -> None:
@@ -644,6 +795,8 @@ def validate_result_against_request(result: Mapping[str, Any], request: Mapping[
     if result["merge"]["status"] == "MERGED":
         if not config["policy"]["mergeOnApprove"] or not request["mergePolicy"]["mergeOnApprove"]:
             raise WorkflowError("merge_not_authorized", "Merged result is not authorized by local policy")
+        if result["merge"]["url"] != request["pullRequest"]["url"]:
+            raise WorkflowError("repository_mismatch", "Merged result URL does not match the reviewed pull request")
 
 
 def result_status(result: Mapping[str, Any]) -> str:
@@ -660,7 +813,7 @@ def result_status(result: Mapping[str, Any]) -> str:
 
 def command_locate(args: argparse.Namespace) -> dict[str, Any]:
     root = canonical_repo_root(args.repo_root)
-    origin = discover_origin(root)
+    origin = require_github_origin(discover_origin(root))
     paths = workflow_paths(root, origin)
     return {
         "ok": True,
@@ -671,8 +824,8 @@ def command_locate(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_init(args: argparse.Namespace) -> dict[str, Any]:
     root = canonical_repo_root(args.repo_root)
-    origin = sanitize_origin(args.origin)
-    discovered = discover_origin(root)
+    origin = require_github_origin(args.origin)
+    discovered = require_github_origin(discover_origin(root))
     if origin != discovered:
         raise WorkflowError("repository_mismatch", "Provided origin does not match the repository origin")
     paths = workflow_paths(root, origin)
@@ -774,7 +927,7 @@ def command_prepare_review(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": SCHEMA_VERSION,
         "messageType": "ReviewRequest",
         "workflowId": config["workflowId"],
-        "dispatchId": compute_dispatch_id(config, pr_number, head_sha),
+        "dispatchId": compute_dispatch_id(config, pr_number, base_sha, head_sha),
         "repository": {"key": config["repository"]["key"], "origin": config["repository"]["origin"]},
         "pullRequest": {
             "number": pr_number,
@@ -858,9 +1011,19 @@ def mutate_dispatch(args: argparse.Namespace, operation: str) -> dict[str, Any]:
         dispatch = get_dispatch(state, args.dispatch_id)
         current = dispatch["status"]
         if operation == "dispatched":
-            if current not in {"prepared", "delivery_failed", "dispatched"}:
+            if current in {"prepared", "delivery_failed"}:
+                dispatch["status"] = "dispatched"
+            elif current not in {
+                "dispatched",
+                "reviewing",
+                "merge_ready",
+                "merged",
+                "comment",
+                "changes_requested",
+                "stale",
+                "failed",
+            }:
                 raise WorkflowError("invalid_transition", f"Cannot mark {current} dispatch as dispatched")
-            dispatch["status"] = "dispatched"
             dispatch.setdefault("dispatchedAt", utc_now())
             dispatch.pop("deliveryError", None)
         elif operation == "delivery_failed":
@@ -869,6 +1032,12 @@ def mutate_dispatch(args: argparse.Namespace, operation: str) -> dict[str, Any]:
             dispatch["status"] = "delivery_failed"
             dispatch["deliveryFailedAt"] = utc_now()
             dispatch["deliveryError"] = require_string(args.reason, "reason")[:500]
+        elif operation == "cancelled":
+            if current not in {"prepared", "delivery_failed", "dispatched", "reviewing"}:
+                raise WorkflowError("invalid_transition", f"Cannot cancel {current} dispatch")
+            dispatch["status"] = "cancelled"
+            dispatch["cancelledAt"] = utc_now()
+            dispatch["cancelReason"] = require_string(args.reason, "reason")[:500]
         else:
             raise AssertionError(operation)
         state["updatedAt"] = utc_now()
@@ -884,8 +1053,7 @@ def command_accept_review(args: argparse.Namespace) -> dict[str, Any]:
     with StateLock(Path(paths["lock"])):
         state = validate_state(read_json(Path(paths["state"]), code="missing_state"), config)
         dispatch = get_dispatch(state, dispatch_id)
-        if dispatch["headSha"] != request["pullRequest"]["headSha"] or dispatch["pullRequestNumber"] != request["pullRequest"]["number"]:
-            raise WorkflowError("snapshot_mismatch", "ReviewRequest does not match local dispatch state")
+        validate_request_against_dispatch(request, dispatch)
         if dispatch["status"] in {"prepared", "delivery_failed", "dispatched"}:
             dispatch["status"] = "reviewing"
             dispatch["reviewingAt"] = utc_now()
@@ -911,6 +1079,8 @@ def command_prepare_result(args: argparse.Namespace) -> dict[str, Any]:
     request = load_payload(args.request_file, expected="request")
     _, _, paths, config, state = load_context(args.repo_root)
     validate_request_against_config(request, config)
+    initial_dispatch = get_dispatch(state, request["dispatchId"])
+    validate_request_against_dispatch(request, initial_dispatch)
     findings = read_json_array(args.findings_file, "findings")
     verification = read_json_array(args.verification_file, "verification")
     merge: dict[str, Any] = {"status": args.merge_status}
@@ -940,7 +1110,7 @@ def command_prepare_result(args: argparse.Namespace) -> dict[str, Any]:
         "verification": verification,
         "limitations": list(args.limitation or []),
         "merge": merge,
-        "createdAt": utc_now(),
+        "createdAt": initial_dispatch.get("resultCreatedAt", utc_now()),
     }
     if config.get("hostId"):
         result["routes"]["hostId"] = config["hostId"]
@@ -952,6 +1122,10 @@ def command_prepare_result(args: argparse.Namespace) -> dict[str, Any]:
     with StateLock(Path(paths["lock"])):
         state = validate_state(read_json(Path(paths["state"]), code="missing_state"), config)
         dispatch = get_dispatch(state, dispatch_id)
+        validate_request_against_dispatch(request, dispatch)
+        if dispatch.get("resultCreatedAt"):
+            result["createdAt"] = dispatch["resultCreatedAt"]
+            validate_review_result(result)
         if dispatch["status"] not in {"reviewing", "dispatched", status}:
             raise WorkflowError("invalid_transition", f"Cannot prepare result from dispatch state {dispatch['status']}")
         result_digest = digest_json(result)
@@ -961,6 +1135,7 @@ def command_prepare_result(args: argparse.Namespace) -> dict[str, Any]:
         dispatch["decision"] = result["decision"]
         dispatch["mergeStatus"] = result["merge"]["status"]
         dispatch["resultDigest"] = result_digest
+        dispatch["resultCreatedAt"] = result["createdAt"]
         dispatch["resultPreparedAt"] = utc_now()
         state["updatedAt"] = utc_now()
         atomic_write_json(Path(paths["state"]), state)
@@ -1003,7 +1178,9 @@ def command_accept_result(args: argparse.Namespace) -> dict[str, Any]:
     with StateLock(Path(paths["lock"])):
         state = validate_state(read_json(Path(paths["state"]), code="missing_state"), config)
         dispatch = get_dispatch(state, result["dispatchId"])
-        if dispatch.get("resultDigest") and dispatch["resultDigest"] != result_digest:
+        if dispatch["status"] != status or not dispatch.get("resultDigest"):
+            raise WorkflowError("invalid_transition", "ReviewResult was not prepared by the configured reviewer workflow")
+        if dispatch["resultDigest"] != result_digest:
             raise WorkflowError("result_conflict", "ReviewResult conflicts with local state")
         dispatch["status"] = status
         dispatch["decision"] = result["decision"]
@@ -1057,6 +1234,10 @@ def build_parser() -> argparse.ArgumentParser:
     delivery_failed.add_argument("--dispatch-id", required=True)
     delivery_failed.add_argument("--reason", required=True)
 
+    cancelled = repo_command("cancel-dispatch", "Invalidate a pending review dispatch after explicit user cancellation")
+    cancelled.add_argument("--dispatch-id", required=True)
+    cancelled.add_argument("--reason", required=True)
+
     accept_review = repo_command("accept-review", "Validate and accept a ReviewRequest")
     accept_review.add_argument("--request-file", required=True)
 
@@ -1085,6 +1266,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "prepare-review": command_prepare_review,
         "mark-dispatched": lambda value: mutate_dispatch(value, "dispatched"),
         "mark-delivery-failed": lambda value: mutate_dispatch(value, "delivery_failed"),
+        "cancel-dispatch": lambda value: mutate_dispatch(value, "cancelled"),
         "accept-review": command_accept_review,
         "prepare-result": command_prepare_result,
         "accept-result": command_accept_result,

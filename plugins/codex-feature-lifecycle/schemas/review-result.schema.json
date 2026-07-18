@@ -51,10 +51,69 @@
         "url": {"type": "string", "format": "uri", "pattern": "^https://"},
         "sha": {"$ref": "#/$defs/gitSha"},
         "error": {"type": "string", "minLength": 1}
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {"status": {"const": "MERGED"}},
+          "required": ["url", "sha"],
+          "not": {"required": ["error"]}
+        },
+        {
+          "properties": {"status": {"const": "FAILED"}},
+          "required": ["error"],
+          "not": {"anyOf": [{"required": ["url"]}, {"required": ["sha"]}]}
+        },
+        {
+          "properties": {
+            "status": {"enum": ["NOT_ATTEMPTED", "NOT_AUTHORIZED", "DEFERRED"]}
+          },
+          "not": {
+            "anyOf": [
+              {"required": ["url"]},
+              {"required": ["sha"]},
+              {"required": ["error"]}
+            ]
+          }
+        }
+      ]
     },
     "createdAt": {"type": "string", "format": "date-time"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"decision": {"const": "APPROVE"}}},
+      "then": {
+        "properties": {
+          "merge": {
+            "properties": {
+              "status": {"enum": ["NOT_AUTHORIZED", "DEFERRED", "MERGED", "FAILED"]}
+            }
+          },
+          "findings": {
+            "items": {
+              "properties": {"severity": {"enum": ["medium", "low"]}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {"enum": ["COMMENT", "REQUEST_CHANGES", "STALE", "FAILED"]}
+        }
+      },
+      "then": {
+        "properties": {
+          "merge": {"properties": {"status": {"const": "NOT_ATTEMPTED"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"decision": {"const": "REQUEST_CHANGES"}}},
+      "then": {"properties": {"findings": {"minItems": 1}}}
+    }
+  ],
   "$defs": {
     "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "routes": {

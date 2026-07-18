@@ -23,5 +23,6 @@ directory as historical context or mark it superseded.
 
 Current drafts, including older single-file designs:
 
+- [Codex Feature Lifecycle Plugin](./codex-feature-lifecycle-plugin/requirements.md)
 - [Accessibility Selector Engine Technical Design](./accessibility-selector-engine/design.md)
 - [WeChat Accessibility Action API Design](./wechat-accessibility-action-api-design.md)

@@ -7,7 +7,7 @@ In Codex Desktop, add the repository as a marketplace and install
 
 ```bash
 codex plugin marketplace add https://github.com/zhanghao1903/macos-computer-use.git
-codex plugin install codex-feature-lifecycle@macos-computer-use
+codex plugin add codex-feature-lifecycle@macos-computer-use
 ```
 
 Restart Codex if the host does not discover newly installed skills in the

@@ -40,12 +40,7 @@ def jsonschema_validators(schemas: dict[str, Any]) -> dict[str, Callable[[Any], 
     return validators
 
 
-def validate_fixture(
-    payload: Any,
-    *,
-    workflowctl: Any,
-    schema_validators: dict[str, Callable[[Any], None]] | None,
-) -> None:
+def validate_runtime(payload: Any, *, workflowctl: Any) -> None:
     if not isinstance(payload, dict):
         raise ValueError("Payload must be an object")
     message_type = payload.get("messageType")
@@ -55,8 +50,24 @@ def validate_fixture(
         workflowctl.validate_review_result(payload)
     else:
         raise ValueError("Unsupported or missing messageType")
-    if schema_validators is not None:
-        schema_validators[message_type](payload)
+
+
+def validate_schema(payload: Any, *, schema_validators: dict[str, Callable[[Any], None]]) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("Payload must be an object")
+    message_type = payload.get("messageType")
+    if message_type not in schema_validators:
+        raise ValueError("Unsupported or missing messageType")
+    schema_validators[message_type](payload)
+
+
+def capture_validation(callback: Callable[[], None]) -> tuple[bool, str | None]:
+    try:
+        callback()
+    except Exception as exc:  # fixture reports must retain validator-specific evidence
+        summary = str(exc).splitlines()[0][:500]
+        return False, f"{type(exc).__name__}: {summary}"
+    return True, None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,18 +97,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     failures = 0
     for path in fixture_paths:
         expected_valid = ".invalid." not in path.name
-        try:
-            validate_fixture(
-                load_json(path),
-                workflowctl=workflowctl,
-                schema_validators=schema_validators,
+        payload = load_json(path)
+        runtime_valid, runtime_detail = capture_validation(
+            lambda: validate_runtime(payload, workflowctl=workflowctl)
+        )
+        if schema_validators is None:
+            schema_valid = None
+            schema_detail = "jsonschema is unavailable; runtime fallback only"
+        else:
+            schema_valid, schema_detail = capture_validation(
+                lambda: validate_schema(payload, schema_validators=schema_validators)
             )
-            actual_valid = True
-            detail = None
-        except Exception as exc:  # fixture verifier must capture both validator families
-            actual_valid = False
-            detail = f"{type(exc).__name__}: {exc}"
-        passed = actual_valid == expected_valid
+        actual_valid = runtime_valid and schema_valid is not False
+        passed = runtime_valid == expected_valid and (
+            schema_valid is None or schema_valid == expected_valid
+        )
         if not passed:
             failures += 1
         results.append(
@@ -106,7 +120,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "expectedValid": expected_valid,
                 "actualValid": actual_valid,
                 "passed": passed,
-                "detail": detail,
+                "runtimeValid": runtime_valid,
+                "runtimeDetail": runtime_detail,
+                "schemaValid": schema_valid,
+                "schemaDetail": schema_detail,
             }
         )
 

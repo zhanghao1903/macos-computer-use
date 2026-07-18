@@ -69,7 +69,7 @@ class WorkflowCtlTests(unittest.TestCase):
             "squash",
         )
 
-    def prepare_review(self):
+    def prepare_review(self, *, base_sha: str = BASE_SHA, head_sha: str = HEAD_SHA, pr_url: str = "https://github.com/acme/project/pull/7"):
         return self.run_ctl(
             "prepare-review",
             "--repo-root",
@@ -77,11 +77,11 @@ class WorkflowCtlTests(unittest.TestCase):
             "--pr-number",
             "7",
             "--pr-url",
-            "https://github.com/acme/project/pull/7",
+            pr_url,
             "--base-sha",
-            BASE_SHA,
+            base_sha,
             "--head-sha",
-            HEAD_SHA,
+            head_sha,
             "--branch",
             "codex/test-feature",
             "--evidence",
@@ -89,6 +89,31 @@ class WorkflowCtlTests(unittest.TestCase):
             "--check",
             "unit tests: passed",
         )
+
+    def build_result(self, request, *, decision: str = "APPROVE", merge_status: str = "NOT_AUTHORIZED"):
+        return {
+            "schemaVersion": 1,
+            "messageType": "ReviewResult",
+            "workflowId": request["workflowId"],
+            "dispatchId": request["dispatchId"],
+            "reviewedSnapshot": {
+                "repositoryKey": request["repository"]["key"],
+                "pullRequestNumber": request["pullRequest"]["number"],
+                "baseSha": request["pullRequest"]["baseSha"],
+                "headSha": request["pullRequest"]["headSha"],
+            },
+            "routes": {
+                "sourceThreadId": "review-thread",
+                "destinationThreadId": "main-thread",
+                "hostId": "local",
+            },
+            "decision": decision,
+            "findings": [],
+            "verification": ["review completed"],
+            "limitations": [],
+            "merge": {"status": merge_status},
+            "createdAt": "2026-07-18T00:00:00Z",
+        }
 
     def write_json(self, name: str, value) -> Path:
         path = self.root / name
@@ -230,6 +255,198 @@ class WorkflowCtlTests(unittest.TestCase):
         self.assertTrue(retry["shouldSend"])
         self.assertEqual(retry["status"], "prepared")
         self.assertEqual(retry["request"]["dispatchId"], dispatch_id)
+
+    def test_base_only_change_creates_a_new_dispatch(self) -> None:
+        self.init_workflow()
+        first = self.prepare_review()["request"]
+        second = self.prepare_review(base_sha="4" * 40)["request"]
+        self.assertNotEqual(first["dispatchId"], second["dispatchId"])
+
+    def test_tampered_request_is_rejected_against_stored_digest(self) -> None:
+        self.init_workflow()
+        request = self.prepare_review()["request"]
+        request["evidence"].append("untrusted-added-evidence")
+        request_path = self.write_json("tampered-request.json", request)
+        payload = self.run_ctl(
+            "accept-review",
+            "--repo-root",
+            str(self.repo),
+            "--request-file",
+            str(request_path),
+            expected=2,
+        )
+        self.assertEqual(payload["error"]["code"], "dispatch_mismatch")
+
+    def test_tampered_request_cannot_prepare_result(self) -> None:
+        self.init_workflow(merge=False)
+        request = self.prepare_review()["request"]
+        original_path = self.write_json("original-request.json", request)
+        self.run_ctl("mark-dispatched", "--repo-root", str(self.repo), "--dispatch-id", request["dispatchId"])
+        self.run_ctl("accept-review", "--repo-root", str(self.repo), "--request-file", str(original_path))
+        request["checks"].append("untrusted replacement")
+        tampered_path = self.write_json("tampered-result-request.json", request)
+        findings_path = self.write_json("tampered-result-findings.json", [])
+        verification_path = self.write_json("tampered-result-verification.json", ["review completed"])
+        payload = self.run_ctl(
+            "prepare-result",
+            "--repo-root",
+            str(self.repo),
+            "--request-file",
+            str(tampered_path),
+            "--decision",
+            "APPROVE",
+            "--findings-file",
+            str(findings_path),
+            "--verification-file",
+            str(verification_path),
+            "--merge-status",
+            "NOT_AUTHORIZED",
+            expected=2,
+        )
+        self.assertEqual(payload["error"]["code"], "dispatch_mismatch")
+
+    def test_fast_reviewer_does_not_make_delivery_confirmation_regress_state(self) -> None:
+        self.init_workflow()
+        request = self.prepare_review()["request"]
+        request_path = self.write_json("race-request.json", request)
+        accepted = self.run_ctl("accept-review", "--repo-root", str(self.repo), "--request-file", str(request_path))
+        self.assertEqual(accepted["status"], "reviewing")
+        confirmed = self.run_ctl(
+            "mark-dispatched",
+            "--repo-root",
+            str(self.repo),
+            "--dispatch-id",
+            request["dispatchId"],
+        )
+        self.assertEqual(confirmed["status"], "reviewing")
+
+    def test_accept_result_requires_reviewer_prepared_state(self) -> None:
+        self.init_workflow(merge=False)
+        request = self.prepare_review()["request"]
+        result_path = self.write_json("unprepared-result.json", self.build_result(request))
+        payload = self.run_ctl(
+            "accept-result",
+            "--repo-root",
+            str(self.repo),
+            "--result-file",
+            str(result_path),
+            expected=2,
+        )
+        self.assertEqual(payload["error"]["code"], "invalid_transition")
+
+    def test_explicit_cancellation_rejects_late_review_and_result(self) -> None:
+        self.init_workflow(merge=False)
+        request = self.prepare_review()["request"]
+        request_path = self.write_json("cancelled-request.json", request)
+        self.run_ctl("mark-dispatched", "--repo-root", str(self.repo), "--dispatch-id", request["dispatchId"])
+        cancelled = self.run_ctl(
+            "cancel-dispatch",
+            "--repo-root",
+            str(self.repo),
+            "--dispatch-id",
+            request["dispatchId"],
+            "--reason",
+            "user cancelled review",
+        )
+        self.assertEqual(cancelled["status"], "cancelled")
+        late_review = self.run_ctl("accept-review", "--repo-root", str(self.repo), "--request-file", str(request_path))
+        self.assertFalse(late_review["accepted"])
+        self.assertEqual(late_review["status"], "cancelled")
+
+        repeated = self.prepare_review()
+        self.assertFalse(repeated["shouldSend"])
+        self.assertEqual(repeated["status"], "cancelled")
+
+        result_path = self.write_json("cancelled-result.json", self.build_result(request))
+        late_result = self.run_ctl(
+            "accept-result",
+            "--repo-root",
+            str(self.repo),
+            "--result-file",
+            str(result_path),
+            expected=2,
+        )
+        self.assertEqual(late_result["error"]["code"], "invalid_transition")
+
+    def test_prepare_result_is_idempotent_for_delivery_retry(self) -> None:
+        self.init_workflow(merge=False)
+        request = self.prepare_review()["request"]
+        request_path = self.write_json("idempotent-request.json", request)
+        self.run_ctl("mark-dispatched", "--repo-root", str(self.repo), "--dispatch-id", request["dispatchId"])
+        self.run_ctl("accept-review", "--repo-root", str(self.repo), "--request-file", str(request_path))
+        findings_path = self.write_json("idempotent-findings.json", [])
+        verification_path = self.write_json("idempotent-verification.json", ["review completed"])
+        command = (
+            "prepare-result",
+            "--repo-root",
+            str(self.repo),
+            "--request-file",
+            str(request_path),
+            "--decision",
+            "APPROVE",
+            "--findings-file",
+            str(findings_path),
+            "--verification-file",
+            str(verification_path),
+            "--merge-status",
+            "NOT_AUTHORIZED",
+        )
+        first = self.run_ctl(*command)
+        second = self.run_ctl(*command)
+        self.assertEqual(first["result"], second["result"])
+
+    def test_non_github_origin_is_rejected(self) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.repo), "remote", "set-url", "origin", "https://gitlab.com/acme/project.git"],
+            check=True,
+        )
+        payload = self.run_ctl(
+            "init",
+            "--repo-root",
+            str(self.repo),
+            "--origin",
+            "https://gitlab.com/acme/project.git",
+            "--project-id",
+            "project-1",
+            "--main-thread-id",
+            "main-thread",
+            "--review-thread-id",
+            "review-thread",
+            "--merge-policy",
+            "review-only",
+            expected=2,
+        )
+        self.assertEqual(payload["error"]["code"], "unsupported_repository")
+
+    def test_pull_request_url_must_match_configured_repository(self) -> None:
+        self.init_workflow()
+        payload = self.run_ctl(
+            "prepare-review",
+            "--repo-root",
+            str(self.repo),
+            "--pr-number",
+            "7",
+            "--pr-url",
+            "https://github.com/other/project/pull/7",
+            "--base-sha",
+            BASE_SHA,
+            "--head-sha",
+            HEAD_SHA,
+            "--branch",
+            "codex/test-feature",
+            expected=2,
+        )
+        self.assertEqual(payload["error"]["code"], "repository_mismatch")
+
+    def test_corrupt_dispatch_state_fails_with_safe_error(self) -> None:
+        initialized = self.init_workflow()
+        self.prepare_review()
+        state_path = Path(initialized["statePath"])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        next(iter(state["dispatches"].values()))["status"] = "unknown"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        payload = self.run_ctl("validate", "--repo-root", str(self.repo), expected=2)
+        self.assertEqual(payload["error"]["code"], "invalid_state")
 
     def test_stale_lock_is_recovered(self) -> None:
         initialized = self.init_workflow()

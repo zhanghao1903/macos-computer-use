@@ -87,6 +87,11 @@ the new head under the old dispatch.
 Use when repository access, GitHub auth, required diff/check data, or another
 hard dependency prevents a defensible review.
 
+Use merge status `NOT_ATTEMPTED` for `COMMENT`, `REQUEST_CHANGES`, `STALE`, and
+review-level `FAILED`. `APPROVE` must use `NOT_AUTHORIZED`, `DEFERRED`, `MERGED`,
+or merge-command `FAILED`. Do not attach merge URL/SHA/error fields unless the
+selected status requires them.
+
 ## Re-Review
 
 For every prior finding, record one state:
