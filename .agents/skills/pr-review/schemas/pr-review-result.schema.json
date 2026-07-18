@@ -1,0 +1,713 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/pr-review-result.schema.json",
+  "title": "PR Review Result",
+  "description": "Machine-readable result of a pull request review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "review",
+    "decision",
+    "summary",
+    "findings",
+    "risks",
+    "validation",
+    "limitations",
+    "open_questions",
+    "assumptions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0", "1.1"],
+      "description": "Version 1.0 is accepted for legacy reports. New reports must use 1.1."
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "pr_number",
+        "title",
+        "author",
+        "base_ref",
+        "base_sha",
+        "head_ref",
+        "head_sha",
+        "reviewed_at",
+        "reviewer",
+        "report_status",
+        "review_mode",
+        "reviewed_scope",
+        "excluded_scope"
+      ],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "title": { "type": "string", "minLength": 1 },
+        "author": { "type": "string", "minLength": 1 },
+        "base_ref": { "type": "string", "minLength": 1 },
+        "base_sha": { "$ref": "#/$defs/gitSha" },
+        "head_ref": { "type": "string", "minLength": 1 },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "report_status": { "enum": ["CURRENT", "STALE"] },
+        "review_mode": { "enum": ["READ_ONLY", "PUBLISHED"] },
+        "reviewed_scope": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "excluded_scope": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "review_context": {
+      "$ref": "#/$defs/reviewContext"
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "mergeable", "rationale", "blocking_finding_ids"],
+      "properties": {
+        "status": {
+          "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT", "INCOMPLETE"]
+        },
+        "mergeable": {
+          "type": ["boolean", "null"],
+          "description": "Use null when the result is unknown or incomplete."
+        },
+        "rationale": { "type": "string", "minLength": 1 },
+        "blocking_finding_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/findingId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "change_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area", "change", "external_behavior", "risk", "validation"],
+        "properties": {
+          "area": { "type": "string", "minLength": 1 },
+          "change": { "type": "string", "minLength": 1 },
+          "external_behavior": { "type": "string", "minLength": 1 },
+          "risk": { "$ref": "#/$defs/riskLevel" },
+          "validation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "required_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "action", "status"],
+        "properties": {
+          "finding_id": { "$ref": "#/$defs/findingId" },
+          "action": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["open", "completed", "waived"] }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "level", "description", "mitigation"],
+        "properties": {
+          "category": { "$ref": "#/$defs/riskCategory" },
+          "level": { "$ref": "#/$defs/riskLevel" },
+          "description": { "type": "string", "minLength": 1 },
+          "mitigation": { "type": "string", "minLength": 1 },
+          "owner": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall_status", "reviewer_runs", "ci_checks", "not_run"],
+      "properties": {
+        "overall_status": {
+          "enum": ["PASSED", "FAILED", "PARTIAL", "NOT_RUN", "UNKNOWN"]
+        },
+        "reviewer_runs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/validationRun" }
+        },
+        "ci_checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ciCheck" }
+        },
+        "not_run": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["check", "reason"],
+            "properties": {
+              "check": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          { "$ref": "#/$defs/assumptionCheck" }
+        ]
+      }
+    },
+    "non_blocking_recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "recommendation", "value"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^NOTE-[0-9]{3,}$"
+          },
+          "category": { "$ref": "#/$defs/findingCategory" },
+          "recommendation": { "type": "string", "minLength": 1 },
+          "value": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": { "const": "1.1" }
+        },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["review_context"],
+        "properties": {
+          "findings": {
+            "items": { "required": ["origin"] }
+          },
+          "assumptions": {
+            "items": { "$ref": "#/$defs/assumptionCheck" }
+          },
+          "validation": {
+            "properties": {
+              "reviewer_runs": {
+                "items": { "required": ["required_for_approval"] }
+              },
+              "ci_checks": {
+                "items": { "required": ["head_sha"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": { "const": "1.0" }
+        },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "not": { "required": ["review_context"] },
+        "properties": {
+          "assumptions": {
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40,64}$"
+    },
+    "findingId": {
+      "type": "string",
+      "pattern": "^PRR-[0-9]{3,}$"
+    },
+    "findingStatus": {
+      "enum": ["open", "resolved", "accepted-risk", "false-positive"]
+    },
+    "reviewContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "forward_risk_review"],
+      "properties": {
+        "kind": { "enum": ["INITIAL", "RE_REVIEW"] },
+        "previous_review": { "$ref": "#/$defs/previousReview" },
+        "delta_review": { "$ref": "#/$defs/deltaReview" },
+        "finding_revalidation": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/findingRevalidation" }
+        },
+        "forward_risk_review": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/forwardRiskReview" }
+        },
+        "approval_renewal": { "$ref": "#/$defs/approvalRenewal" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "RE_REVIEW" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": [
+              "previous_review",
+              "delta_review",
+              "finding_revalidation",
+              "approval_renewal"
+            ]
+          }
+        }
+      ]
+    },
+    "previousReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report",
+        "result_path",
+        "result_sha256",
+        "repository",
+        "pr_number",
+        "reviewed_at",
+        "base_sha",
+        "head_sha",
+        "decision",
+        "finding_ids",
+        "blocking_finding_ids"
+      ],
+      "properties": {
+        "report": { "type": "string", "minLength": 1 },
+        "result_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![a-zA-Z][a-zA-Z0-9+.-]*:)(?!/).+"
+        },
+        "result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "repository": { "type": "string", "minLength": 1 },
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "base_sha": { "$ref": "#/$defs/gitSha" },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "decision": {
+          "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT", "INCOMPLETE"]
+        },
+        "finding_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/findingId" },
+          "uniqueItems": true
+        },
+        "blocking_finding_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/findingId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "deltaReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "previous_base_sha",
+        "previous_head_sha",
+        "current_base_sha",
+        "current_head_sha",
+        "triggers",
+        "commit_range",
+        "commits_reviewed",
+        "changed_files",
+        "reviewed_files",
+        "excluded_files",
+        "unclassified_changes",
+        "full_pr_diff_reconciled",
+        "summary",
+        "evidence"
+      ],
+      "properties": {
+        "previous_base_sha": { "$ref": "#/$defs/gitSha" },
+        "previous_head_sha": { "$ref": "#/$defs/gitSha" },
+        "current_base_sha": { "$ref": "#/$defs/gitSha" },
+        "current_head_sha": { "$ref": "#/$defs/gitSha" },
+        "triggers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "HEAD_CHANGED",
+              "BASE_CHANGED",
+              "EVIDENCE_CHANGED",
+              "REVIEW_CORRECTION",
+              "MANUAL_REVIEW"
+            ]
+          }
+        },
+        "commit_range": { "type": "string", "minLength": 1 },
+        "commits_reviewed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitSha" },
+          "uniqueItems": true
+        },
+        "changed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "reviewed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "excluded_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "reason"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "unclassified_changes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "full_pr_diff_reconciled": { "type": "boolean" },
+        "summary": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "findingRevalidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "previous_status", "current_status", "evidence"],
+      "properties": {
+        "finding_id": { "$ref": "#/$defs/findingId" },
+        "previous_status": { "$ref": "#/$defs/findingStatus" },
+        "current_status": { "$ref": "#/$defs/findingStatus" },
+        "evidence": { "type": "string", "minLength": 1 },
+        "accepted_by": { "type": ["string", "null"] },
+        "acceptance_rationale": { "type": ["string", "null"] },
+        "accepted_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "forwardRiskReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "risk_triggers",
+        "reason",
+        "affected_paths",
+        "checks",
+        "finding_ids",
+        "result"
+      ],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "risk_triggers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "public-contract",
+              "trust-boundary",
+              "mutation-recovery",
+              "state-transition",
+              "data-integrity",
+              "security-privacy",
+              "concurrency",
+              "deployment-compatibility",
+              "test-adequacy",
+              "other"
+            ]
+          }
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "affected_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "finding_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/findingId" },
+          "uniqueItems": true
+        },
+        "result": { "enum": ["PASS", "FAIL", "PARTIAL"] }
+      }
+    },
+    "approvalRenewal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "old_decision_invalidated",
+        "previous_findings_revalidated",
+        "forward_risk_review_completed",
+        "all_delta_changes_classified",
+        "current_head_validation_complete",
+        "decision_blocking_limitations",
+        "result",
+        "independent_pass"
+      ],
+      "properties": {
+        "old_decision_invalidated": { "type": "boolean" },
+        "previous_findings_revalidated": { "type": "boolean" },
+        "forward_risk_review_completed": { "type": "boolean" },
+        "all_delta_changes_classified": { "type": "boolean" },
+        "current_head_validation_complete": { "type": "boolean" },
+        "decision_blocking_limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "result": { "enum": ["GRANTED", "WITHHELD", "INCOMPLETE"] },
+        "independent_pass": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "summary"],
+          "properties": {
+            "status": { "enum": ["PASS", "FAIL", "NOT_AVAILABLE", "NOT_REQUIRED"] },
+            "reviewer": { "type": ["string", "null"] },
+            "summary": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "assumptionCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "statement",
+        "decision_critical",
+        "status",
+        "method",
+        "evidence",
+        "impact_if_false"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^ASM-[0-9]{3,}$" },
+        "statement": { "type": "string", "minLength": 1 },
+        "decision_critical": { "type": "boolean" },
+        "status": { "enum": ["VERIFIED", "FALSIFIED", "UNVERIFIED"] },
+        "method": { "type": ["string", "null"] },
+        "evidence": { "type": ["string", "null"] },
+        "impact_if_false": { "type": "string", "minLength": 1 }
+      }
+    },
+    "riskLevel": {
+      "enum": ["High", "Medium", "Low", "None", "Unknown"]
+    },
+    "riskCategory": {
+      "enum": [
+        "security-privacy",
+        "data-integrity",
+        "reliability-concurrency",
+        "performance-scalability",
+        "api-compatibility",
+        "deployment-rollback",
+        "maintainability",
+        "other"
+      ]
+    },
+    "findingCategory": {
+      "enum": [
+        "requirements",
+        "correctness",
+        "security",
+        "privacy",
+        "data-integrity",
+        "concurrency",
+        "reliability",
+        "performance",
+        "compatibility",
+        "api-contract",
+        "testing",
+        "maintainability",
+        "observability",
+        "deployment",
+        "documentation",
+        "dependency",
+        "other"
+      ]
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "commit_sha"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "line_start": { "type": ["integer", "null"], "minimum": 1 },
+        "line_end": { "type": ["integer", "null"], "minimum": 1 },
+        "symbol": { "type": ["string", "null"] },
+        "side": { "enum": ["LEFT", "RIGHT", "FILE", null] },
+        "commit_sha": { "$ref": "#/$defs/gitSha" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {
+          "enum": ["code", "test", "ci", "log", "spec", "reproduction", "analysis", "other"]
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "reference": { "type": ["string", "null"] }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "severity",
+        "blocking",
+        "confidence",
+        "category",
+        "title",
+        "location",
+        "observation",
+        "trigger",
+        "impact",
+        "evidence",
+        "remediation",
+        "verification",
+        "status"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/findingId" },
+        "severity": { "enum": ["S0", "S1", "S2", "S3", "S4"] },
+        "blocking": { "type": "boolean" },
+        "confidence": { "enum": ["High", "Medium"] },
+        "category": { "$ref": "#/$defs/findingCategory" },
+        "title": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/location" },
+        "observation": { "type": "string", "minLength": 1 },
+        "trigger": { "type": "string", "minLength": 1 },
+        "impact": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "remediation": { "type": "string", "minLength": 1 },
+        "verification": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/findingStatus" },
+        "risk_acceptance": { "$ref": "#/$defs/riskAcceptance" },
+        "origin": {
+          "enum": [
+            "BASE_DIFF",
+            "DELTA_INTRODUCED",
+            "DELTA_EXPOSED",
+            "PREVIOUSLY_MISSED"
+          ]
+        },
+        "fingerprint": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "accepted-risk" } },
+            "required": ["status"]
+          },
+          "then": { "required": ["risk_acceptance"] }
+        }
+      ]
+    },
+    "riskAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted_by", "rationale", "accepted_at"],
+      "properties": {
+        "accepted_by": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "accepted_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "validationRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "environment", "head_sha", "status", "exit_code", "summary"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "environment": { "type": "string", "minLength": 1 },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "status": { "enum": ["PASS", "FAIL", "ERROR"] },
+        "exit_code": { "type": ["integer", "null"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "required_for_approval": { "type": "boolean" },
+        "evidence_ref": { "type": ["string", "null"] }
+      }
+    },
+    "ciCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "observed_at", "status", "summary"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "status": { "enum": ["PASS", "FAIL", "PENDING", "CANCELLED", "UNKNOWN"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "evidence_ref": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

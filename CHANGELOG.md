@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Internal
+
+- Add repository-local `pr-review`, `technical-plan-write`, and
+  `technical-plan-review` skills for evidence-driven pull request review and
+  implementation-ready technical plan authoring and review.
+
 ## 0.2.0 - 2026-07-18
 
 ### Added

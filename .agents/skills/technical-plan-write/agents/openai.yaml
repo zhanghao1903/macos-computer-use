@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Plan Write"
+  short_description: "Draft and complete technical plans"
+  default_prompt: "Use $technical-plan-write to draft or complete this feature technical plan."
