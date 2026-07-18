@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Add a versioned, framework-neutral `wechat-use` Agent skill to
+  `wechat-desktop-tool`, with in-memory loading, safe filesystem export,
+  semantic WeChat operation guidance, and wheel/sdist verification.
+
 ### Internal
 
 - Add repository-local `pr-review`, `technical-plan-write`, and
