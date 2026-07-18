@@ -9,14 +9,16 @@
 | Feature branch | `codex/wechat-agent-skill` |
 | Reviewed base | `eb518006617b14839014d08b929f4035855b0ae8` |
 | Reviewed feature head | `8c9052095214370f629137c55beee3a3bb256aac` |
+| Pull request | [#5](https://github.com/zhanghao1903/macos-computer-use/pull/5) |
+| Initial PR CI | `test` passed in 1m46s on `a5c0573` |
 | Blocking findings | None identified in the local merge-readiness review |
 | Release record | `CHANGELOG.md` under `Unreleased / Added` |
 | Release impact | Candidate for the next minor package-suite release; no version bump in this feature branch |
 
-The reviewed feature implementation and F5 evidence are ready to enter pull
-request review. The final F6 commit adds only this readiness record, the PR
-description, lifecycle status, and changelog entry. GitHub CI and review of the
-remote PR head remain authoritative after that documentation-only commit.
+The reviewed feature implementation and F5 evidence are ready for pull request
+review. Commits after the reviewed implementation head add only this readiness
+record, the PR description, lifecycle status, changelog entry, and external PR
+evidence. GitHub CI and review of the final remote PR head remain authoritative.
 
 ## Scenario Solved
 
@@ -122,7 +124,7 @@ explicit and non-blocking for this additive feature:
 - [x] Local generated JSON, raw window captures, lock files, build directories,
   and private proof artifacts excluded.
 - [x] F6 readiness artifacts included in the phase commit for push.
-- [ ] Pull request created and remote CI passed.
+- [x] Pull request created and initial remote CI passed.
 - [ ] Independent pull request review completed on the final remote head.
 
 ## Rollback And Migration
