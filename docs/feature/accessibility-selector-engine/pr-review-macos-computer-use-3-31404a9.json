@@ -1,0 +1,1418 @@
+{
+  "schema_version": "1.1",
+  "review": {
+    "repository": "zhanghao1903/macos-computer-use",
+    "pr_number": 3,
+    "url": "https://github.com/zhanghao1903/macos-computer-use/pull/3",
+    "title": "Add internal Accessibility selector engine",
+    "author": "zhanghao1903",
+    "base_ref": "main",
+    "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+    "head_ref": "codex/accessibility-selector-engine",
+    "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+    "reviewed_at": "2026-07-17T16:50:37Z",
+    "reviewer": "Codex (GPT-5) with Track A closure and independent Track B selector/WeChat passes",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "all 20 paths and eight commits in eb543ec..31404a9",
+      "full fed6523..31404a9 PR diff reconciled through prior closure plus fresh forward-risk passes",
+      "selector profile parsing/validation, query envelope normalization/cache, and collections",
+      "WeChat contact-target completeness, exact identity/cardinality, AX path, window provenance, draft, and submit paths",
+      "feature lifecycle records, documentation claims, changelog, package/root suites, preflight, packaging, exact-head probes, and CI"
+    ],
+    "excluded_scope": [
+      "live WeChat contact switch, draft, and send",
+      "signed or notarized helper execution",
+      "TestPyPI, PyPI, and trusted-publisher release proof",
+      "ruff and repository-wide strict mypy because neither is an available configured clean gate"
+    ]
+  },
+  "review_context": {
+    "kind": "RE_REVIEW",
+    "previous_review": {
+      "report": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.md",
+      "result_path": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.json",
+      "result_sha256": "b5ba351a0cbdf2d5d32cdf5d030cc6e3fdf7118398d0f8b97ccc34981f6782c1",
+      "repository": "zhanghao1903/macos-computer-use",
+      "pr_number": 3,
+      "reviewed_at": "2026-07-17T14:01:31Z",
+      "base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "head_sha": "eb543ec9eb3800de104dadeb5d2fbb1382d14416",
+      "decision": "REQUEST_CHANGES",
+      "finding_ids": [
+        "PRR-021",
+        "PRR-028",
+        "PRR-026",
+        "PRR-027",
+        "PRR-029",
+        "PRR-030",
+        "PRR-031",
+        "PRR-032",
+        "PRR-033",
+        "PRR-034",
+        "PRR-035",
+        "PRR-036",
+        "PRR-022",
+        "PRR-025",
+        "PRR-037",
+        "PRR-038",
+        "PRR-039",
+        "PRR-023",
+        "PRR-040",
+        "PRR-041",
+        "PRR-042",
+        "PRR-043"
+      ],
+      "blocking_finding_ids": [
+        "PRR-039",
+        "PRR-040",
+        "PRR-041",
+        "PRR-042",
+        "PRR-043"
+      ]
+    },
+    "delta_review": {
+      "previous_base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "previous_head_sha": "eb543ec9eb3800de104dadeb5d2fbb1382d14416",
+      "current_base_sha": "fed652343ec73734247955d44dc8e60293a7b373",
+      "current_head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+      "triggers": [
+        "HEAD_CHANGED",
+        "EVIDENCE_CHANGED",
+        "MANUAL_REVIEW"
+      ],
+      "commit_range": "eb543ec9eb3800de104dadeb5d2fbb1382d14416..31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+      "commits_reviewed": [
+        "057154a657ef51bb78279dbc22d3e21186af9691",
+        "27fe73f8c228cb6174f62591261771878d641db3",
+        "4601ecfe03a69e717dad6487a75eb28647a7f4bd",
+        "bb8506da18bad164002a2c6b1781c8841d1d1d95",
+        "63a45cfe53b6b7864ba27531b936cd2c8bea6e6e",
+        "b01aa01312a8c64f3476c966ee5659eaed9eed6f",
+        "a186f2b64b57484144bf814da097c4da88edbba1",
+        "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      ],
+      "changed_files": [
+        "CHANGELOG.md",
+        "docs/api.md",
+        "docs/feature/accessibility-selector-engine/design-remediation-2026-07-17.md",
+        "docs/feature/accessibility-selector-engine/implementation-notes.md",
+        "docs/feature/accessibility-selector-engine/implementation-plan-remediation-2026-07-17.md",
+        "docs/feature/accessibility-selector-engine/merge-readiness.md",
+        "docs/feature/accessibility-selector-engine/pr-description.md",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.json",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.md",
+        "docs/feature/accessibility-selector-engine/verification.md",
+        "docs/wechat-desktop-tool.md",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py",
+        "packages/computer-use-macos/tests/test_selector_query_contract.py",
+        "packages/computer-use-macos/tests/test_selectors.py",
+        "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "packages/wechat-desktop-tool/tests/test_contact_target_contract.py",
+        "packages/wechat-desktop-tool/tests/test_tool.py"
+      ],
+      "reviewed_files": [
+        "CHANGELOG.md",
+        "docs/api.md",
+        "docs/feature/accessibility-selector-engine/design-remediation-2026-07-17.md",
+        "docs/feature/accessibility-selector-engine/implementation-notes.md",
+        "docs/feature/accessibility-selector-engine/implementation-plan-remediation-2026-07-17.md",
+        "docs/feature/accessibility-selector-engine/merge-readiness.md",
+        "docs/feature/accessibility-selector-engine/pr-description.md",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.json",
+        "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.md",
+        "docs/feature/accessibility-selector-engine/verification.md",
+        "docs/wechat-desktop-tool.md",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py",
+        "packages/computer-use-macos/tests/test_selector_query_contract.py",
+        "packages/computer-use-macos/tests/test_selectors.py",
+        "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "packages/wechat-desktop-tool/tests/test_contact_target_contract.py",
+        "packages/wechat-desktop-tool/tests/test_tool.py"
+      ],
+      "excluded_files": [],
+      "unclassified_changes": [],
+      "full_pr_diff_reconciled": true,
+      "summary": "Eight remediation and handoff commits changed 20 files. Every delta path was classified; all 22 prior findings were revalidated and the full PR received independent selector and WeChat trust-boundary passes.",
+      "evidence": "git log/diff eb543ec..31404a9, full base-to-head reconciliation, Track A closure, fresh Track B selector/WeChat passes, complete package/root suites, exact-head adversarial probes, lifecycle records, and GitHub CI."
+    },
+    "finding_revalidation": [
+      {
+        "finding_id": "PRR-021",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-028",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-026",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-027",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-029",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-030",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-031",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-032",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-033",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-034",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-035",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-036",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-022",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-025",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-037",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-038",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-039",
+        "previous_status": "open",
+        "current_status": "open",
+        "evidence": "Partial remediation: the original ordinary malformed/truncated matrix closes, but false-plus-reason and alias contradictions still mutate (exit 3)."
+      },
+      {
+        "finding_id": "PRR-023",
+        "previous_status": "resolved",
+        "current_status": "resolved",
+        "evidence": "Previously resolved finding remains resolved: full current-head package/root suites and targeted regression review found no fingerprint recurrence."
+      },
+      {
+        "finding_id": "PRR-040",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "Resolved: presence-sensitive any_of parsing and empty/wrong-type rejection pass current-head tests and Track A closure."
+      },
+      {
+        "finding_id": "PRR-041",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "Resolved: non-finite numeric fields are rejected by parser/defensive validation and current-head matrices pass."
+      },
+      {
+        "finding_id": "PRR-042",
+        "previous_status": "open",
+        "current_status": "open",
+        "evidence": "Partial remediation: the original field-type matrix closes, but outer/duplicate/error/completeness contradictions still resolve and cache (exits 4 and 31)."
+      },
+      {
+        "finding_id": "PRR-043",
+        "previous_status": "open",
+        "current_status": "open",
+        "evidence": "Partial remediation: the original seven candidate cases close, but exact-name, full-cardinality, path, and app/window provenance counterexamples still draft/submit (exits 43, 46, and 45)."
+      }
+    ],
+    "forward_risk_review": [
+      {
+        "surface": "Lifecycle and public contract records",
+        "risk_triggers": [
+          "public-contract",
+          "test-adequacy",
+          "deployment-compatibility"
+        ],
+        "reason": "The delta publishes remediation contracts, verification claims, and merge-readiness state that must match executable behavior.",
+        "affected_paths": [
+          "CHANGELOG.md",
+          "docs/api.md",
+          "docs/feature/accessibility-selector-engine/design-remediation-2026-07-17.md",
+          "docs/feature/accessibility-selector-engine/implementation-notes.md",
+          "docs/feature/accessibility-selector-engine/implementation-plan-remediation-2026-07-17.md",
+          "docs/feature/accessibility-selector-engine/merge-readiness.md",
+          "docs/feature/accessibility-selector-engine/pr-description.md",
+          "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.json",
+          "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-eb543ec.md",
+          "docs/feature/accessibility-selector-engine/verification.md",
+          "docs/wechat-desktop-tool.md"
+        ],
+        "checks": [
+          "reconciled every changed record",
+          "compared documented fail-closed and exact-name rules with current source and probes",
+          "verified draft/request-changes handoff state"
+        ],
+        "finding_ids": [
+          "PRR-039",
+          "PRR-042",
+          "PRR-043",
+          "PRR-044"
+        ],
+        "result": "FAIL"
+      },
+      {
+        "surface": "Selector profile parser and validator",
+        "risk_triggers": [
+          "public-contract",
+          "trust-boundary",
+          "data-integrity",
+          "test-adequacy"
+        ],
+        "reason": "Override profiles can widen roots and match predicates before resolution.",
+        "affected_paths": [
+          "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py",
+          "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py",
+          "packages/computer-use-macos/tests/test_selectors.py"
+        ],
+        "checks": [
+          "original any_of and non-finite closure matrices",
+          "falsey-present root matrix",
+          "empty/null/unknown matcher matrix",
+          "complete package suite"
+        ],
+        "finding_ids": [
+          "PRR-040",
+          "PRR-041",
+          "PRR-044"
+        ],
+        "result": "FAIL"
+      },
+      {
+        "surface": "Query envelope normalization, cache, and collection consumption",
+        "risk_triggers": [
+          "public-contract",
+          "trust-boundary",
+          "data-integrity",
+          "test-adequacy"
+        ],
+        "reason": "Conflicting transport/query evidence must never produce or cache an action target.",
+        "affected_paths": [
+          "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+          "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+          "packages/computer-use-macos/tests/test_selector_query_contract.py"
+        ],
+        "checks": [
+          "outer-vs-inner and duplicate wrapper matrix",
+          "success-plus-error matrix",
+          "truncation flag/reason alias matrix",
+          "cache no-write assertions",
+          "complete package suite"
+        ],
+        "finding_ids": [
+          "PRR-042"
+        ],
+        "result": "FAIL"
+      },
+      {
+        "surface": "WeChat contact target and sensitive send path",
+        "risk_triggers": [
+          "trust-boundary",
+          "mutation-recovery",
+          "state-transition",
+          "security-privacy",
+          "data-integrity",
+          "test-adequacy"
+        ],
+        "reason": "Candidate completeness, exact identity, structural validity, and app/window provenance gate click/action, draft, and submit.",
+        "affected_paths": [
+          "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+          "packages/wechat-desktop-tool/tests/test_contact_target_contract.py",
+          "packages/wechat-desktop-tool/tests/test_tool.py"
+        ],
+        "checks": [
+          "false-plus-reason completeness matrix",
+          ">10-row duplicate matrix",
+          "partial-name full-send",
+          "malformed path and wrong-app target controls",
+          "side-effect order capture",
+          "complete package suite"
+        ],
+        "finding_ids": [
+          "PRR-039",
+          "PRR-043"
+        ],
+        "result": "FAIL"
+      }
+    ],
+    "approval_renewal": {
+      "old_decision_invalidated": true,
+      "previous_findings_revalidated": true,
+      "forward_risk_review_completed": true,
+      "all_delta_changes_classified": true,
+      "current_head_validation_complete": true,
+      "decision_blocking_limitations": [
+        "Four open blockers permit resolution, caching, mutation, or send without coherent profile/query/contact-target proof."
+      ],
+      "result": "WITHHELD",
+      "independent_pass": {
+        "status": "FAIL",
+        "reviewer": "independent Track B selector and WeChat passes, confirmed by primary exact-head reproduction",
+        "summary": "Both independent risk tracks found reproducible current-head fail-open counterexamples after configured tests and CI passed."
+      }
+    }
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "PRR-039, PRR-042, PRR-043, and PRR-044 remain reproducible at exact head. They permit mutation, selection/cache, or sensitive send from contradictory or malformed evidence; green configured tests and CI omit these discriminating cases.",
+    "blocking_finding_ids": [
+      "PRR-039",
+      "PRR-042",
+      "PRR-043",
+      "PRR-044"
+    ]
+  },
+  "summary": "The latest remediation closes PRR-040 and PRR-041 and keeps 17 other prior findings closed. It only partially closes PRR-039, PRR-042, and PRR-043, while an independent profile pass found PRR-044. Keep the PR draft, fix the four blockers with no-side-effect/no-cache matrices, then renew exact-head review and CI.",
+  "change_map": [
+    {
+      "area": "Profile validation",
+      "change": "Adds presence-sensitive any_of and finite-number rejection.",
+      "external_behavior": "Original empty any_of and non-finite cases now reject, but explicit malformed roots and no-op matchers still activate.",
+      "risk": "High",
+      "validation": "Track A closure plus Track B profile probe; PRR-044 fails."
+    },
+    {
+      "area": "Query envelopes",
+      "change": "Adds structural success/failure validation.",
+      "external_behavior": "Original malformed shapes close, but duplicate/outer/error/completeness contradictions still resolve and cache.",
+      "risk": "High",
+      "validation": "Track A and Track B envelope probes; PRR-042 fails."
+    },
+    {
+      "area": "WeChat targets",
+      "change": "Adds contact-target query and search-result gates.",
+      "external_behavior": "Common malformed cases close, but completeness contradictions, hidden duplicates, partial names, malformed paths, and wrong app/window remain actionable.",
+      "risk": "High",
+      "validation": "Independent full-send probes; PRR-039 and PRR-043 fail."
+    },
+    {
+      "area": "Lifecycle and release records",
+      "change": "Records remediation design, plan, tests, and handoff.",
+      "external_behavior": "PR remains draft with REQUEST_CHANGES handoff.",
+      "risk": "Medium",
+      "validation": "All delta records reconciled; their fail-closed claims are not yet satisfied."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-021",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Known diagnostics and protocol evidence are excluded from the no-replay proof",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The previous defect remains closed at the current head.",
+      "trigger": "Original malformed or contradictory proof-container trigger.",
+      "impact": "The original replay impact is no longer reachable through the covered cases.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Named proof-container, malformed-container, and duplicate-consistency regressions pass."
+        }
+      ],
+      "remediation": "Completed: retain centralized presence/type-consistent proof collection.",
+      "verification": "Current-head focused and full WeChat suites passed.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-action-recovery-bypasses-dispatch-no-replay"
+    },
+    {
+      "id": "PRR-028",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "A truncated selector query can still resolve and cache a candidate",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Valid Boolean decision truncation remains fail-closed; malformed query envelopes are tracked by PRR-042.",
+      "trigger": "A valid truncated selector result with candidates.",
+      "impact": "The original candidate/cache publication impact is closed for the specified producer contract.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Resolver truncation and cache regressions pass at the current head."
+        }
+      ],
+      "remediation": "Completed for valid producer results.",
+      "verification": "Valid limit, time, and depth truncation must continue to fail closed.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "selector-resolver:truncated-candidate-resolved-and-cached"
+    },
+    {
+      "id": "PRR-026",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Known action evidence still authorizes replay with a contradictory outcome",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The original performed, unknown, -25204, and contradictory pre-dispatch cases now stop after the original action.",
+      "trigger": "Legacy or pre-dispatch recovery with the original contradictory evidence matrix.",
+      "impact": "The previously demonstrated second mutation no longer occurs.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "Exact-head closure probe reports four operation lists containing only accessibility_action.",
+          "reference": "/private/tmp/pr3_exact_head_revalidation_eb543ec.py"
+        }
+      ],
+      "remediation": "Completed: require a semantically safe non-native effect or complete native no-effect proof.",
+      "verification": "Retain the full shared-policy and caller operation-count matrix.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-strict-unsupported-native-proof-no-replay"
+    },
+    {
+      "id": "PRR-027",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "documentation",
+      "title": "The committed approval result is invalid under the current review contract",
+      "location": {
+        "path": "docs/feature/accessibility-selector-engine/pr-review-macos-computer-use-3-f19cbd9.json",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The corrected historical and current results validate under schema and invariant checks.",
+      "trigger": "Review-result validation of historical lifecycle artifacts.",
+      "impact": "The result chain remains machine-readable and auditable.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "The prior e86181a result validated as VALID and its digest was verified."
+        }
+      ],
+      "remediation": "Completed: retain valid review-result artifacts and hashes.",
+      "verification": "Validate every replacement result before publication.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "review-result:f19cbd9:invalid-contract-chain"
+    },
+    {
+      "id": "PRR-029",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Collection extraction silently ignores selector steps after the first",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Unsupported collection item and field selector semantics remain rejected.",
+      "trigger": "A collection selector declares unsupported extra steps or semantics.",
+      "impact": "Configuration cannot silently execute a different selector subset.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Collection selector validation regressions remain green."
+        }
+      ],
+      "remediation": "Completed: retain one-step executable contract validation.",
+      "verification": "Malformed and unsupported collection definitions must fail before query.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "selector-collection:multi-step-definition-silently-truncated"
+    },
+    {
+      "id": "PRR-030",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "reliability",
+      "title": "Selector profile and control-map overrides do not activate atomically",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/profiles.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Both components are parsed before publishing an immutable asset pair.",
+      "trigger": "One half of an override is invalid.",
+      "impact": "A split selector/control-map configuration is not activated.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Atomic override and packaged fallback regressions pass."
+        }
+      ],
+      "remediation": "Completed: retain atomic parse_selector_assets activation.",
+      "verification": "Invalid either-half overrides must activate neither half.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-profile-override:selector-control-map-split-activation"
+    },
+    {
+      "id": "PRR-031",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Collection pagination applies the caller limit before semantic acceptance",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Pagination counts accepted semantic records and uses accepted-item lookahead.",
+      "trigger": "Raw nodes are skipped before reaching the semantic limit.",
+      "impact": "Valid later records are not prematurely omitted by raw-node counting.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Semantic pagination and lookahead regressions pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Retain skipped-record and accepted-lookahead matrices.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "selector-collection:raw-lookahead-before-semantic-limit"
+    },
+    {
+      "id": "PRR-032",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "security",
+      "title": "Bundle targeting can execute an Accessibility action in a background app",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Generated query, action, and tree workers require the requested usable frontmost application.",
+      "trigger": "The requested bundle is running but not frontmost.",
+      "impact": "Background-app enumeration or mutation remains blocked.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Generated worker target-state matrices pass."
+        }
+      ],
+      "remediation": "Completed: retain frontmost-only target selection.",
+      "verification": "Wrong, hidden, terminated, missing, and background targets must fail before AX app creation.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "ax-bundle-target-background-action"
+    },
+    {
+      "id": "PRR-033",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "privacy",
+      "title": "Normal selector evidence and events expose raw AX content beyond the semantic limit",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Normal observations, events, and evidence retain allowlisted projections.",
+      "trigger": "Selector-backed reads with user content outside the semantic result limit.",
+      "impact": "Raw AX content remains excluded from normal telemetry.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Privacy and event-projection regressions pass."
+        }
+      ],
+      "remediation": "Completed: retain explicit includeRaw boundary.",
+      "verification": "Normal output must never contain raw nodes or out-of-limit user content.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-selector-evidence-raw-ax-beyond-semantic-limit"
+    },
+    {
+      "id": "PRR-034",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "Maximum collection pages generate batch query limits rejected by the public client",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/collections.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Generated batch query limits stay at or below 500 and missing entries use bounded fallback.",
+      "trigger": "Maximum collection page and field batch extraction.",
+      "impact": "The internal producer remains compatible with the public query normalizer.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Maximum-limit and per-item fallback tests pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Retain exact public-limit boundary tests.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "collection-batch-limit-exceeds-query-normalizer"
+    },
+    {
+      "id": "PRR-035",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "WeChat selector failure routing does not treat structured diagnostics as authoritative",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Structured cause and truncation remain authoritative over message heuristics.",
+      "trigger": "A structured failure whose message contains a misleading keyword.",
+      "impact": "Callers receive the intended stable semantic failure mapping.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Structured-cause routing and misleading-message tests pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Retain structured-vs-text precedence matrix.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-selector-failure-routing-structured-cause-not-authoritative"
+    },
+    {
+      "id": "PRR-036",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "New query and action worker failures are absent from the stable package registry",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/errors.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The four worker failure values remain declared, exported, registered, and tested.",
+      "trigger": "Worker failure or empty response reaches a public observation.",
+      "impact": "Public consumers can route the failures exhaustively.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Registry and public import tests pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Producer, registry, and wheel API checks must remain synchronized.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "computer-use-worker-failures-absent-stable-registry"
+    },
+    {
+      "id": "PRR-022",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "The real native unsupported producer now includes action",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Native unsupported producers preserve the exact requested action in proof fields.",
+      "trigger": "AXPress or AXSetFocus returns the expected unsupported native code.",
+      "impact": "Higher-level recovery remains request-bound.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Generated native unsupported producer tests pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Every post-native result must retain the requested action.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "compatibility:native-unsupported:unknown-effect"
+    },
+    {
+      "id": "PRR-025",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "The new package failure remains in the stable routing tuple",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/errors.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "accessibility_action_unsupported remains in COMPUTER_USE_FAILURE_KINDS.",
+      "trigger": "A native Accessibility operation is definitively unsupported.",
+      "impact": "Public routing remains exhaustive.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Stable tuple and public import assertions pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Retain unique registry membership and wheel import tests.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "computer-use-failure-routing-accessibility-action-unsupported"
+    },
+    {
+      "id": "PRR-037",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "compatibility",
+      "title": "Correct bundle identity is rejected by a legitimate localized app name",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/client.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Exact requested bundle identity now takes precedence over localized display-name aliases.",
+      "trigger": "targetApp WeChat, correct bundle, and localizedName 微信.",
+      "impact": "Supported localized WeChat reaches the requested Accessibility application.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "Generated query and action workers reached AXUIElementCreateApplication and failed only at the later missing-window control.",
+          "reference": "/private/tmp/pr3_exact_head_revalidation_eb543ec.py"
+        }
+      ],
+      "remediation": "Completed: retain bundle-first and name-only fallback semantics.",
+      "verification": "Keep correct bundle/alias and wrong/name-only/hidden/terminated matrices.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "frontmost-target:bundle-match-rejected-by-localized-name"
+    },
+    {
+      "id": "PRR-038",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Frontmost-target failure values bypass the stable public registry",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/errors.py",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "All three operation-specific values are declared, exported, registered, documented, producer-tested, and wheel-importable.",
+      "trigger": "Query, action, or tree rejects a non-frontmost target.",
+      "impact": "Consumers can route every caller-visible value.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "Registry closure probe, producer tests, root wheel check, and isolated API smoke pass."
+        }
+      ],
+      "remediation": "Completed.",
+      "verification": "Retain producer-to-wheel unique membership checks.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "frontmost-target:operation-failures-absent-stable-registry"
+    },
+    {
+      "id": "PRR-039",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Contradictory contact-target completeness evidence still authorizes mutation",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 5312,
+        "line_end": 5349,
+        "symbol": "_contact_target_query_invalid_reason",
+        "side": "RIGHT",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The target-query validator requires diagnostics.truncated to be Boolean but does not validate truncationReason/truncation_reason type, alias agreement, or coherence with truncated=false. A response that simultaneously claims complete and supplies a limit reason is treated as complete.",
+      "trigger": "A canonical contact-target query returns one candidate with diagnostics.truncated=false and truncationReason='limit' (or conflicting reason aliases), after which open_contact/send_message continues.",
+      "impact": "The workflow mutates the UI on evidence that explicitly says the candidate set may be incomplete, so a hidden duplicate can cause the wrong conversation to be selected and sensitive text to be sent.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Lines 5312-5349 validate the Boolean flag and returnedNodes but never inspect truncation reason aliases or their consistency.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:5312"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Track A exact-head contradiction probe recorded accessibility_query -> accessibility_action -> accessibility_query and one post-query mutation; exit 3.",
+          "reference": "sha256:d3ec8a910bf94f96d05358911e67de176679796d162ee40cb2eda8b52e5b6602"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Independent Track B WeChat pass reproduced full action, draft, and submit for truncated=false plus truncationReason=limit.",
+          "reference": "Track B WeChat exact-head pass"
+        }
+      ],
+      "remediation": "Validate every completeness alias by presence and type, require all copies to agree, reject a reason when truncated=false, and make any malformed or contradictory completeness evidence final before action, click, Return, draft, or submit.",
+      "verification": "Add cross-product tests for Boolean flag, reason presence/type, camel/snake alias conflicts, and each target strategy; every invalid case must end after its decision query with zero downstream mutation.",
+      "status": "open",
+      "origin": "BASE_DIFF",
+      "fingerprint": "wechat-contact-target:truncated-candidate-set-mutated"
+    },
+    {
+      "id": "PRR-023",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "documentation",
+      "title": "F6 platform records again publish obsolete review state",
+      "location": {
+        "path": "docs/feature/accessibility-selector-engine/pr-description.md",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The previous obsolete approval trigger is gone; live and tracked handoff state both publish request-changes, draft, and pending re-review.",
+      "trigger": "A maintainer consults the canonical live or tracked handoff before this replacement review is renewed after fixes.",
+      "impact": "The current handoff safely prohibits merge; final F6 renewal remains a next-head gate.",
+      "evidence": [
+        {
+          "kind": "ci",
+          "description": "Final GitHub snapshot shows exact head eb543ec, draft state, successful CI, and a request-changes handoff body."
+        }
+      ],
+      "remediation": "Completed for this handoff; renew all F6 surfaces after the next remediation review.",
+      "verification": "Before ready/merge, live body and tracked records must describe the replacement exact-head decision and CI.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "selector-engine-f6-records-obsolete"
+    },
+    {
+      "id": "PRR-040",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Explicit empty any_of matchers are erased and broaden selectors",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py",
+        "line_start": 181,
+        "line_end": 187,
+        "symbol": "_parse_attribute_matcher",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The prior presence-erasure defect is closed: explicit any_of is parsed by key presence and empty or wrong-type lists are rejected before activation.",
+      "trigger": "A TOML or JSON override contains any_of=[] or another falsey malformed value.",
+      "impact": "A wrong-label control can resolve at confidence 1.0 and become an action target instead of rejecting the override.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "The parser now distinguishes key absence from explicit any_of and validation rejects empty lists.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py:182"
+        },
+        {
+          "kind": "test",
+          "description": "Current-head profile tests and Track A closure matrix pass for the original PRR-040 fingerprint.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "No further action for the preserved PRR-040 fingerprint.",
+      "verification": "Retain explicit empty/wrong-type any_of negative tests.",
+      "status": "resolved",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "selector-profile:any-of-falsey-erased"
+    },
+    {
+      "id": "PRR-041",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "correctness",
+      "title": "Non-finite profile numbers bypass confidence validation",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py",
+        "line_start": 272,
+        "line_end": 320,
+        "symbol": "_validate_constraint and _validate_confidence",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The prior non-finite-number defect is closed: parser and defensive validation reject NaN and infinities in the reviewed numeric profile fields.",
+      "trigger": "A TOML-compatible nan or infinity appears in a confidence, weight, distance, or frame numeric field.",
+      "impact": "A candidate that fails intended confidence evidence can resolve and expose non-JSON-safe diagnostics.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Finite-number checks are applied during profile validation.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/validation.py"
+        },
+        {
+          "kind": "test",
+          "description": "Current-head numeric profile matrix and the complete computer-use suite pass.",
+          "reference": "packages/computer-use-macos/tests/test_selectors.py"
+        }
+      ],
+      "remediation": "No further action for the preserved PRR-041 fingerprint.",
+      "verification": "Retain NaN and positive/negative infinity tests for every numeric field.",
+      "status": "resolved",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "selector-profile:nonfinite-confidence-bypass"
+    },
+    {
+      "id": "PRR-042",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Duplicate, outer, and contradictory query evidence still normalizes as success",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py",
+        "line_start": 1040,
+        "line_end": 1071,
+        "symbol": "_unwrap_query_payload",
+        "side": "RIGHT",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "The unwrapping routine returns the first direct or nested query mapping and discards other visible wrappers and outer ToolObservation failure evidence. The normalizer also accepts success with a non-failure error container and does not enforce truncation-reason alias agreement or false/reason coherence.",
+      "trigger": "A failed outer ToolObservation wraps a successful accessibilityQuery, direct and nested accessibilityQuery copies disagree, a success carries error.message, or diagnostics says truncated=false while supplying a truncation reason.",
+      "impact": "A failed or incomplete query can produce a resolved element and cache entry. Callers then receive an actionable target even though the complete transport envelope says the query failed or was incomplete.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Lines 1040-1071 select one wrapper without reconciling duplicate/outer evidence; truncation reason normalization uses the first truthy alias.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/resolver.py:1040"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Track A duplicate-wrapper matrix resolved all four conflicting envelopes; exit 4.",
+          "reference": "sha256:087dc76a4e44f85c51c417a132d94298beb2528777bd27f0e467452cf2b934ff"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Track B selector probe resolved and cached outer-failed, duplicate-wrapper, error-container, false-plus-reason, and conflicting-reason-alias cases; exit 31.",
+          "reference": "sha256:a3c934951114a68d75822d24fbe343ec4445e8d01d205293d2d56fdb06354d03"
+        },
+        {
+          "kind": "spec",
+          "description": "The remediation design requires malformed wrappers and conflicting duplicate metadata to fail closed.",
+          "reference": "docs/feature/accessibility-selector-engine/design-remediation-2026-07-17.md"
+        }
+      ],
+      "remediation": "Before selecting a payload, inventory every visible envelope/wrapper and relevant outer field, validate types, require duplicate aliases/copies to agree, and reject any success carrying contradictory failure or completeness evidence. Rejected results must never resolve or populate cache.",
+      "verification": "Add direct-vs-nested, outer-vs-inner, error-container, false-plus-reason, and conflicting alias matrices with assertions for failed status, no elements, and no cache write.",
+      "status": "open",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "selector-query-envelope:malformed-success-inference"
+    },
+    {
+      "id": "PRR-043",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Search-target cardinality, identity, and structure still fail open before send",
+      "location": {
+        "path": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py",
+        "line_start": 5169,
+        "line_end": 5193,
+        "symbol": "_search_candidates_from_nodes",
+        "side": "RIGHT",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Search candidates are capped at ten before cardinality is established, contact matching uses substring rather than normalized exact equality, postcondition confidence also accepts substrings, and missing/invalid AX paths are coerced to '0'. The target gate does not prove the candidate belongs to the verified WeChat window.",
+      "trigger": "Examples include exact duplicates at returned rows 1 and 11, request 'Ada' with sole row/title 'Ada Lovelace', a missing/numeric AX path, or a TextEdit-origin node with a plausible frame.",
+      "impact": "The tool can select an ambiguous or wrong contact, perform an Accessibility action or coordinate click, draft sensitive text, and press Return to submit it.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Lines 5177-5185 cap rows at ten and use substring matching; lines 3917-3919 synthesize a path; lines 6177-6182 accept substring postconditions.",
+          "reference": "packages/wechat-desktop-tool/src/wechat_desktop_tool/tool.py:5169"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Track A partial-name full-send probe completed action, draft, and submit; exit 43.",
+          "reference": "sha256:88c4bb85ae7cac26a8d082286dbd21231503900f28c35d40c642cd3a5d1f6c15"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Malformed/missing path cases completed the send path; exit 46.",
+          "reference": "sha256:1d2a02f533c91891d7b7b05088a61233cbae2cd81c9391089f1096c7ecbedc55"
+        },
+        {
+          "kind": "reproduction",
+          "description": "An 11-row response with matching rows 1 and 11 was treated as unique and submitted; exit 45.",
+          "reference": "sha256:33910458602d8f559c7f7abc1267789e400fb3ae1616ea8772383ce62ddb2a76"
+        },
+        {
+          "kind": "spec",
+          "description": "The remediation design requires exact normalized-name cardinality and a structurally valid in-window target before mutation.",
+          "reference": "docs/feature/accessibility-selector-engine/design-remediation-2026-07-17.md:149"
+        }
+      ],
+      "remediation": "Compute exact-name cardinality over the complete validated candidate set, reject any semantic cap that can hide a duplicate, require valid in-snapshot AX path/frame/action evidence and verified WeChat app/window provenance, and use the same exact identity rule for postconditions.",
+      "verification": "Add >10-row duplicate, partial-name-only, missing/malformed path, wrong-app/window, offscreen, and valid exact-one controls; invalid cases must record zero action/click/Return/draft/submit after the decision query.",
+      "status": "open",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "wechat-search-target:unverified-return-draft-submit"
+    },
+    {
+      "id": "PRR-044",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "Explicit malformed roots and no-op matchers silently broaden selector profiles",
+      "location": {
+        "path": "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py",
+        "line_start": 102,
+        "line_end": 104,
+        "symbol": "_parse_selector",
+        "side": "RIGHT",
+        "commit_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d"
+      },
+      "observation": "Selector root parsing uses truthiness, so an explicitly present falsey root is treated as absent and silently defaults to focusedWindow. Attribute matcher parsing/validation also accepts empty matchers, equals:null, and unknown v1 keys such as anyOf, producing a matcher with no effective predicate.",
+      "trigger": "Load an otherwise valid profile whose selector root is {}, false, 0, empty string/list, or null, or whose AXDescription matcher is {}, {equals:null}, or {anyOf:['Contacts']}; then resolve against a non-matching Settings node.",
+      "impact": "Malformed or version-skewed configuration activates instead of failing closed, broadens the search root/predicate, resolves the wrong UI element at confidence 1.0, and can supply an action target.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Lines 102-104 use root_data truthiness; lines 182-198 ignore unknown matcher keys; validation only checks regex, alias_ref, and empty any_of.",
+          "reference": "packages/computer-use-macos/src/computer_use_macos/selectors/profile.py:102"
+        },
+        {
+          "kind": "reproduction",
+          "description": "Independent exact-head selector probe resolved all six falsey roots and all three no-op/version-skewed matchers; wrong label Settings resolved after one query; exit 31.",
+          "reference": "sha256:a3c934951114a68d75822d24fbe343ec4445e8d01d205293d2d56fdb06354d03"
+        },
+        {
+          "kind": "spec",
+          "description": "The field contract requires SelectorDefinition.root and SelectorRoot.kind; malformed custom profiles are documented to be rejected before query.",
+          "reference": "docs/feature/accessibility-selector-engine/design.md:595"
+        }
+      ],
+      "remediation": "Parse root by key presence, rejecting every present non-mapping or incomplete value; require at least one effective attribute predicate and reject unknown v1 matcher keys or unsupported aliases before override activation.",
+      "verification": "Add falsey-present-root and matcher key/predicate matrices. Every malformed profile must raise the stable validation failure and execute zero queries; include absent-root compatibility controls only where a documented default is allowed.",
+      "status": "open",
+      "origin": "PREVIOUSLY_MISSED",
+      "fingerprint": "selector-profile:falsey-root-and-noop-matcher-broadening"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-039",
+      "action": "Reject all malformed, conflicting, or incoherent completeness aliases before any contact-target mutation; add strategy-wide zero-side-effect order tests.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-042",
+      "action": "Reconcile all outer/inner/duplicate query evidence and completeness aliases before resolution; add no-element and no-cache matrices.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-043",
+      "action": "Require complete-set exact-name cardinality plus structurally valid in-WeChat-window target proof before action/click/draft/submit.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-044",
+      "action": "Reject explicit malformed roots, no-op/null matchers, and unknown v1 matcher keys before profile activation and query.",
+      "status": "open"
+    }
+  ],
+  "risks": [
+    {
+      "category": "security-privacy",
+      "level": "High",
+      "description": "An unverified or partially named contact path can reach draft and submit with user text.",
+      "mitigation": "Resolve PRR-039 and PRR-043 and run a separately authorized live smoke only after deterministic gates pass.",
+      "owner": "wechat-desktop-tool maintainer"
+    },
+    {
+      "category": "data-integrity",
+      "level": "High",
+      "description": "Incomplete or hidden-ambiguous candidate sets can select the wrong same-name conversation.",
+      "mitigation": "Validate completeness aliases and compute exact identity cardinality over the entire returned set.",
+      "owner": "wechat-desktop-tool maintainer"
+    },
+    {
+      "category": "reliability-concurrency",
+      "level": "Medium",
+      "description": "Contradictory query wrappers and outer failures can still produce and cache elements.",
+      "mitigation": "Resolve PRR-042 with envelope inventory/agreement and cache no-write tests.",
+      "owner": "computer-use-macos maintainer"
+    },
+    {
+      "category": "performance-scalability",
+      "level": "Low",
+      "description": "Bounded queries remain, but the current semantic limit is incorrectly used before correctness cardinality.",
+      "mitigation": "Separate safe presentation limits from complete target-decision cardinality.",
+      "owner": "WeChat maintainer"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "High",
+      "description": "Malformed or version-skewed selector profiles silently broaden roots and predicates.",
+      "mitigation": "Resolve PRR-044 with presence-sensitive parsing and unknown-key/effective-predicate validation.",
+      "owner": "computer-use-macos maintainer"
+    },
+    {
+      "category": "deployment-rollback",
+      "level": "Medium",
+      "description": "Current F6 records cannot support merge while executable behavior contradicts their fail-closed claims.",
+      "mitigation": "Keep the PR draft and refresh records only after a replacement exact-head review.",
+      "owner": "PR maintainer"
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s tests -p test_*.py",
+        "environment": "detached clean clone, CPython workspace venv, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "128 tests passed including three wheel build/install/API smokes and old dependency rejection.",
+        "required_for_approval": true
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/app-control-protocol/tests -p test_*.py",
+        "environment": "detached clean clone, CPython workspace venv, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "55 tests passed.",
+        "required_for_approval": true
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/computer-use-macos/tests -p test_*.py",
+        "environment": "detached clean clone, CPython workspace venv, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "168 tests passed and one sandbox socket test skipped.",
+        "required_for_approval": true
+      },
+      {
+        "command": "python -W error::ResourceWarning -m unittest discover -s packages/wechat-desktop-tool/tests -p test_*.py",
+        "environment": "detached clean clone, CPython workspace venv, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "159 tests passed.",
+        "required_for_approval": true
+      },
+      {
+        "command": "python -m compileall -q packages examples scripts tests",
+        "environment": "detached clean clone with external pycache, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Compilation passed and the reviewed clone remained clean.",
+        "required_for_approval": true
+      },
+      {
+        "command": "env -u PYTHONPATH python scripts/release_preflight.py",
+        "environment": "detached clean clone, sandboxed macOS, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Preflight passed with expected socket and unavailable external-release-proof warnings.",
+        "required_for_approval": true
+      },
+      {
+        "command": "git diff --check fed6523..31404a9",
+        "environment": "detached clean clone, git, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "No whitespace errors.",
+        "required_for_approval": true
+      },
+      {
+        "command": "Track A current-head closure matrices for prior PRR-039/040/041/042/043 cases",
+        "environment": "detached clean clone, exact source imports, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Original PRR-040/041 cases close; previously recorded ordinary PRR-039, PRR-042, and PRR-043 matrices close, motivating fresh forward-risk variants.",
+        "required_for_approval": true,
+        "evidence_ref": "Track A closure pass"
+      },
+      {
+        "command": "Track A PRR-039 completeness-contradiction probe via /dev/stdin",
+        "environment": "detached clean clone, fake app-control side-effect recorder, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 3,
+        "summary": "false-plus-reason completeness evidence executes one post-query mutation.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:d3ec8a910bf94f96d05358911e67de176679796d162ee40cb2eda8b52e5b6602"
+      },
+      {
+        "command": "Track A PRR-042 duplicate-wrapper probe via /dev/stdin",
+        "environment": "detached clean clone, exact SelectorResolver import, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 4,
+        "summary": "Four outer/direct/nested contradictory envelopes resolve an element.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:087dc76a4e44f85c51c417a132d94298beb2528777bd27f0e467452cf2b934ff"
+      },
+      {
+        "command": "python -B /private/tmp/mcu_track_b_selector_probe_31404a9.py",
+        "environment": "detached clean clone, exact selector test support, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 31,
+        "summary": "Query wrapper/completeness contradictions resolve/cache; falsey roots and no-op/version-skewed matchers resolve the wrong label.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:a3c934951114a68d75822d24fbe343ec4445e8d01d205293d2d56fdb06354d03"
+      },
+      {
+        "command": "Track A PRR-043 partial-name full-send probe via /dev/stdin",
+        "environment": "detached clean clone, fake app-control full-send recorder, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 43,
+        "summary": "Request Ada with only Ada Lovelace reaches action, draft, and submit.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:88c4bb85ae7cac26a8d082286dbd21231503900f28c35d40c642cd3a5d1f6c15"
+      },
+      {
+        "command": "python -B /private/tmp/pr3_search_candidate_path_probe_31404a9.py",
+        "environment": "detached clean clone, exact WeChat source/test support, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 46,
+        "summary": "Missing, empty, and numeric AX paths are synthesized/coerced and the sensitive send completes.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:1d2a02f533c91891d7b7b05088a61233cbae2cd81c9391089f1096c7ecbedc55"
+      },
+      {
+        "command": "python -B /private/tmp/pr3_search_semantic_limit_probe_31404a9.py",
+        "environment": "detached clean clone, exact WeChat source/test support, head 31404a9",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "FAIL",
+        "exit_code": 45,
+        "summary": "Matching rows 1 and 11 are treated as one candidate and the send completes.",
+        "required_for_approval": true,
+        "evidence_ref": "sha256:33910458602d8f559c7f7abc1267789e400fb3ae1616ea8772383ce62ddb2a76"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "CI / test",
+        "observed_at": "2026-07-17T16:50:37Z",
+        "head_sha": "31404a933f29ef9a50d671a0fe2a5d75a3a36b5d",
+        "status": "PASS",
+        "summary": "GitHub check completed successfully at 2026-07-17T16:21:10Z.",
+        "evidence_ref": "https://github.com/zhanghao1903/macos-computer-use/actions/runs/29595673453/job/87935347092"
+      }
+    ],
+    "not_run": [
+      {
+        "check": "live WeChat contact switch, draft, and send",
+        "reason": "Review remained read-only; deterministic exact-source probes establish the blocking operation paths without a live mutation."
+      },
+      {
+        "check": "signed/notarized helper and package publication",
+        "reason": "These are separate release-stage gates and do not change the merge blockers."
+      },
+      {
+        "check": "ruff and strict repository-wide mypy",
+        "reason": "Ruff is unavailable and strict mypy has no accepted clean baseline; neither is configured CI."
+      }
+    ]
+  },
+  "limitations": [
+    "No live desktop mutation was performed.",
+    "Release signing, notarization, publication, and trusted-publisher evidence were not exercised.",
+    "The report pair is local and outside the reviewed head; committing it to the PR branch would require another review.",
+    "This decision expires immediately when base or head changes."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    {
+      "id": "ASM-001",
+      "statement": "Remote base, head, draft state, and CI stayed fixed through report completion.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Final gh pr view exact-head snapshot",
+      "evidence": "base fed6523, head 31404a9, draft true, CI job 87935347092 success observed at 2026-07-17T16:50:37Z",
+      "impact_if_false": "The report would be stale and no decision could apply."
+    },
+    {
+      "id": "ASM-002",
+      "statement": "Deterministic fake and generated-worker paths preserve production library branching and side-effect order.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Exact source import, source-path audit, independent reproduction, and full-suite controls",
+      "evidence": "Probes invoke SelectorResolver and WeChatDesktopTool at 31404a9 and record actual command order; two independent passes reproduced the roots.",
+      "impact_if_false": "The counterexamples would require live reproduction before blocking merge."
+    },
+    {
+      "id": "ASM-003",
+      "statement": "Existing configured tests and CI cover malformed and contradictory boundary states sufficiently for approval.",
+      "decision_critical": true,
+      "status": "FALSIFIED",
+      "method": "Discriminating adversarial probes after all suites and CI passed",
+      "evidence": "Configured suites and CI are green while current-head probes fail with exits 3, 4, 31, 43, 46, and 45.",
+      "impact_if_false": "Green CI cannot support approval without the missing boundary matrices."
+    }
+  ],
+  "non_blocking_recommendations": []
+}
