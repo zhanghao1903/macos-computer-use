@@ -71,19 +71,47 @@ app_control = ComputerUseClient(
 ```
 
 This helper example does not imply helper parity for the selector-backed
-WeChat APIs. See the coordinated `0.2.0` migration below.
+WeChat APIs. See the coordinated `0.3.0` migration below.
 
-## Coordinated 0.2.0 Upgrade
+## Coordinated 0.3.0 Upgrade
 
-Accessibility Selector Engine support is released as one coordinated package
-set. Upgrade all three distributions together:
+PyPI users upgrading from the last published `0.1.1` package set should install
+all three `0.3.0` distributions together:
 
 ```bash
 python -m pip install --upgrade \
-  "app-control-protocol>=0.2.0,<0.3" \
-  "computer-use-macos>=0.2.0,<0.3" \
-  "wechat-desktop-tool>=0.2.0,<0.3"
+  "app-control-protocol>=0.3.0,<0.4" \
+  "computer-use-macos>=0.3.0,<0.4" \
+  "wechat-desktop-tool>=0.3.0,<0.4"
 ```
+
+Version `0.3.0` includes the coordinated selector-backed runtime prepared in
+the repository's `0.2.0` source milestone and adds the packaged `wechat-use`
+Agent skill. The `0.2.0` package set was not published to PyPI, so applications
+do not need an intermediate upgrade.
+
+Existing semantic WeChat method signatures remain compatible. Applications
+that want Agent guidance can opt in with `load_wechat_use_skill()` or
+`export_wechat_use_skill(...)`; applications that do not load the skill have no
+new runtime behavior. The embedding application continues to own tool
+registration, authorization, confirmation, privacy, audit, and unknown-send
+recovery.
+
+To roll back before relying on new `0.3.0` behavior, pin the complete previous
+published set rather than mixing versions:
+
+```bash
+python -m pip install --force-reinstall \
+  "app-control-protocol==0.1.1" \
+  "computer-use-macos==0.1.1" \
+  "wechat-desktop-tool==0.1.1"
+```
+
+## Historical 0.2.0 Source Milestone
+
+Accessibility Selector Engine support was prepared in the repository as one
+coordinated `0.2.0` package set, but those artifacts were not published to
+PyPI. The installable successor is `0.3.0` above.
 
 The dependency floors are intentional:
 
@@ -100,15 +128,6 @@ construction because helper selector parity is outside the `0.2.0` scope.
 Supported WeChat modes are direct execution and a local service backed by the
 direct runtime. Generic non-WeChat `computer-use-macos` helper operations are
 unchanged.
-
-To roll back, pin the complete previous set rather than mixing versions:
-
-```bash
-python -m pip install --force-reinstall \
-  "app-control-protocol==0.1.1" \
-  "computer-use-macos==0.1.1" \
-  "wechat-desktop-tool==0.1.1"
-```
 
 ## Compatibility Decision
 
@@ -130,7 +149,7 @@ python -m pip install --force-reinstall \
   that may have side effects.
 - Helper mode remains appropriate for generic production computer-use
   operations because macOS permissions attach to the executing process
-  identity. It is not a supported WeChat selector runtime in `0.2.0`.
+  identity. It is not a supported WeChat selector runtime in `0.3.0`.
 
 ## WeChat Navigation Safety Changes
 

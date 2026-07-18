@@ -121,7 +121,7 @@ PACKAGE_PROJECTS = {
     "computer-use-macos": Path("packages/computer-use-macos/pyproject.toml"),
     "wechat-desktop-tool": Path("packages/wechat-desktop-tool/pyproject.toml"),
 }
-EXPECTED_PACKAGE_VERSION = "0.2.0"
+EXPECTED_PACKAGE_VERSION = "0.3.0"
 
 PACKAGE_SOURCES = {
     "app-control-protocol": Path(
@@ -161,10 +161,10 @@ PACKAGE_MODULE_FILES = (
 
 EXPECTED_RUNTIME_DEPS = {
     "app-control-protocol": (),
-    "computer-use-macos": ("app-control-protocol>=0.2.0",),
+    "computer-use-macos": ("app-control-protocol>=0.3.0",),
     "wechat-desktop-tool": (
-        "app-control-protocol>=0.2.0",
-        "computer-use-macos>=0.2.0",
+        "app-control-protocol>=0.3.0",
+        "computer-use-macos>=0.3.0",
     ),
 }
 

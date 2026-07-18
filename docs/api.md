@@ -796,7 +796,7 @@ List APIs return visible rows only:
 }
 ```
 
-List APIs do not scroll or implement cursor continuation in `0.2.0`.
+List APIs do not scroll or implement cursor continuation in `0.3.0`.
 `nextPageToken` is always `null`; passing a non-null `pageToken` returns
 `failureKind="pagination_not_supported"` instead of replaying the first page.
 

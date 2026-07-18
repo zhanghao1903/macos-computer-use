@@ -1979,10 +1979,10 @@ class ReleaseTagCheckScriptTests(unittest.TestCase):
         output = StringIO()
 
         with redirect_stdout(output):
-            result = script.main(["--root", str(ROOT), "--tag", "v0.2.0"])
+            result = script.main(["--root", str(ROOT), "--tag", "v0.3.0"])
 
         self.assertEqual(result, 0)
-        self.assertIn("release tag ok: v0.2.0", output.getvalue())
+        self.assertIn("release tag ok: v0.3.0", output.getvalue())
 
     def test_main_rejects_mismatched_tag(self) -> None:
         script = _load_release_tag_check_script()
@@ -2017,7 +2017,7 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertTrue(all(package["installed"] for package in packages))
         self.assertTrue(all(package["imported"] for package in packages))
         self.assertTrue(all(package["apiSmoke"] for package in packages))
-        self.assertTrue(all(package["version"] == "0.2.0" for package in packages))
+        self.assertTrue(all(package["version"] == "0.3.0" for package in packages))
         self.assertEqual(
             report["installPolicy"],
             _testpypi_install_policy(managed_virtualenv=False),
@@ -2497,7 +2497,7 @@ class WheelCheckScriptTests(unittest.TestCase):
                 self.assertNotIn("PYTHONPATH", env)
             calls.append((tuple(command), cwd))
             stdout = (
-                "0.2.0\n"
+                "0.3.0\n"
                 if "-c" in command and "__version__" in command[-1]
                 else ""
             )
@@ -2593,7 +2593,7 @@ class WheelCheckScriptTests(unittest.TestCase):
                 "",
                 (
                     "ERROR: Could not find a version that satisfies the "
-                    "requirement app-control-protocol>=0.2.0"
+                    "requirement app-control-protocol>=0.3.0"
                 ),
             )
 
@@ -2603,7 +2603,7 @@ class WheelCheckScriptTests(unittest.TestCase):
             with TemporaryDirectory() as tmpdir:
                 wheel_dir = Path(tmpdir)
                 current_wheel = (
-                    wheel_dir / "wechat_desktop_tool-0.2.0-py3-none-any.whl"
+                    wheel_dir / "wechat_desktop_tool-0.3.0-py3-none-any.whl"
                 )
                 current_wheel.write_bytes(b"")
 
@@ -2614,7 +2614,7 @@ class WheelCheckScriptTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(len(calls), 1)
-        self.assertIn("wechat-desktop-tool==0.2.0", calls[0])
+        self.assertIn("wechat-desktop-tool==0.3.0", calls[0])
         self.assertIn("--no-index", calls[0])
 
     def test_mixed_dependency_smoke_rejects_unrelated_install_failure(self) -> None:
@@ -2632,7 +2632,7 @@ class WheelCheckScriptTests(unittest.TestCase):
             "",
             (
                 "ERROR: No matching distribution found for "
-                "computer-use-macos>=0.2.0"
+                "computer-use-macos>=0.3.0"
             ),
         )
 
@@ -3008,7 +3008,7 @@ class FakeReportRunner:
                 and self._script_matches_package(script, self.fail_api_smoke_package)
             ):
                 return subprocess.CompletedProcess(command, 1, "", "api smoke failed")
-            return subprocess.CompletedProcess(command, 0, "0.2.0\n", "")
+            return subprocess.CompletedProcess(command, 0, "0.3.0\n", "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def _script_matches_package(self, script: str, package_name: str) -> bool:
@@ -3096,7 +3096,7 @@ def _write_fake_wheel_set(
         _write_fake_wheel(
             wheel_dir,
             project_name=project_name,
-            version="0.2.0",
+            version="0.3.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -3162,7 +3162,7 @@ def _write_fake_sdist_set(
         _write_fake_sdist(
             sdist_dir,
             project_name=project_name,
-            version="0.2.0",
+            version="0.3.0",
             dependencies=dependency_overrides.get(
                 project_name,
                 preflight.EXPECTED_METADATA_DEPS[project_name],
@@ -3252,7 +3252,7 @@ def _testpypi_install_report_payload(
                 "installed": not failed,
                 "imported": not failed,
                 "apiSmoke": not failed,
-                "version": None if failed else "0.2.0",
+                "version": None if failed else "0.3.0",
             }
         )
     return {
@@ -3507,9 +3507,9 @@ def _wechat_selector_engine_smoke_report(
             "headSha": head_sha,
             "generatedAt": "2026-07-12T00:00:00Z",
             "packageVersions": {
-                "app-control-protocol": "0.2.0",
-                "computer-use-macos": "0.2.0",
-                "wechat-desktop-tool": "0.2.0",
+                "app-control-protocol": "0.3.0",
+                "computer-use-macos": "0.3.0",
+                "wechat-desktop-tool": "0.3.0",
             },
         },
         "checks": checks,

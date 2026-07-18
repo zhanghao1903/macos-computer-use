@@ -37,8 +37,6 @@ from .models import (
 from .profiles import build_packaged_collection_extractor
 from .profiles import build_packaged_selector_resolver
 from .profiles import load_selector_assets
-from .window_model import build_wechat_window_model
-
 if TYPE_CHECKING:
     from app_control_protocol import AppControlConfig
 
@@ -197,7 +195,7 @@ class WeChatDesktopTool:
         if self._config.computer_use_backend.casefold() == "helper":
             raise ValueError(
                 "wechat-desktop-tool selector APIs do not support "
-                "computer_use.backend=helper in version 0.2.0; use direct or "
+                "computer_use.backend=helper in version 0.3.0; use direct or "
                 "a direct-backed local service"
             )
         self._selector_assets = load_selector_assets(

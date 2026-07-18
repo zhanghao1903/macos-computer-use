@@ -42,12 +42,12 @@ python -m build packages/wechat-desktop-tool --sdist --wheel --outdir dist
 python scripts/release_preflight.py --wheel-dir dist --sdist-dir dist
 ```
 
-For the `0.2.0` selector release, all three project versions must be exactly
-`0.2.0`. The macOS backend must require `app-control-protocol>=0.2.0`, and the
-WeChat package must require both workspace dependencies at `>=0.2.0`.
+For the `0.3.0` coordinated release, all three project versions must be exactly
+`0.3.0`. The macOS backend must require `app-control-protocol>=0.3.0`, and the
+WeChat package must require both workspace dependencies at `>=0.3.0`.
 `wheel_check.py` installs the complete wheel set in a clean virtual
 environment, verifies the installed versions and public API smoke, and proves
-that pip rejects `wechat-desktop-tool 0.2.0` when only local `0.1.1`
+that pip rejects `wechat-desktop-tool 0.3.0` when only local `0.1.1`
 dependencies are available.
 
 Run the four source-path test commands above from a clean environment without

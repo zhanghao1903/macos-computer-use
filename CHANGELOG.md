@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-18
+
 ### Added
 
 - Add a versioned, framework-neutral `wechat-use` Agent skill to

@@ -105,7 +105,7 @@ not an authorization mechanism.
 See [agent-integration-guide.md](agent-integration-guide.md) for the application
 boundary and [api.md](api.md) for the exact loader data model.
 
-## Supported Runtime Modes In 0.2.0
+## Supported Runtime Modes In 0.3.0
 
 The selector-backed WeChat APIs support these runtime modes:
 
@@ -114,7 +114,7 @@ The selector-backed WeChat APIs support these runtime modes:
 - a local service whose server executes the direct backend, adapted through
   `UnixSocketServiceClient` or another compatible `AppControlClient`.
 
-They do not support `[computer_use] backend = "helper"` in version `0.2.0`.
+They do not support `[computer_use] backend = "helper"` in version `0.3.0`.
 `WeChatDesktopTool.from_config(...)` copies the backend from the shared config
 and raises `ValueError` during construction before it sends any app-control
 command. Change the service to a direct backend or defer WeChat selector use;
@@ -674,7 +674,7 @@ wechat-desktop-tool examples send-message \
 If `--config` points to an app-control TOML with `[helper] endpoint` and
 optional `token`, the CLI uses those connection values when `--socket-path`,
 `--token`, or `--token-file` are not supplied. For WeChat selector APIs in
-version `0.2.0`, that service must still run the direct backend and the same
+version `0.3.0`, that service must still run the direct backend and the same
 config must keep `[computer_use] backend = "direct"`:
 
 ```bash
@@ -697,7 +697,7 @@ and confirmation policy.
 
 ## Current Limitations
 
-- Helper-backed WeChat selector execution is not supported in `0.2.0` and
+- Helper-backed WeChat selector execution is not supported in `0.3.0` and
   fails during `WeChatDesktopTool.from_config(...)` construction. Generic
   `computer-use-macos` helper operations remain a separate supported backend
   capability.
@@ -705,7 +705,7 @@ and confirmation policy.
   visible or currently loaded rows exposed by macOS Accessibility. They do not
   export the full WeChat contact database or complete chat history.
 - Contact and conversation lists do not implement cursor continuation in
-  `0.2.0`; callers must refresh after scrolling the WeChat UI.
+  `0.3.0`; callers must refresh after scrolling the WeChat UI.
 - `observe_current_chat` remains a legacy observe-backed summary API. When a
   lower backend supplies `observation.messages` or `textExtract`, its parsing is
   still best-effort.
