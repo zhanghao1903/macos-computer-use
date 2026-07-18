@@ -582,6 +582,45 @@ class FakeWeChatLivePrereqProvider:
 
 
 class SdkExampleTests(unittest.TestCase):
+    def test_wechat_agent_skill_example_loads_and_exports_bundle(self) -> None:
+        module = _load_wechat_agent_skill_test_module()
+
+        registration = module.build_agent_skill_registration()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            payload = module.run_agent_skill_test(Path(tmpdir) / "skills")
+
+            target = Path(payload["exportedDirectory"])
+            self.assertTrue(target.is_dir())
+            self.assertEqual(
+                (target / "SKILL.md").read_text(encoding="utf-8"),
+                registration["files"][0]["content"],
+            )
+
+        self.assertEqual(payload["success"], True)
+        self.assertEqual(payload["schema"], "wechat.agent-skill.v1")
+        self.assertEqual(payload["name"], "wechat-use")
+        self.assertEqual(payload["version"], "1.0.0")
+        self.assertEqual(payload["entrypoint"], "SKILL.md")
+        self.assertEqual(
+            payload["registeredFiles"],
+            [
+                "SKILL.md",
+                "agents/openai.yaml",
+                "references/operations.md",
+                "references/recovery.md",
+            ],
+        )
+        self.assertEqual(
+            payload["exportedFiles"],
+            [
+                "SKILL.md",
+                "agents/openai.yaml",
+                "manifest.json",
+                "references/operations.md",
+                "references/recovery.md",
+            ],
+        )
+
     def test_wechat_window_sdk_test_runs_through_service_adapter(self) -> None:
         module = _load_wechat_window_sdk_test_module()
         service_client = FakeUnixSocketServiceClient()
@@ -1235,6 +1274,12 @@ def _load_wechat_window_sdk_test_module() -> Any:
     root = Path(__file__).resolve().parents[1]
     example_path = root / "examples" / "wechat_window_sdk_test.py"
     return _load_example_module(example_path, "wechat_window_sdk_test")
+
+
+def _load_wechat_agent_skill_test_module() -> Any:
+    root = Path(__file__).resolve().parents[1]
+    example_path = root / "examples" / "wechat_agent_skill_test.py"
+    return _load_example_module(example_path, "wechat_agent_skill_test")
 
 
 def _load_wechat_file_transfer_send_test_module() -> Any:

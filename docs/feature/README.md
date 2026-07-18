@@ -24,4 +24,5 @@ directory as historical context or mark it superseded.
 Current drafts, including older single-file designs:
 
 - [Accessibility Selector Engine Technical Design](./accessibility-selector-engine/design.md)
+- [WeChat Agent Skill Technical Design](./wechat-agent-skill/design.md)
 - [WeChat Accessibility Action API Design](./wechat-accessibility-action-api-design.md)

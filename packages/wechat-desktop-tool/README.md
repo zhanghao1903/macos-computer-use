@@ -45,6 +45,34 @@ while keeping the stable `wechat.desktop` tool name.
 `run_command(..., observer=...)` and `run_stream(...)` use the shared
 `app_control_protocol.ToolObserver` event surface.
 
+## Packaged Agent Skill
+
+Applications can load the versioned `wechat-use` skill after registering the
+semantic WeChat operations with their Agent runtime:
+
+```python
+from wechat_desktop_tool import load_wechat_use_skill
+
+skill = load_wechat_use_skill()
+registration = skill.to_dict()
+print(skill.name, skill.version, skill.instructions)
+```
+
+Filesystem-based runtimes can export a complete standard skill directory:
+
+```python
+from wechat_desktop_tool import export_wechat_use_skill
+
+skill_dir = export_wechat_use_skill(".agents/skills")
+print(skill_dir)  # resolved path ending in .agents/skills/wechat-use
+```
+
+Export never overwrites an existing `wechat-use` directory. Loading and export
+perform no desktop, network, token, permission, or Agent registration action.
+The embedding application still owns tool registration, authorization,
+confirmation, and audit. In particular, it must never replay an unknown send
+outcome automatically.
+
 ## Operations
 
 - `open_wechat`: open or focus WeChat Desktop, then verify the foreground

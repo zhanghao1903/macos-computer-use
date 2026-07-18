@@ -6,8 +6,8 @@
 | --- | --- |
 | Feature | `wechat-agent-skill` |
 | Branch | `codex/wechat-agent-skill` |
-| Baseline | `origin/main` at `95f6364` |
-| Current phase | F0-F4 complete; F5 pending |
+| Baseline | `origin/main` at `eb51800` |
+| Current phase | F0-F5 complete; F6 pending |
 | Started | 2026-07-18 |
 | Affected package | `wechat-desktop-tool` |
 
