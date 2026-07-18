@@ -51,9 +51,7 @@ class PackageBoundaryTests(unittest.TestCase):
         )
         for expected_name, pyproject_path in PACKAGE_PROJECTS.items():
             with self.subTest(project=expected_name):
-                project = tomllib.loads(
-                    pyproject_path.read_text(encoding="utf-8")
-                )
+                project = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
                 self.assertEqual(project["project"]["name"], expected_name)
 
     def test_runtime_dependencies_are_protocol_first(self) -> None:
@@ -82,9 +80,9 @@ class PackageBoundaryTests(unittest.TestCase):
 
     def test_package_versions_are_coordinated_for_selector_runtime(self) -> None:
         versions = {
-            project_name: tomllib.loads(path.read_text(encoding="utf-8"))[
-                "project"
-            ]["version"]
+            project_name: tomllib.loads(path.read_text(encoding="utf-8"))["project"][
+                "version"
+            ]
             for project_name, path in PACKAGE_PROJECTS.items()
         }
 
@@ -96,6 +94,23 @@ class PackageBoundaryTests(unittest.TestCase):
                 project = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
                 package_data = project["tool"]["setuptools"]["package-data"]
                 self.assertIn("py.typed", package_data[PACKAGE_IMPORTS[project_name]])
+
+    def test_wechat_agent_skill_package_data_is_declared(self) -> None:
+        project = tomllib.loads(
+            PACKAGE_PROJECTS["wechat-desktop-tool"].read_text(encoding="utf-8")
+        )
+        package_data = project["tool"]["setuptools"]["package-data"][
+            "wechat_desktop_tool"
+        ]
+
+        for pattern in (
+            "skills/wechat-use/*.json",
+            "skills/wechat-use/*.md",
+            "skills/wechat-use/agents/*.yaml",
+            "skills/wechat-use/references/*.md",
+        ):
+            with self.subTest(pattern=pattern):
+                self.assertIn(pattern, package_data)
 
     def test_package_sources_have_no_product_or_llm_dependencies(self) -> None:
         for package_dir in (ROOT / "packages").iterdir():
@@ -112,11 +127,7 @@ class PackageBoundaryTests(unittest.TestCase):
         self,
     ) -> None:
         source_dir = (
-            ROOT
-            / "packages"
-            / "wechat-desktop-tool"
-            / "src"
-            / "wechat_desktop_tool"
+            ROOT / "packages" / "wechat-desktop-tool" / "src" / "wechat_desktop_tool"
         )
 
         for path in source_dir.rglob("*.py"):

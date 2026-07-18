@@ -54,6 +54,57 @@ run_command(command, *, observer=None) -> ToolObservation
 In code, that surface is represented by
 `app_control_protocol.AppControlClient`.
 
+## Packaged Agent Skill
+
+`wechat-desktop-tool` ships a standard, versioned `wechat-use` Agent skill. It
+teaches an Agent how to choose and sequence the package's existing semantic
+operations for inspection, contacts, conversations, visible messages, drafts,
+and text sends.
+
+The application must register its WeChat tools before loading the skill. The
+skill does not construct `WeChatDesktopTool`, connect to a service, read a
+token, request macOS permissions, or grant authorization.
+
+In-memory integration:
+
+```python
+from wechat_desktop_tool import load_wechat_use_skill
+
+skill = load_wechat_use_skill()
+agent_skill_payload = skill.to_dict()
+
+assert skill.schema == "wechat.agent-skill.v1"
+assert skill.name == "wechat-use"
+assert skill.version == "1.0.0"
+assert skill.entrypoint == "SKILL.md"
+```
+
+`agent_skill_payload` is framework-neutral. It includes `name`, `description`,
+entrypoint text, reference files, media types, and SHA-256 digests. Map those
+fields into the embedding runtime's own skill-registration API.
+
+Filesystem integration:
+
+```python
+from wechat_desktop_tool import export_wechat_use_skill
+
+skill_dir = export_wechat_use_skill(".agents/skills")
+```
+
+This creates the resolved directory `.agents/skills/wechat-use`, including its
+manifest, `SKILL.md`, Agent metadata, and references. The target must not
+already exist; v1 raises `FileExistsError` instead of overwriting or merging
+application-owned files.
+
+The skill's safety contract requires exact contact and message text, explicit
+send intent, application-owned authorization/confirmation, and no automatic
+replay after `submit_unknown`, `send_unverified`, `status=unknown`, or a
+transport loss after a possible submit. Static skill instructions are guidance,
+not an authorization mechanism.
+
+See [agent-integration-guide.md](agent-integration-guide.md) for the application
+boundary and [api.md](api.md) for the exact loader data model.
+
 ## Supported Runtime Modes In 0.2.0
 
 The selector-backed WeChat APIs support these runtime modes:

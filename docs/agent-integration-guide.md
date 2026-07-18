@@ -225,6 +225,63 @@ for event in client.run_stream(
 Agent 应用可以把 stream event 写入自己的 task log，再把最后一个 observation
 作为本轮 action 的结果。
 
+### 引入 WeChat Agent Skill
+
+`wechat-desktop-tool` 提供一个随 wheel 发布的 `wechat-use` skill。它解决的是
+Agent 的操作知识问题：什么时候读取联系人、什么时候读取会话、如何处理联系人
+歧义、草稿和发送的区别，以及发送结果未知时为什么不能自动重试。
+
+skill 不会替应用注册工具。应用应先把 `WeChatDesktopTool` 的语义操作暴露给
+Agent runtime，可以是一个接受 `operation` 和 `input` 的通用
+`wechat.desktop` 工具，也可以是按操作拆分的 wrappers。然后加载 skill：
+
+```python
+from wechat_desktop_tool import load_wechat_use_skill
+
+skill = load_wechat_use_skill()
+
+# 下面的方法名由应用自己的 Agent runtime 决定。
+agent_skill_payload = {
+    "name": skill.name,
+    "description": skill.description,
+    "instructions": skill.instructions,
+    "resources": {
+        item.path: item.content
+        for item in skill.files
+        if item.path != skill.entrypoint
+    },
+    "version": skill.version,
+}
+```
+
+如果 Agent runtime 从项目目录发现 skill，可以导出标准目录：
+
+```python
+from wechat_desktop_tool import export_wechat_use_skill
+
+skill_dir = export_wechat_use_skill(".agents/skills")
+```
+
+这会创建 `.agents/skills/wechat-use`。如果目标已经存在，接口抛出
+`FileExistsError`，不会覆盖或合并应用方文件。应用需要显式决定旧版本的归档、
+删除或迁移方式。
+
+加载和导出 skill 都是静态包资源操作，不会：
+
+- 初始化 `ComputerUseClient` 或 `WeChatDesktopTool`；
+- 连接 Unix socket、读取 token 或启动 service；
+- 打开微信或申请 macOS 权限；
+- 注册 Agent tools；
+- 授权发送消息。
+
+应用仍然必须在调用 `send_message` 或 `submit_draft` 前完成业务授权与用户确认，
+并记录 contact、message、确认事实、command 和 observation。对于
+`submit_unknown`、`send_unverified`、`status=unknown` 或提交后 transport 丢失，
+必须要求用户手动查看微信，不能自动 replay。
+
+skill 版本独立于 Python package 版本。应用可以记录 `skill.version` 和每个资源的
+`sha256`，用于缓存、审计和升级判断。
+
 ### 推荐 Agent loop
 
 每个桌面动作都应该放在一个可恢复的闭环里：

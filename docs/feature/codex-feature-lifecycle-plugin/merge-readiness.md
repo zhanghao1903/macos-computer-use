@@ -4,6 +4,7 @@
 - Lifecycle phase: F6 Review and Merge Readiness
 - Branch: `codex/codex-feature-lifecycle-plugin`
 - Verified implementation head: `6466b10`
+- Main synchronization baseline: `580d3ef`
 - Plugin/version: `codex-feature-lifecycle` / `0.1.0`
 - Decision: ready for independent PR review
 
@@ -30,6 +31,7 @@ messages, provider adapters, non-GitHub hosting, or release publication.
 | Local install | Pass | Isolated local marketplace install; 23 cached files exactly matched source. |
 | Remote download/install | Pass | Git marketplace clone from `zhanghao1903/macos-computer-use@codex/codex-feature-lifecycle-plugin`, install, cache validation, and 28 cached tests. |
 | Forward scenarios | Pass | Three independent read-only agents; final re-review found no blocker/high issue. |
+| Post-sync repository suites | Pass | Root 132; protocol 55; computer-use 168 (1 skipped); WeChat 171. |
 | Docs/changelog | Pass | Shipped setup/recovery reference, feature index, implementation/verification records, PR description, and Unreleased changelog entry. |
 | Package/public API impact | None | No Python package source, version, protocol, wheel, or public API changed. |
 

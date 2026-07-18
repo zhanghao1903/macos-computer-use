@@ -1,0 +1,4 @@
+interface:
+  display_name: "WeChat Use"
+  short_description: "Operate WeChat through registered semantic tools"
+  default_prompt: "Use $wechat-use with registered WeChat semantic tools to complete the request safely."

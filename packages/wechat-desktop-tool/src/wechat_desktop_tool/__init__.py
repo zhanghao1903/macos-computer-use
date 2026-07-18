@@ -2,6 +2,15 @@
 
 from app_control_protocol import AppControlClient
 
+from .agent_skill import (
+    WECHAT_AGENT_SKILL_SCHEMA,
+    WECHAT_USE_SKILL_NAME,
+    WECHAT_USE_SKILL_RESOURCE,
+    WeChatAgentSkill,
+    WeChatAgentSkillFile,
+    export_wechat_use_skill,
+    load_wechat_use_skill,
+)
 from .adapter import build_wechat_tool
 from .commands import (
     WECHAT_TOOL,
@@ -48,10 +57,15 @@ from .tool import WeChatDesktopTool
 __version__ = "0.2.0"
 
 __all__ = [
+    "WECHAT_AGENT_SKILL_SCHEMA",
     "WECHAT_TOOL",
+    "WECHAT_USE_SKILL_NAME",
+    "WECHAT_USE_SKILL_RESOURCE",
     "WECHAT_WINDOW_SCHEMA",
     "WECHAT_FAILURE_KINDS",
     "AppControlClient",
+    "WeChatAgentSkill",
+    "WeChatAgentSkillFile",
     "WeChatActionableRegion",
     "WeChatChatPanel",
     "WeChatComposer",
@@ -74,10 +88,12 @@ __all__ = [
     "build_wechat_tool",
     "draft_message_command",
     "execute_action_command",
+    "export_wechat_use_skill",
     "focus_contact_command",
     "inspect_window_command",
     "list_contacts_command",
     "list_conversations_command",
+    "load_wechat_use_skill",
     "observe_current_chat_command",
     "open_contact_command",
     "open_wechat_command",

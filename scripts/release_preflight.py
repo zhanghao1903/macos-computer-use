@@ -155,6 +155,7 @@ PACKAGE_MODULE_FILES = (
     "packages/wechat-desktop-tool/src/wechat_desktop_tool/observations.py",
     "packages/wechat-desktop-tool/src/wechat_desktop_tool/errors.py",
     "packages/wechat-desktop-tool/src/wechat_desktop_tool/adapter.py",
+    "packages/wechat-desktop-tool/src/wechat_desktop_tool/agent_skill.py",
     "packages/wechat-desktop-tool/src/wechat_desktop_tool/recipes.py",
 )
 
@@ -190,6 +191,14 @@ EXPECTED_METADATA_DEPS = {
 
 EXPECTED_PACKAGE_DATA = {
     "app-control-protocol": ("py.typed", "schemas/*.schema.json"),
+    "wechat-desktop-tool": (
+        "py.typed",
+        "profiles/*.toml",
+        "skills/wechat-use/*.json",
+        "skills/wechat-use/*.md",
+        "skills/wechat-use/agents/*.yaml",
+        "skills/wechat-use/references/*.md",
+    ),
 }
 
 EXPECTED_WHEEL_CONTENT = {
@@ -260,8 +269,14 @@ EXPECTED_WHEEL_CONTENT = {
         "wechat_desktop_tool/models.py",
         "wechat_desktop_tool/tool.py",
         "wechat_desktop_tool/adapter.py",
+        "wechat_desktop_tool/agent_skill.py",
         "wechat_desktop_tool/recipes.py",
         "wechat_desktop_tool/profiles/wechat-macos.toml",
+        "wechat_desktop_tool/skills/wechat-use/manifest.json",
+        "wechat_desktop_tool/skills/wechat-use/SKILL.md",
+        "wechat_desktop_tool/skills/wechat-use/agents/openai.yaml",
+        "wechat_desktop_tool/skills/wechat-use/references/operations.md",
+        "wechat_desktop_tool/skills/wechat-use/references/recovery.md",
         "wechat_desktop_tool/examples/__init__.py",
         "wechat_desktop_tool/examples/wechat_smoke.py",
     ),
@@ -374,9 +389,14 @@ EXPECTED_PUBLIC_API = {
         "wait_command",
     ),
     "wechat-desktop-tool": (
+        "WECHAT_AGENT_SKILL_SCHEMA",
         "WeChatDesktopTool",
         "WeChatDesktopConfig",
+        "WeChatAgentSkill",
+        "WeChatAgentSkillFile",
         "WECHAT_TOOL",
+        "WECHAT_USE_SKILL_NAME",
+        "WECHAT_USE_SKILL_RESOURCE",
         "WECHAT_FAILURE_KINDS",
         "wechat_command",
         "open_wechat_command",
@@ -393,6 +413,8 @@ EXPECTED_PUBLIC_API = {
         "submit_draft_command",
         "send_message_command",
         "build_wechat_tool",
+        "load_wechat_use_skill",
+        "export_wechat_use_skill",
         "send_message",
     ),
 }

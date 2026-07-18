@@ -22,9 +22,7 @@ BANNED_TERMS = (
     "computer_use_macos.service",
     "computer_use_macos.cli",
 )
-ALLOWED_SELECTOR_PROFILE_IMPORT = (
-    ROOT / "src" / "wechat_desktop_tool" / "profiles.py"
-)
+ALLOWED_SELECTOR_PROFILE_IMPORT = ROOT / "src" / "wechat_desktop_tool" / "profiles.py"
 
 
 class PackageBoundaryTests(unittest.TestCase):
@@ -55,12 +53,21 @@ class PackageBoundaryTests(unittest.TestCase):
             ],
         )
 
-    def test_py_typed_is_declared(self) -> None:
+    def test_package_data_is_declared(self) -> None:
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
         package_data = project["tool"]["setuptools"]["package-data"]
-        self.assertIn("py.typed", package_data["wechat_desktop_tool"])
-        self.assertIn("profiles/*.toml", package_data["wechat_desktop_tool"])
+        self.assertEqual(
+            package_data["wechat_desktop_tool"],
+            [
+                "py.typed",
+                "profiles/*.toml",
+                "skills/wechat-use/*.json",
+                "skills/wechat-use/*.md",
+                "skills/wechat-use/agents/*.yaml",
+                "skills/wechat-use/references/*.md",
+            ],
+        )
 
     def test_failure_kinds_are_declared_as_public_contract(self) -> None:
         failure_kinds = set(WECHAT_FAILURE_KINDS)

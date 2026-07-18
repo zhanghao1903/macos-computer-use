@@ -56,6 +56,8 @@ pass. Routine handoff prompts no longer require manual relay.
 - GitHub branch marketplace download/install and cached 28-test run: pass.
 - Three independent non-mutating forward tests and repaired-gap re-review: no
   blocker/high issue.
+- After synchronizing current `main`: root 132 tests, protocol 55 tests,
+  computer-use 168 tests (1 skipped), and WeChat 171 tests all pass.
 - `git diff --check` and JSON parsing: pass.
 
 ## Documentation And Release Record

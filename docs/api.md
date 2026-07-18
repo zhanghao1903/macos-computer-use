@@ -554,6 +554,76 @@ app_control = ComputerUseClient.from_config("app-control.toml")
 wechat = WeChatDesktopTool.from_config(app_control, "app-control.toml")
 ```
 
+### Packaged Agent Skill API
+
+Applications that expose the semantic WeChat operations to an Agent can load a
+versioned, framework-neutral `wechat-use` skill:
+
+```python
+from wechat_desktop_tool import (
+    WECHAT_AGENT_SKILL_SCHEMA,
+    WECHAT_USE_SKILL_NAME,
+    WeChatAgentSkill,
+    WeChatAgentSkillFile,
+    export_wechat_use_skill,
+    load_wechat_use_skill,
+)
+
+skill = load_wechat_use_skill()
+assert isinstance(skill, WeChatAgentSkill)
+assert skill.schema == WECHAT_AGENT_SKILL_SCHEMA
+assert skill.name == WECHAT_USE_SKILL_NAME
+
+registration_payload = skill.to_dict()
+instructions = skill.instructions
+recovery = skill.get_file("references/recovery.md")
+```
+
+`WeChatAgentSkill` fields:
+
+| Field | Type | Contract |
+|---|---|---|
+| `schema` | `str` | `wechat.agent-skill.v1`. |
+| `name` | `str` | `wechat-use`. |
+| `version` | `str` | Independent Agent-skill semantic version, initially `1.0.0`. |
+| `description` | `str` | Runtime discovery description matching `SKILL.md` frontmatter. |
+| `entrypoint` | `str` | `SKILL.md`. |
+| `files` | `tuple[WeChatAgentSkillFile, ...]` | Manifest-ordered immutable UTF-8 resources. |
+| `instructions` | `str` property | Exact entrypoint content. |
+
+`WeChatAgentSkillFile` fields:
+
+| Field | Type | Contract |
+|---|---|---|
+| `path` | `str` | Safe relative POSIX path below the skill root. |
+| `media_type` | `str` | Deterministic Markdown or YAML media type. |
+| `content` | `str` | Exact packaged UTF-8 text. |
+| `sha256` | `str` | SHA-256 of `content.encode("utf-8")`. |
+
+`skill.to_dict()` returns the same structure as JSON-compatible dictionaries
+and lists. It does not return an installation path or an
+`importlib.resources` object.
+
+Filesystem-based Agent runtimes can materialize the standard directory:
+
+```python
+skill_dir = export_wechat_use_skill(".agents/skills")
+assert skill_dir.name == "wechat-use"
+assert skill_dir.is_absolute()
+```
+
+The exporter resolves the parent, creates `<parent>/wechat-use` exclusively,
+and writes the validated manifest and resources. An existing target raises
+`FileExistsError` without modification. Invalid packaged metadata raises
+`ValueError`; missing, unreadable, or invalid UTF-8 resources raise the relevant
+standard `OSError`, `FileNotFoundError`, or `UnicodeDecodeError`.
+
+Loading and export do not create a desktop client, register Agent tools, open
+WeChat, connect to a socket, read a token, request permissions, or perform
+network I/O. Applications must first register the existing operations and must
+retain ownership of authorization, confirmation, privacy, audit, and retry
+policy. Unknown send outcomes must never be replayed automatically.
+
 `wechat.selector_profile_path` names one TOML asset containing both the generic
 selector profile and the WeChat control map. The override activates atomically;
 if either section is missing or invalid, both packaged defaults are used for
