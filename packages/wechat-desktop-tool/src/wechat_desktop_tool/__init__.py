@@ -54,7 +54,7 @@ from .models import (
 from .recipes import send_message
 from .tool import WeChatDesktopTool
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "WECHAT_AGENT_SKILL_SCHEMA",

@@ -697,7 +697,7 @@ class ComputerUseMacOSPackageTests(unittest.TestCase):
         self.assertIsNot(ComputerUseClient, MacOSComputerUseClient)
         self.assertIs(ClientFromModule, MacOSComputerUseClient)
         self.assertIs(ShortClientFromModule, ComputerUseClient)
-        self.assertEqual(computer_use_macos.__version__, "0.2.0")
+        self.assertEqual(computer_use_macos.__version__, "0.3.0")
 
         client = ComputerUseClient(enabled=False)
         self.assertIsInstance(client, MacOSComputerUseClient)
@@ -3202,6 +3202,7 @@ for line in sys.stdin:
         self.assertIn("os.open(token_path", source)
         self.assertIn("_restrict_private_file(socket_path)", source)
         self.assertIn("Apple Events", info["NSAppleEventsUsageDescription"])
+        self.assertEqual(info["CFBundleShortVersionString"], "0.3.0")
         self.assertIn("computer-use-macos helper doctor", readme_source)
         self.assertNotIn("macos-computer-use helper doctor", readme_source)
         self.assertIn("codesign", sign_source)
@@ -4088,7 +4089,7 @@ for line in sys.stdin:
         package_data = project["tool"]["setuptools"]["package-data"]
         self.assertIn("py.typed", package_data["computer_use_macos"])
         self.assertIn(
-            "app-control-protocol>=0.2.0",
+            "app-control-protocol>=0.3.0",
             project["project"]["dependencies"],
         )
         self.assertNotIn(

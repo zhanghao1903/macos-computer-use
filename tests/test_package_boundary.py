@@ -68,13 +68,13 @@ class PackageBoundaryTests(unittest.TestCase):
         self.assertNotIn("dependencies", protocol["project"])
         self.assertEqual(
             computer_use["project"]["dependencies"],
-            ["app-control-protocol>=0.2.0"],
+            ["app-control-protocol>=0.3.0"],
         )
         self.assertEqual(
             wechat["project"]["dependencies"],
             [
-                "app-control-protocol>=0.2.0",
-                "computer-use-macos>=0.2.0",
+                "app-control-protocol>=0.3.0",
+                "computer-use-macos>=0.3.0",
             ],
         )
 
@@ -86,7 +86,7 @@ class PackageBoundaryTests(unittest.TestCase):
             for project_name, path in PACKAGE_PROJECTS.items()
         }
 
-        self.assertEqual(set(versions.values()), {"0.2.0"})
+        self.assertEqual(set(versions.values()), {"0.3.0"})
 
     def test_py_typed_is_declared_for_all_packages(self) -> None:
         for project_name, pyproject_path in PACKAGE_PROJECTS.items():

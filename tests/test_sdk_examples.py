@@ -902,9 +902,9 @@ class SdkExampleTests(unittest.TestCase):
         self.assertEqual(
             payload["source"]["packageVersions"],
             {
-                "app-control-protocol": "0.2.0",
-                "computer-use-macos": "0.2.0",
-                "wechat-desktop-tool": "0.2.0",
+                "app-control-protocol": "0.3.0",
+                "computer-use-macos": "0.3.0",
+                "wechat-desktop-tool": "0.3.0",
             },
         )
         self.assertTrue(all(payload["checks"].values()))

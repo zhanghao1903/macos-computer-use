@@ -22,7 +22,7 @@ PACKAGE_PATHS = (
     Path("packages/computer-use-macos"),
     Path("packages/wechat-desktop-tool"),
 )
-EXPECTED_PACKAGE_VERSION = "0.2.0"
+EXPECTED_PACKAGE_VERSION = "0.3.0"
 INCOMPATIBLE_BASELINE_VERSION = "0.1.1"
 
 
@@ -231,7 +231,7 @@ def _run_incompatible_dependency_smoke(wheel_dir: Path) -> int:
             f"wechat-desktop-tool=={EXPECTED_PACKAGE_VERSION}",
         )
         print(
-            "[wheel-check] reject WeChat 0.2.0 with local 0.1.1 dependencies",
+            "[wheel-check] reject WeChat 0.3.0 with local 0.1.1 dependencies",
             flush=True,
         )
         completed = subprocess.run(
