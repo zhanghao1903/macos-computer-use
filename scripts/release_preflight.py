@@ -39,6 +39,7 @@ LOCAL_DOCS = (
 
 LOCAL_SCRIPTS = (
     "scripts/dev_check.py",
+    "scripts/pypi_auth_report.py",
     "scripts/release_tag_check.py",
     "scripts/release_preflight.py",
     "scripts/release_proof_bundle.py",
@@ -457,7 +458,7 @@ EXTERNAL_PROOFS = {
     "testpypi_install": (
         "all packages installed from TestPyPI in a clean env and API smoke passed"
     ),
-    "pypi_trusted_publisher": "PyPI Trusted Publisher is configured",
+    "pypi_publish_auth": "PyPI publishing authentication is configured",
 }
 
 WECHAT_SELECTOR_ENGINE_LEGACY_SMOKE_SCHEMA = (
@@ -537,6 +538,34 @@ EXPECTED_TRUSTED_PUBLISHER = {
     "environment": None,
 }
 
+PYPI_AUTH_REPORT_SCHEMA = "macos_computer_use.release.pypi_auth.v1"
+PYPI_AUTH_TARGET_REPOSITORY = "https://upload.pypi.org/legacy/"
+PYPI_AUTH_SECRET_NAME = "PYPI_API_TOKEN"
+PYPI_AUTH_VERIFICATION = "github-secret-metadata"
+PYPI_AUTH_EXPECTED_TOP_LEVEL_KEYS = {
+    "schema",
+    "source",
+    "mode",
+    "targetRepository",
+    "credential",
+    "publisher",
+    "verification",
+    "generatedAt",
+}
+PYPI_AUTH_EXPECTED_CREDENTIAL = {
+    "kind": "github-actions-secret",
+    "name": PYPI_AUTH_SECRET_NAME,
+    "configured": True,
+}
+PYPI_AUTH_EXPECTED_PUBLISHER = {
+    "owner": "zhanghao1903",
+    "repository": "macos-computer-use",
+    "workflow": "release.yml",
+}
+PYPI_AUTH_UTC_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
+)
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -559,6 +588,7 @@ def run_preflight(
     textedit_smoke_report_path: Path | None = None,
     wechat_smoke_report_paths: tuple[Path, ...] = (),
     testpypi_install_report_path: Path | None = None,
+    pypi_auth_report_path: Path | None = None,
     trusted_publisher_report_path: Path | None = None,
     expected_source_sha: str | None = None,
     sensitive_canaries: tuple[str, ...] = (),
@@ -575,6 +605,10 @@ def run_preflight(
             path=proof_path,
             loader=_load_proof,
         )
+    if require_external:
+        # A strict release requires a validated detailed authentication report;
+        # a boolean-only aggregate proof must not satisfy this boundary.
+        proof["pypi_publish_auth"] = False
     if require_external and expected_source_sha is not None:
         # Strict selector proof must come from a validated v2 report, never the
         # boolean-only release summary fallback.
@@ -615,7 +649,31 @@ def run_preflight(
             path=testpypi_install_report_path,
             loader=lambda path: _load_testpypi_install_proof(root, path),
         )
-    if trusted_publisher_report_path is not None:
+    auth_report_count = sum(
+        path is not None
+        for path in (pypi_auth_report_path, trusted_publisher_report_path)
+    )
+    if auth_report_count > 1:
+        proof["pypi_publish_auth"] = False
+        proof_source_results.append(
+            CheckResult(
+                name="external-proof-source:pypi-publish-auth",
+                status="fail",
+                summary=(
+                    "exactly one PyPI authentication report is allowed; "
+                    "received API-token and Trusted Publisher reports"
+                ),
+            )
+        )
+    elif pypi_auth_report_path is not None:
+        _merge_external_proof(
+            proof,
+            proof_source_results,
+            source_name="pypi-auth-report",
+            path=pypi_auth_report_path,
+            loader=_load_pypi_auth_proof,
+        )
+    elif trusted_publisher_report_path is not None:
         _merge_external_proof(
             proof,
             proof_source_results,
@@ -748,6 +806,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional JSON report from clean TestPyPI install validation.",
     )
     parser.add_argument(
+        "--pypi-auth-report",
+        type=Path,
+        help=(
+            "Optional sanitized report confirming the production PyPI API-token "
+            "GitHub secret metadata."
+        ),
+    )
+    parser.add_argument(
         "--trusted-publisher-report",
         type=Path,
         help="Optional JSON report confirming PyPI Trusted Publisher setup.",
@@ -790,6 +856,7 @@ def main(argv: list[str] | None = None) -> int:
         textedit_smoke_report_path=args.textedit_smoke_report,
         wechat_smoke_report_paths=tuple(args.wechat_smoke_report),
         testpypi_install_report_path=args.testpypi_install_report,
+        pypi_auth_report_path=args.pypi_auth_report,
         trusted_publisher_report_path=args.trusted_publisher_report,
         expected_source_sha=args.expected_source_sha,
         sensitive_canaries=tuple(args.sensitive_canary),
@@ -1991,8 +2058,23 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "packages/wechat-desktop-tool",
             )
         ),
-        "release-has-oidc": "id-token: write" in release,
+        "release-omits-unused-oidc": "id-token: write" not in release,
         "release-publishes-pypi": "pypa/gh-action-pypi-publish" in release,
+        "release-requires-pypi-token-secret": all(
+            item in release
+            for item in (
+                "Verify PyPI token secret",
+                "PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}",
+                'test -n "$PYPI_API_TOKEN"',
+            )
+        ),
+        "release-supplies-pypi-token": all(
+            item in release
+            for item in (
+                "user: __token__",
+                "password: ${{ secrets.PYPI_API_TOKEN }}",
+            )
+        ),
         "release-builds-all-packages": all(
             item in release
             for item in (
@@ -2029,7 +2111,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "wechat-submit-smoke.json",
                 "wechat-selector-engine-smoke.json",
                 "testpypi-install.json",
-                "trusted-publisher.json",
+                "pypi-auth.json",
                 "release-proof.json",
                 "test -f release-proof/helper-doctor.json",
                 "test -f release-proof/textedit-smoke.json",
@@ -2037,7 +2119,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "test -f release-proof/wechat-submit-smoke.json",
                 "test -f release-proof/wechat-selector-engine-smoke.json",
                 "test -f release-proof/testpypi-install.json",
-                "test -f release-proof/trusted-publisher.json",
+                "test -f release-proof/pypi-auth.json",
                 "test -f release-proof/release-proof.json",
             )
         ),
@@ -2048,7 +2130,7 @@ def _check_workflows(root: Path) -> list[CheckResult]:
                 "--textedit-smoke-report",
                 "--wechat-smoke-report",
                 "--testpypi-install-report",
-                "--trusted-publisher-report",
+                "--pypi-auth-report",
                 "--proof",
                 "--expected-source-sha",
                 "github.sha",
@@ -2859,7 +2941,7 @@ def _load_trusted_publisher_proof(path: Path) -> dict[str, Any]:
     source = payload.get("source")
     projects = payload.get("projects")
     if source != "pypi" or not isinstance(projects, list):
-        return {"pypi_trusted_publisher": False}
+        return {"pypi_publish_auth": False}
 
     project_status: dict[str, bool] = {}
     for item in projects:
@@ -2872,7 +2954,70 @@ def _load_trusted_publisher_proof(path: Path) -> dict[str, Any]:
                 and _trusted_publisher_matches(item.get("publisher"))
             )
     passed = all(project_status.get(name) is True for name in PACKAGE_PROJECTS)
-    return {"pypi_trusted_publisher": passed}
+    return {"pypi_publish_auth": passed}
+
+
+def _load_pypi_auth_proof(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("PyPI authentication report JSON must be an object")
+    _require_exact_keys(
+        payload,
+        PYPI_AUTH_EXPECTED_TOP_LEVEL_KEYS,
+        "PyPI authentication report",
+    )
+
+    credential = payload.get("credential")
+    if not isinstance(credential, dict):
+        raise ValueError("PyPI authentication credential must be an object")
+    _require_exact_keys(
+        credential,
+        set(PYPI_AUTH_EXPECTED_CREDENTIAL),
+        "PyPI authentication credential",
+    )
+
+    publisher = payload.get("publisher")
+    if not isinstance(publisher, dict):
+        raise ValueError("PyPI authentication publisher must be an object")
+    _require_exact_keys(
+        publisher,
+        set(PYPI_AUTH_EXPECTED_PUBLISHER),
+        "PyPI authentication publisher",
+    )
+
+    _validate_pypi_auth_timestamp(payload.get("generatedAt"))
+    passed = (
+        payload.get("schema") == PYPI_AUTH_REPORT_SCHEMA
+        and payload.get("source") == "pypi"
+        and payload.get("mode") == "api-token"
+        and payload.get("targetRepository") == PYPI_AUTH_TARGET_REPOSITORY
+        and payload.get("verification") == PYPI_AUTH_VERIFICATION
+        and credential.get("kind") == PYPI_AUTH_EXPECTED_CREDENTIAL["kind"]
+        and credential.get("name") == PYPI_AUTH_EXPECTED_CREDENTIAL["name"]
+        and credential.get("configured") is True
+        and all(
+            publisher.get(key) == expected
+            for key, expected in PYPI_AUTH_EXPECTED_PUBLISHER.items()
+        )
+    )
+    return {"pypi_publish_auth": passed}
+
+
+def _validate_pypi_auth_timestamp(value: object) -> None:
+    if not isinstance(value, str) or not PYPI_AUTH_UTC_TIMESTAMP_PATTERN.fullmatch(
+        value
+    ):
+        raise ValueError(
+            "PyPI authentication generatedAt must be an RFC 3339 UTC timestamp"
+        )
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError(
+            "PyPI authentication generatedAt must be an RFC 3339 UTC timestamp"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ValueError("PyPI authentication generatedAt must use UTC")
 
 
 def _trusted_publisher_matches(value: object) -> bool:

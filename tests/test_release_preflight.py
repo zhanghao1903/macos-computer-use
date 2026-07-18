@@ -553,6 +553,57 @@ class ReleasePreflightTests(unittest.TestCase):
             failures,
         )
 
+    def test_workflow_check_requires_nonempty_pypi_token_secret(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = (ROOT / ".github/workflows/release.yml").read_text(
+                encoding="utf-8"
+            ).replace('        run: test -n "$PYPI_API_TOKEN"\n', "")
+            _write_workflow_fixture(root, release)
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("workflow:release-requires-pypi-token-secret", failures)
+
+    def test_workflow_check_requires_pypi_token_credentials(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = (ROOT / ".github/workflows/release.yml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "          password: ${{ secrets.PYPI_API_TOKEN }}\n",
+                "",
+            )
+            _write_workflow_fixture(root, release)
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("workflow:release-supplies-pypi-token", failures)
+
+    def test_workflow_check_rejects_unused_oidc_permission(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = (ROOT / ".github/workflows/release.yml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "permissions:\n  contents: read\n",
+                "permissions:\n  contents: read\n  id-token: write\n",
+            )
+            _write_workflow_fixture(root, release)
+
+            results = preflight._check_workflows(root)
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("workflow:release-omits-unused-oidc", failures)
+
     def test_require_external_fails_without_external_proofs(self) -> None:
         preflight = _load_preflight()
 
@@ -581,7 +632,10 @@ class ReleasePreflightTests(unittest.TestCase):
         failures = {result.name for result in results if result.status == "fail"}
         self.assertEqual(
             failures,
-            {"external-proof:wechat_selector_engine_smoke"},
+            {
+                "external-proof:wechat_selector_engine_smoke",
+                "external-proof:pypi_publish_auth",
+            },
         )
 
     def test_release_proof_file_rejects_unknown_keys(self) -> None:
@@ -650,6 +704,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             proof_path = Path(tmpdir) / "proof.json"
             helper_report_path = Path(tmpdir) / "helper-doctor.json"
+            pypi_auth_path = _write_pypi_auth_report(preflight, Path(tmpdir))
             proof_path.write_text(
                 json.dumps(
                     {
@@ -674,6 +729,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 helper_doctor_report_path=helper_report_path,
+                pypi_auth_report_path=pypi_auth_path,
                 require_external=True,
             )
 
@@ -756,6 +812,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             proof_path = Path(tmpdir) / "proof.json"
             smoke_path = Path(tmpdir) / "textedit-smoke.json"
+            pypi_auth_path = _write_pypi_auth_report(preflight, Path(tmpdir))
             proof_path.write_text(
                 json.dumps(
                     {
@@ -775,6 +832,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 textedit_smoke_report_path=smoke_path,
+                pypi_auth_report_path=pypi_auth_path,
                 require_external=True,
             )
 
@@ -849,6 +907,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             proof_path = Path(tmpdir) / "proof.json"
             smoke_path = Path(tmpdir) / "wechat-smoke.json"
+            pypi_auth_path = _write_pypi_auth_report(preflight, Path(tmpdir))
             proof_path.write_text(
                 json.dumps(
                     {
@@ -882,6 +941,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 wechat_smoke_report_paths=(smoke_path,),
+                pypi_auth_report_path=pypi_auth_path,
                 require_external=True,
             )
 
@@ -922,6 +982,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             proof_path = Path(tmpdir) / "proof.json"
             smoke_path = Path(tmpdir) / "wechat-selector-engine-smoke.json"
+            pypi_auth_path = _write_pypi_auth_report(preflight, Path(tmpdir))
             proof_path.write_text(
                 json.dumps(
                     {
@@ -941,6 +1002,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 wechat_smoke_report_paths=(smoke_path,),
+                pypi_auth_report_path=pypi_auth_path,
                 expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
@@ -1215,6 +1277,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             proof_path = Path(tmpdir) / "proof.json"
             testpypi_path = Path(tmpdir) / "testpypi-install.json"
+            pypi_auth_path = _write_pypi_auth_report(preflight, Path(tmpdir))
             proof_path.write_text(
                 json.dumps(
                     {
@@ -1241,6 +1304,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 ROOT,
                 proof_path=proof_path,
                 testpypi_install_report_path=testpypi_path,
+                pypi_auth_report_path=pypi_auth_path,
                 require_external=True,
             )
 
@@ -1399,7 +1463,7 @@ class ReleasePreflightTests(unittest.TestCase):
                     {
                         key: True
                         for key in preflight.EXTERNAL_PROOFS
-                        if key != "pypi_trusted_publisher"
+                        if key != "pypi_publish_auth"
                     }
                 ),
                 encoding="utf-8",
@@ -2255,6 +2319,228 @@ class TestPyPIInstallReportTests(unittest.TestCase):
         self.assertIn("references/recovery.md", snippet)
 
 
+class PyPIAuthReportTests(unittest.TestCase):
+    def test_build_report_contains_only_fixed_sanitized_metadata(self) -> None:
+        script = _load_pypi_auth_script()
+
+        report = script.build_report(
+            configured=True,
+            generated_at="2026-07-19T00:00:00Z",
+        )
+
+        self.assertEqual(
+            report,
+            {
+                "schema": script.REPORT_SCHEMA,
+                "source": "pypi",
+                "mode": "api-token",
+                "targetRepository": "https://upload.pypi.org/legacy/",
+                "credential": {
+                    "kind": "github-actions-secret",
+                    "name": "PYPI_API_TOKEN",
+                    "configured": True,
+                },
+                "publisher": {
+                    "owner": "zhanghao1903",
+                    "repository": "macos-computer-use",
+                    "workflow": "release.yml",
+                },
+                "verification": "github-secret-metadata",
+                "generatedAt": "2026-07-19T00:00:00Z",
+            },
+        )
+        serialized = json.dumps(report).casefold()
+        for forbidden in ("tokenvalue", "fingerprint", ".pypi.token", "tokenpath"):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_main_requires_explicit_configured_assertion(self) -> None:
+        script = _load_pypi_auth_script()
+
+        with TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "pypi-auth.json"
+            stderr = StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+                script.main(["--output", str(output)])
+            output_exists = output.exists()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertFalse(output_exists)
+
+    def test_main_writes_sanitized_report(self) -> None:
+        script = _load_pypi_auth_script()
+
+        with TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "pypi-auth.json"
+            stderr = StringIO()
+            with redirect_stderr(stderr):
+                exit_code = script.main(
+                    ["--configured", "--output", str(output)]
+                )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["credential"]["name"], "PYPI_API_TOKEN")
+        self.assertNotIn("value", payload["credential"])
+        self.assertIn("sanitized", stderr.getvalue())
+
+    def test_valid_report_supplies_strict_external_proof(self) -> None:
+        preflight = _load_preflight()
+        script = _load_pypi_auth_script()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proof_path = root / "proof.json"
+            proof_path.write_text(
+                json.dumps(
+                    {
+                        key: True
+                        for key in preflight.EXTERNAL_PROOFS
+                        if key != "pypi_publish_auth"
+                    }
+                ),
+                encoding="utf-8",
+            )
+            auth_path = root / "pypi-auth.json"
+            auth_path.write_text(
+                json.dumps(
+                    script.build_report(
+                        configured=True,
+                        generated_at="2026-07-19T00:00:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            results = preflight.run_preflight(
+                ROOT,
+                proof_path=proof_path,
+                pypi_auth_report_path=auth_path,
+                require_external=True,
+            )
+
+        failures = [result for result in results if result.status == "fail"]
+        self.assertEqual(failures, [])
+
+    def test_mismatched_metadata_does_not_supply_external_proof(self) -> None:
+        preflight = _load_preflight()
+        mutations = {
+            "schema": lambda report: report.update({"schema": "wrong.v1"}),
+            "source": lambda report: report.update({"source": "testpypi"}),
+            "mode": lambda report: report.update({"mode": "password"}),
+            "target": lambda report: report.update(
+                {"targetRepository": "https://test.pypi.org/legacy/"}
+            ),
+            "secret": lambda report: report["credential"].update(
+                {"name": "WRONG_TOKEN"}
+            ),
+            "configured-false": lambda report: report["credential"].update(
+                {"configured": False}
+            ),
+            "configured-integer": lambda report: report["credential"].update(
+                {"configured": 1}
+            ),
+            "publisher": lambda report: report["publisher"].update(
+                {"repository": "wrong-repository"}
+            ),
+            "verification": lambda report: report.update(
+                {"verification": "manual"}
+            ),
+        }
+
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "pypi-auth.json"
+                report = _pypi_auth_report_payload(preflight)
+                mutate(report)
+                path.write_text(json.dumps(report), encoding="utf-8")
+
+                proof = preflight._load_pypi_auth_proof(path)
+
+            self.assertEqual(proof, {"pypi_publish_auth": False})
+
+    def test_invalid_shape_or_timestamp_is_rejected(self) -> None:
+        preflight = _load_preflight()
+        mutations = {
+            "unknown-top-level": lambda report: report.update(
+                {"tokenPath": "/private/token"}
+            ),
+            "missing-field": lambda report: report.pop("verification"),
+            "unknown-credential": lambda report: report["credential"].update(
+                {"value": "forbidden"}
+            ),
+            "unknown-publisher": lambda report: report["publisher"].update(
+                {"environment": None}
+            ),
+            "invalid-timestamp": lambda report: report.update(
+                {"generatedAt": "2026-99-99T00:00:00Z"}
+            ),
+            "non-utc-timestamp": lambda report: report.update(
+                {"generatedAt": "2026-07-19T08:00:00+08:00"}
+            ),
+        }
+
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "pypi-auth.json"
+                report = _pypi_auth_report_payload(preflight)
+                mutate(report)
+                path.write_text(json.dumps(report), encoding="utf-8")
+
+                with self.assertRaises(ValueError):
+                    preflight._load_pypi_auth_proof(path)
+
+    def test_malformed_json_is_reported_as_proof_source_failure(self) -> None:
+        preflight = _load_preflight()
+
+        with TemporaryDirectory() as tmpdir:
+            auth_path = Path(tmpdir) / "pypi-auth.json"
+            auth_path.write_text("{", encoding="utf-8")
+            results = preflight.run_preflight(
+                ROOT,
+                pypi_auth_report_path=auth_path,
+                require_external=True,
+            )
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("external-proof-source:pypi-auth-report", failures)
+        self.assertIn("external-proof:pypi_publish_auth", failures)
+
+    def test_token_and_trusted_reports_are_rejected_as_ambiguous(self) -> None:
+        preflight = _load_preflight()
+        trusted_script = _load_trusted_publisher_script()
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            auth_path = _write_pypi_auth_report(preflight, root)
+            trusted_path = root / "trusted-publisher.json"
+            trusted_path.write_text(
+                json.dumps(
+                    trusted_script.build_report(
+                        all_configured=True,
+                        generated_at="2026-07-19T00:00:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            results = preflight.run_preflight(
+                ROOT,
+                pypi_auth_report_path=auth_path,
+                trusted_publisher_report_path=trusted_path,
+                require_external=True,
+            )
+
+        failures = {result.name for result in results if result.status == "fail"}
+        self.assertIn("external-proof-source:pypi-publish-auth", failures)
+        self.assertIn("external-proof:pypi_publish_auth", failures)
+
+    def test_dev_check_uses_token_auth_proof_asset(self) -> None:
+        dev_check = (ROOT / "scripts" / "dev_check.py").read_text(encoding="utf-8")
+
+        self.assertIn("--pypi-auth-report", dev_check)
+        self.assertIn("release-proof/pypi-auth.json", dev_check)
+        self.assertNotIn("release-proof/trusted-publisher.json", dev_check)
+
+
 class TrustedPublisherReportTests(unittest.TestCase):
     def test_build_report_marks_all_expected_projects_configured(self) -> None:
         script = _load_trusted_publisher_script()
@@ -2293,7 +2579,7 @@ class TrustedPublisherReportTests(unittest.TestCase):
                     {
                         key: True
                         for key in preflight.EXTERNAL_PROOFS
-                        if key != "pypi_trusted_publisher"
+                        if key != "pypi_publish_auth"
                     }
                 ),
                 encoding="utf-8",
@@ -2341,7 +2627,7 @@ class TrustedPublisherReportTests(unittest.TestCase):
             )
 
         failures = [result.name for result in results if result.status == "fail"]
-        self.assertIn("external-proof:pypi_trusted_publisher", failures)
+        self.assertIn("external-proof:pypi_publish_auth", failures)
 
     def test_wrong_trusted_publisher_workflow_does_not_supply_external_proof(
         self,
@@ -2357,7 +2643,7 @@ class TrustedPublisherReportTests(unittest.TestCase):
                     {
                         key: True
                         for key in preflight.EXTERNAL_PROOFS
-                        if key != "pypi_trusted_publisher"
+                        if key != "pypi_publish_auth"
                     }
                 ),
                 encoding="utf-8",
@@ -2381,7 +2667,7 @@ class TrustedPublisherReportTests(unittest.TestCase):
             )
 
         failures = [result.name for result in results if result.status == "fail"]
-        self.assertIn("external-proof:pypi_trusted_publisher", failures)
+        self.assertIn("external-proof:pypi_publish_auth", failures)
 
     def test_main_output_mode_reports_partial_configuration(self) -> None:
         script = _load_trusted_publisher_script()
@@ -2657,7 +2943,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
             submit = root / "submit-source.json"
             selector = root / "selector-source.json"
             testpypi = root / "testpypi-source.json"
-            trusted = root / "trusted-source.json"
+            pypi_auth = root / "pypi-auth-source.json"
             output = root / "release-proof"
             helper.write_text(
                 json.dumps(
@@ -2722,20 +3008,8 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            trusted.write_text(
-                json.dumps(
-                    {
-                        "source": "pypi",
-                        "projects": [
-                            {
-                                "name": name,
-                                "trustedPublisher": True,
-                                "publisher": preflight.EXPECTED_TRUSTED_PUBLISHER,
-                            }
-                            for name in preflight.PACKAGE_PROJECTS
-                        ],
-                    }
-                ),
+            pypi_auth.write_text(
+                json.dumps(_pypi_auth_report_payload(preflight)),
                 encoding="utf-8",
             )
 
@@ -2747,8 +3021,8 @@ class ReleaseProofBundleTests(unittest.TestCase):
                 wechat_submit_report=submit,
                 wechat_selector_engine_report=selector,
                 testpypi_install_report=testpypi,
-                trusted_publisher_report=trusted,
                 expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
+                pypi_auth_report=pypi_auth,
             )
             results = preflight.run_preflight(
                 ROOT,
@@ -2761,13 +3035,16 @@ class ReleaseProofBundleTests(unittest.TestCase):
                     output / "wechat-selector-engine-smoke.json",
                 ),
                 testpypi_install_report_path=output / "testpypi-install.json",
-                trusted_publisher_report_path=output / "trusted-publisher.json",
+                pypi_auth_report_path=output / "pypi-auth.json",
                 expected_source_sha=SELECTOR_PROOF_HEAD_SHA,
                 require_external=True,
             )
 
         self.assertEqual(report["passed"], True)
         self.assertEqual(report["missingProofs"], [])
+        asset_names = {asset["name"] for asset in report["assets"]}
+        self.assertIn("pypi-auth.json", asset_names)
+        self.assertNotIn("trusted-publisher.json", asset_names)
         failures = [result for result in results if result.status == "fail"]
         self.assertEqual(failures, [])
 
@@ -2810,6 +3087,36 @@ class ReleaseProofBundleTests(unittest.TestCase):
 
         self.assertEqual(copied, [])
         self.assertFalse(output_exists)
+
+    def test_bundle_requires_exactly_one_authentication_report(self) -> None:
+        preflight = _load_preflight()
+        bundle = _load_release_proof_bundle_script()
+
+        with TemporaryDirectory() as tmpdir:
+            paths = _write_release_proof_bundle_sources(
+                preflight,
+                Path(tmpdir),
+                trusted_all=True,
+            )
+            common = {
+                "output_dir": paths["output"],
+                "helper_doctor_report": paths["helper"],
+                "textedit_smoke_report": paths["textedit"],
+                "wechat_focus_draft_report": paths["focus"],
+                "wechat_submit_report": paths["submit"],
+                "wechat_selector_engine_report": paths["selector"],
+                "testpypi_install_report": paths["testpypi"],
+                "expected_source_sha": SELECTOR_PROOF_HEAD_SHA,
+            }
+
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                bundle.build_bundle(**common)
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                bundle.build_bundle(
+                    **common,
+                    pypi_auth_report=paths["pypi_auth"],
+                    trusted_publisher_report=paths["trusted"],
+                )
 
     def test_bundle_reports_missing_external_proofs(self) -> None:
         preflight = _load_preflight()
@@ -2918,10 +3225,10 @@ class ReleaseProofBundleTests(unittest.TestCase):
             )
 
         self.assertEqual(report["passed"], False)
-        self.assertEqual(report["missingProofs"], ["pypi_trusted_publisher"])
+        self.assertEqual(report["missingProofs"], ["pypi_publish_auth"])
         proof = report["proof"]
         self.assertIsInstance(proof, dict)
-        self.assertEqual(proof["pypi_trusted_publisher"], False)
+        self.assertEqual(proof["pypi_publish_auth"], False)
 
     def test_main_rejects_incomplete_bundle_without_allow_incomplete(self) -> None:
         preflight = _load_preflight()
@@ -2943,7 +3250,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(report["passed"], False)
-        self.assertEqual(report["missingProofs"], ["pypi_trusted_publisher"])
+        self.assertEqual(report["missingProofs"], ["pypi_publish_auth"])
 
     def test_main_allows_incomplete_bundle_for_diagnostics(self) -> None:
         preflight = _load_preflight()
@@ -2970,7 +3277,7 @@ class ReleaseProofBundleTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(report["passed"], False)
-        self.assertEqual(report["missingProofs"], ["pypi_trusted_publisher"])
+        self.assertEqual(report["missingProofs"], ["pypi_publish_auth"])
         self.assertTrue(release_proof_exists)
         self.assertTrue(trusted_report_exists)
 
@@ -3059,6 +3366,17 @@ def _load_trusted_publisher_script() -> Any:
     return module
 
 
+def _load_pypi_auth_script() -> Any:
+    path = ROOT / "scripts" / "pypi_auth_report.py"
+    spec = importlib.util.spec_from_file_location("pypi_auth_report", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_wheel_check_script() -> Any:
     _load_testpypi_script()
     path = ROOT / "scripts" / "wheel_check.py"
@@ -3080,6 +3398,16 @@ def _load_release_proof_bundle_script() -> Any:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _write_workflow_fixture(root: Path, release: str) -> None:
+    workflow_dir = root / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "ci.yml").write_text(
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (workflow_dir / "release.yml").write_text(release, encoding="utf-8")
 
 
 def _write_fake_wheel_set(
@@ -3263,6 +3591,28 @@ def _testpypi_install_report_payload(
     }
 
 
+def _pypi_auth_report_payload(preflight: Any) -> dict[str, object]:
+    return {
+        "schema": preflight.PYPI_AUTH_REPORT_SCHEMA,
+        "source": "pypi",
+        "mode": "api-token",
+        "targetRepository": preflight.PYPI_AUTH_TARGET_REPOSITORY,
+        "credential": dict(preflight.PYPI_AUTH_EXPECTED_CREDENTIAL),
+        "publisher": dict(preflight.PYPI_AUTH_EXPECTED_PUBLISHER),
+        "verification": preflight.PYPI_AUTH_VERIFICATION,
+        "generatedAt": "2026-07-19T00:00:00Z",
+    }
+
+
+def _write_pypi_auth_report(preflight: Any, root: Path) -> Path:
+    path = root / "pypi-auth.json"
+    path.write_text(
+        json.dumps(_pypi_auth_report_payload(preflight)),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _write_release_proof_bundle_sources(
     preflight: Any,
     root: Path,
@@ -3277,6 +3627,7 @@ def _write_release_proof_bundle_sources(
         "submit": root / "submit-source.json",
         "selector": root / "selector-source.json",
         "testpypi": root / "testpypi-source.json",
+        "pypi_auth": root / "pypi-auth-source.json",
         "trusted": root / "trusted-source.json",
     }
     paths["helper"].write_text(
@@ -3340,6 +3691,10 @@ def _write_release_proof_bundle_sources(
                 "packages": _testpypi_packages(preflight),
             }
         ),
+        encoding="utf-8",
+    )
+    paths["pypi_auth"].write_text(
+        json.dumps(_pypi_auth_report_payload(preflight)),
         encoding="utf-8",
     )
     paths["trusted"].write_text(
