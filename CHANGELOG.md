@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-18
+
 ### Added
 
 - Add an SDK-style WeChat contacts list example that opens WeChat, runs
@@ -134,6 +136,20 @@
 - Reject expired or malformed WeChat `actionRef` payloads before backend or
   fallback execution, while adding `createdAt` and `expiresAt` metadata to new
   refs.
+
+### Known Issues
+
+- Selector query completeness aliases are not fully reconciled. Contradictory
+  `truncated` and truncation-reason evidence can still be treated as complete.
+- Duplicate, outer, and nested Accessibility query envelopes are not fully
+  reconciled before selector resolution and cache insertion.
+- Automated WeChat contact search does not yet prove exact identity over every
+  matching row or establish complete app/window/path provenance. Applications
+  must not enable unattended submission for partial or potentially duplicate
+  contact names.
+- Selector profile overrides can still broaden malformed falsey roots or
+  ineffective/version-skewed matchers. Profile files must be trusted,
+  application-owned static configuration rather than user or remote input.
 
 ## 0.1.1 - 2026-07-02
 
