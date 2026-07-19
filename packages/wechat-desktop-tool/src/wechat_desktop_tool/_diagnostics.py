@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
-import re
 import time
 from typing import Any
 
@@ -22,23 +21,8 @@ from app_control_protocol.json_types import JsonValue
 from .commands import WECHAT_TOOL
 from .models import (
     WeChatDesktopConfig,
-    WeChatVisibleMessage,
     wechat_message_hash,
 )
-
-
-_TEXT_LINE_RE = re.compile(
-    r"^(?:(?:\[(?P<bracket_ts>[^\]]+)\]|(?P<plain_ts>\d{1,2}:\d{2}))\s+)?"
-    r"(?:(?P<label>incoming|outgoing|received|sent|me|you)\s*:\s*)?"
-    r"(?P<text>.+)$",
-    re.IGNORECASE,
-)
-
-
-_INCOMING_LABELS = {"incoming", "received", "you"}
-
-
-_OUTGOING_LABELS = {"outgoing", "sent", "me"}
 
 
 _REDACTED = "[redacted]"
@@ -313,96 +297,6 @@ def _positive_int(value: object, *, default: int) -> int:
     return value
 
 
-def _messages_from_observation(
-    observation: ToolObservation,
-    *,
-    limit: int,
-) -> tuple[WeChatVisibleMessage, ...]:
-    messages, _truncated = _messages_from_observation_with_truncation(
-        observation,
-        limit=limit,
-    )
-    return messages
-
-
-def _messages_from_observation_with_truncation(
-    observation: ToolObservation,
-    *,
-    limit: int,
-) -> tuple[tuple[WeChatVisibleMessage, ...], bool]:
-    raw_messages = observation.observation.get("messages")
-    if isinstance(raw_messages, list):
-        messages: list[WeChatVisibleMessage] = []
-        for item in raw_messages:
-            message = _message_from_raw(item)
-            if message is not None:
-                messages.append(message)
-            if len(messages) > limit:
-                break
-        return tuple(messages[:limit]), len(messages) > limit
-    text_extract = observation.evidence.get(
-        "textExtract"
-    ) or observation.observation.get("textExtract")
-    if isinstance(text_extract, str) and text_extract.strip():
-        return _messages_from_text_extract_with_truncation(text_extract, limit=limit)
-    return (), False
-
-
-def _messages_from_text_extract(
-    text_extract: str,
-    *,
-    limit: int,
-) -> tuple[WeChatVisibleMessage, ...]:
-    messages, _truncated = _messages_from_text_extract_with_truncation(
-        text_extract,
-        limit=limit,
-    )
-    return messages
-
-
-def _messages_from_text_extract_with_truncation(
-    text_extract: str,
-    *,
-    limit: int,
-) -> tuple[tuple[WeChatVisibleMessage, ...], bool]:
-    messages: list[WeChatVisibleMessage] = []
-    for raw_line in text_extract.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        message = _message_from_text_line(line)
-        if message is not None:
-            messages.append(message)
-        if len(messages) > limit:
-            break
-    return tuple(messages[:limit]), len(messages) > limit
-
-
-def _message_from_text_line(line: str) -> WeChatVisibleMessage | None:
-    match = _TEXT_LINE_RE.match(line)
-    if match is None:
-        return WeChatVisibleMessage(text=line)
-    text = match.group("text").strip()
-    if not text:
-        return None
-    return WeChatVisibleMessage(
-        text=text,
-        direction=_direction_from_text_label(match.group("label")),
-        visible_timestamp=match.group("bracket_ts") or match.group("plain_ts"),
-    )
-
-
-def _direction_from_text_label(label: str | None) -> str:
-    if label is None:
-        return "unknown"
-    normalized = label.casefold()
-    if normalized in _INCOMING_LABELS:
-        return "incoming"
-    if normalized in _OUTGOING_LABELS:
-        return "outgoing"
-    return "unknown"
-
-
 def _string_from_observation(
     observation: ToolObservation,
     *keys: str,
@@ -463,58 +357,6 @@ def _wechat_environment(
     return payload
 
 
-def _current_chat_title(window_title: str | None, app_name: str) -> str | None:
-    if not window_title:
-        return None
-    title = window_title.strip()
-    for separator in (" - ", " — ", " – ", " | "):
-        suffix = separator + app_name
-        if title.endswith(suffix):
-            return title[: -len(suffix)].strip() or None
-    return title
-
-
-def _contact_confidence(contact: str, current_chat_title: str | None) -> float:
-    if current_chat_title is None:
-        return 0.8
-    normalized_contact = contact.casefold()
-    normalized_title = current_chat_title.casefold()
-    if normalized_contact == normalized_title:
-        return 0.95
-    if normalized_contact in normalized_title or normalized_title in normalized_contact:
-        return 0.9
-    return 0.75
-
-
-def _message_observed(message: str, observation: ToolObservation) -> bool:
-    expected = message.strip()
-    if not expected:
-        return False
-    for visible_message in _messages_from_observation(observation, limit=100):
-        if expected in visible_message.text:
-            return True
-    return False
-
-
-def _message_from_raw(raw: object) -> WeChatVisibleMessage | None:
-    if isinstance(raw, str):
-        return WeChatVisibleMessage(text=raw) if raw.strip() else None
-    if isinstance(raw, dict):
-        text = raw.get("text")
-        if not isinstance(text, str) or not text.strip():
-            return None
-        direction = raw.get("direction", "unknown")
-        visible_timestamp = raw.get("visibleTimestamp") or raw.get("visible_timestamp")
-        return WeChatVisibleMessage(
-            text=text,
-            direction=direction if isinstance(direction, str) else "unknown",
-            visible_timestamp=(
-                visible_timestamp if isinstance(visible_timestamp, str) else None
-            ),
-        )
-    return None
-
-
 def _wechat_observation_has_window_title(observation: ToolObservation) -> bool:
     title = _string_from_observation(
         observation,
@@ -568,82 +410,6 @@ def _observation_indicates_login_required(observation: ToolObservation) -> bool:
     return any(marker in normalized for marker in _LOGIN_REQUIRED_MARKERS)
 
 
-def _contact_ambiguity_failure(
-    command: ToolCommand,
-    contact: str,
-    observation: ToolObservation,
-    *,
-    evidence: dict[str, JsonValue],
-) -> ToolObservation | None:
-    matches = _contact_matches_from_observation(observation)
-    ambiguous = _bool_from_observation(
-        observation,
-        "contactAmbiguous",
-        "contact_ambiguous",
-        "ambiguous",
-    )
-    if ambiguous is not True and len(matches) <= 1:
-        return None
-    observation_payload: dict[str, JsonValue] = {
-        "requestedContact": contact,
-        "candidateContacts": matches,
-    }
-    return _failure(
-        command,
-        status=ToolStatus.NOT_FOUND,
-        failure_kind="contact_ambiguous",
-        message="Multiple WeChat contacts matched the requested contact.",
-        recovery_hint="Use a more specific contact display name before retrying.",
-        retryable=True,
-        observation=observation_payload,
-        evidence=evidence,
-    )
-
-
-def _contact_candidates_ambiguity_failure(
-    command: ToolCommand,
-    contact: str,
-    candidates: list[dict[str, JsonValue]],
-    *,
-    evidence: dict[str, JsonValue],
-    source: Mapping[str, JsonValue] | None = None,
-) -> ToolObservation:
-    summaries: list[dict[str, JsonValue]] = []
-    for row_index, candidate in enumerate(candidates):
-        display_name = _string_value(candidate.get("displayName"))
-        if display_name is None:
-            continue
-        summary: dict[str, JsonValue] = {
-            "displayName": display_name,
-            "rowIndex": row_index,
-        }
-        secondary_text = _string_value(candidate.get("preview"))
-        if secondary_text is not None:
-            summary["secondaryText"] = secondary_text[:200]
-        action_ref = candidate.get("actionRef")
-        if isinstance(action_ref, Mapping):
-            summary["actionRef"] = dict(action_ref)
-        summaries.append(summary)
-    observation: dict[str, JsonValue] = {
-        "schema": "wechat.open_contact.v1",
-        "target": contact,
-        "status": "needs_disambiguation",
-        "candidates": summaries,
-    }
-    if source is not None:
-        observation["source"] = dict(source)
-    return _failure(
-        command,
-        status=ToolStatus.NOT_FOUND,
-        failure_kind="contact_ambiguous",
-        message="Multiple WeChat contacts matched the requested contact.",
-        recovery_hint="Use a more specific contact display name before retrying.",
-        retryable=True,
-        observation=observation,
-        evidence=evidence,
-    )
-
-
 def _mapping_from_observation(
     observation: ToolObservation,
     key: str,
@@ -657,52 +423,6 @@ def _mapping_from_observation(
 
 def _mapping_value(value: object) -> dict[str, JsonValue] | None:
     return value if isinstance(value, dict) else None
-
-
-def _contact_matches_from_observation(
-    observation: ToolObservation,
-) -> list[str]:
-    matches: list[str] = []
-    for payload in (observation.observation, observation.evidence):
-        for key in (
-            "contactMatches",
-            "contact_matches",
-            "candidateContacts",
-            "candidate_contacts",
-            "searchResults",
-            "search_results",
-        ):
-            raw_matches = payload.get(key)
-            matches.extend(_contact_match_names(raw_matches))
-    return _dedupe_strings(matches)
-
-
-def _contact_match_names(raw_matches: JsonValue | None) -> list[str]:
-    if not isinstance(raw_matches, list):
-        return []
-    matches: list[str] = []
-    for item in raw_matches:
-        if isinstance(item, str) and item.strip():
-            matches.append(item.strip())
-        elif isinstance(item, dict):
-            for key in ("name", "displayName", "display_name", "contact", "title"):
-                value = item.get(key)
-                if isinstance(value, str) and value.strip():
-                    matches.append(value.strip())
-                    break
-    return matches
-
-
-def _dedupe_strings(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for value in values:
-        key = value.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(value)
-    return deduped
 
 
 def _bool_from_observation(

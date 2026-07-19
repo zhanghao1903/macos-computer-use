@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I2 query mapping extraction |
+| Current slice | I3 row parsing extraction |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -119,3 +119,41 @@ failure route changed.
 
 Revert the I2 commit. `_diagnostics.py` and all I0/I1 behavior locks remain
 independently usable.
+
+## Slice I3: Row Parsing Extraction
+
+### Scope
+
+- Added private `_row_parsing.py` for mapped collection items, contact-row
+  synthesis and filtering, conversation metadata, search/visible candidates,
+  visible messages, text-extract messages, chat titles, pagination, contact
+  confidence, and ambiguity result construction.
+- Moved 24 complete functions from `tool.py` and 15 complete functions plus
+  three constants from `_diagnostics.py`.
+- Moved the direct text-message parsing test import to the new owner.
+- Added six row-parsing tests covering conversation metadata, synthesized
+  contact rows, exact normalized contact matching, descendant message text,
+  search-title exclusion, and truncation pagination.
+
+Moving contact ambiguity builders with parsed candidates keeps dependencies
+acyclic: `_row_parsing` depends on diagnostics primitives, while diagnostics
+does not import row parsing.
+
+### Evidence
+
+- AST equivalence compared all 39 moved functions against the I2 commit:
+  39 equal, 0 changed.
+- Focused row-parsing suite: 6 tests passed.
+- Existing diagnostics suite: 6 tests passed after the ownership import move.
+- Full `wechat-desktop-tool` suite: 195 tests passed in 1.413 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile and `git diff --check` passed.
+- `tool.py` decreased to 4727 lines, `_diagnostics.py` to 591 lines, and
+  `_row_parsing.py` is 833 lines.
+- The private module dependency scan found no facade or backend import.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I3 commit. Earlier diagnostics and query-mapping modules remain
+independently validated.

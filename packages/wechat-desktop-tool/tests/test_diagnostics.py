@@ -6,13 +6,15 @@ from app_control_protocol import ToolCommand, ToolObservation, ToolStatus
 
 from wechat_desktop_tool._diagnostics import (
     _failure,
-    _messages_from_text_extract_with_truncation,
     _optional_string_from_mapping,
     _positive_int,
     _redact_input_text,
     _with_timing,
 )
 from wechat_desktop_tool._query_mapping import _public_accessibility_element
+from wechat_desktop_tool._row_parsing import (
+    _messages_from_text_extract_with_truncation,
+)
 
 
 class DiagnosticsTests(unittest.TestCase):
