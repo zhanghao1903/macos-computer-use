@@ -9,10 +9,10 @@ from wechat_desktop_tool._diagnostics import (
     _messages_from_text_extract_with_truncation,
     _optional_string_from_mapping,
     _positive_int,
-    _public_accessibility_element,
     _redact_input_text,
     _with_timing,
 )
+from wechat_desktop_tool._query_mapping import _public_accessibility_element
 
 
 class DiagnosticsTests(unittest.TestCase):

@@ -35,6 +35,7 @@ from computer_use_macos import ComputerUseClient
 from computer_use_macos.client import _AccessibilityWorker
 from computer_use_macos.client import _accessibility_action_worker_script
 from computer_use_macos.commands import CommandResult
+import wechat_desktop_tool._query_mapping as query_mapping_module
 import wechat_desktop_tool.cli as cli_module
 import wechat_desktop_tool.tool as tool_module
 from wechat_desktop_tool import (
@@ -5385,11 +5386,11 @@ class WeChatDesktopToolTests(unittest.TestCase):
                     retryable=retryable,
                     message=message,
                 )
-                diagnostic_payload = tool_module._selector_diagnostics_payload(
+                diagnostic_payload = query_mapping_module._selector_diagnostics_payload(
                     diagnostics
                 )
 
-                result = tool_module._failure_from_selector_query(
+                result = query_mapping_module._failure_from_selector_query(
                     wechat_command("open_contact", {"contact": "Ada"}),
                     diagnostics,
                     message="selector failed",

@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I1 diagnostics extraction |
+| Current slice | I2 query mapping extraction |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -82,3 +82,40 @@ import during migration.
 
 Revert the I1 commit. The I0 behavior locks remain independent and continue to
 exercise the original implementation.
+
+## Slice I2: Query Mapping Extraction
+
+### Scope
+
+- Added private `_query_mapping.py` for selector result translation, scoped
+  query envelopes, navigation/window normalization, AX node/frame helpers,
+  actionRef construction, mapped-control identity checks, and safe public AX
+  projection.
+- Moved 40 complete functions and eight constants from `tool.py` plus six AX
+  projection functions from `_diagnostics.py`.
+- Updated the two tests that intentionally call selector-query private helpers
+  to import them from their new owning module.
+- Added six direct query-mapping tests covering envelope copying, navigation
+  actionRefs and TTL, pressable-target requirements, current-window frame
+  validation, bundle/window identity, collection-node mapping, and truncation.
+
+No app-control call, query payload, selector condition, actionRef field, or
+failure route changed.
+
+### Evidence
+
+- AST equivalence compared all 46 moved functions against the I1 commit:
+  46 equal, 0 changed.
+- Focused query-mapping suite: 6 tests passed.
+- Existing diagnostics suite: 6 tests passed after ownership import updates.
+- Full `wechat-desktop-tool` suite: 189 tests passed in 1.417 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile and `git diff --check` passed.
+- `tool.py` decreased to 5245 lines, `_diagnostics.py` to 871 lines, and
+  `_query_mapping.py` is 1021 lines.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I2 commit. `_diagnostics.py` and all I0/I1 behavior locks remain
+independently usable.
