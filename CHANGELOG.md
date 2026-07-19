@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.3.0 - 2026-07-18
+## 0.3.0 - 2026-07-19
 
 ### Added
 
@@ -21,6 +21,15 @@
 - Add repository-local `pr-review`, `technical-plan-write`, and
   `technical-plan-review` skills for evidence-driven pull request review and
   implementation-ready technical plan authoring and review.
+
+### Packaging
+
+- Publish the coordinated package set with a production PyPI API token stored
+  only in the `PYPI_API_TOKEN` GitHub repository secret, backed by a sanitized,
+  exact-schema authentication proof and fail-closed strict preflight.
+- Separate macOS test/build/proof from the dependent Ubuntu PyPI publish job so
+  the Docker-based official action runs on a supported runner and build
+  machinery cannot access the production token.
 
 ## 0.2.0 - 2026-07-18
 

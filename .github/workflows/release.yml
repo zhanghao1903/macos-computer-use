@@ -7,10 +7,9 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +50,7 @@ jobs:
             --pattern wechat-submit-smoke.json \
             --pattern wechat-selector-engine-smoke.json \
             --pattern testpypi-install.json \
-            --pattern trusted-publisher.json \
+            --pattern pypi-auth.json \
             --pattern release-proof.json \
             --dir release-proof
           test -f release-proof/helper-doctor.json
@@ -60,7 +59,7 @@ jobs:
           test -f release-proof/wechat-submit-smoke.json
           test -f release-proof/wechat-selector-engine-smoke.json
           test -f release-proof/testpypi-install.json
-          test -f release-proof/trusted-publisher.json
+          test -f release-proof/pypi-auth.json
           test -f release-proof/release-proof.json
       - name: Run strict release preflight
         run: |
@@ -73,7 +72,7 @@ jobs:
             --wechat-smoke-report release-proof/wechat-submit-smoke.json \
             --wechat-smoke-report release-proof/wechat-selector-engine-smoke.json \
             --testpypi-install-report release-proof/testpypi-install.json \
-            --trusted-publisher-report release-proof/trusted-publisher.json \
+            --pypi-auth-report release-proof/pypi-auth.json \
             --proof release-proof/release-proof.json \
             --expected-source-sha "${{ github.sha }}" \
             --require-external
@@ -82,5 +81,22 @@ jobs:
         with:
           name: dist
           path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Verify PyPI token secret
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: test -n "$PYPI_API_TOKEN"
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}

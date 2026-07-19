@@ -70,14 +70,16 @@ Use this checklist before publishing the app-control tool package suite.
       also requires the generated `installPolicy` to show an isolated managed
       clean virtual environment, index-only install, no cache, and force
       reinstall.
-- [ ] PyPI Trusted Publisher report after manually checking every PyPI
-      project and confirming owner/repository/workflow/environment match
-      `zhanghao1903/macos-computer-use`, `release.yml`, and no environment:
+- [ ] Confirm the production PyPI API token is stored as the GitHub repository
+      secret `PYPI_API_TOKEN`. Verify only secret-name metadata with
+      `gh secret list`, then generate the sanitized report:
       ```bash
-      python scripts/trusted_publisher_report.py \
-        --all-configured \
-        --output ./trusted-publisher.json
+      gh secret list --repo zhanghao1903/macos-computer-use
+      python scripts/pypi_auth_report.py \
+        --configured \
+        --output ./pypi-auth.json
       ```
+      The report must contain no token value, hash, fingerprint, or local path.
 - [ ] TextEdit dry-run smoke:
       ```bash
       COMPUTER_USE_DRY_RUN=1 \
@@ -126,6 +128,8 @@ Use this checklist before publishing the app-control tool package suite.
 - [ ] Packages import no UI frameworks.
 - [ ] `computer-use-macos` imports no `wechat-desktop-tool`.
 - [ ] `wechat-desktop-tool` imports no macOS backend package.
+- [ ] The release workflow keeps `PYPI_API_TOKEN` out of the macOS build job and
+      runs the Docker-based publish action only in the dependent Ubuntu job.
 - [ ] High-risk direct primitive calls return blocked `ComputerUseResult`
       metadata, while protocol `run_command(...)` returns a structured failed
       `ToolObservation` with the original direct status preserved as
@@ -144,7 +148,7 @@ Use this checklist before publishing the app-control tool package suite.
         --wechat-smoke-report ./wechat-submit-smoke.json \
         --wechat-smoke-report ./wechat-selector-engine-smoke.json \
         --testpypi-install-report ./testpypi-install.json \
-        --trusted-publisher-report ./trusted-publisher.json \
+        --pypi-auth-report ./pypi-auth.json \
         --proof ./release-proof.json \
         --expected-source-sha "$(git rev-parse HEAD)" \
         --require-external
@@ -160,19 +164,21 @@ Example `release-proof.json`:
   "wechat_submit_smoke": true,
   "wechat_selector_engine_smoke": true,
   "testpypi_install": true,
-  "pypi_trusted_publisher": true
+  "pypi_publish_auth": true
 }
 ```
 
 `testpypi_install` can be supplied by `./testpypi-install.json` instead of the
 manual proof file.
-`pypi_trusted_publisher` can be supplied by `./trusted-publisher.json`.
+`pypi_publish_auth` must be supplied by one detailed authentication report in
+strict mode. The active token workflow uses `./pypi-auth.json`; a future OIDC
+workflow may instead use `./trusted-publisher.json`, but both are never allowed.
 `release-proof.json` accepts only known proof keys from the example shape, and
 every value must be a JSON boolean, not a string.
 When both a detailed report and `release-proof.json` are supplied, the detailed
 report takes precedence. A manual `release-proof.json` cannot override a failed
-helper doctor, TextEdit smoke, WeChat smoke, TestPyPI install, or Trusted
-Publisher report.
+helper doctor, TextEdit smoke, WeChat smoke, TestPyPI install, or PyPI
+authentication report.
 When `--expected-source-sha` is present, the selector proof boolean cannot come
 from `release-proof.json`; a validated v2 selector report from that exact source
 commit is mandatory.
@@ -184,7 +190,7 @@ commit is mandatory.
       `wechat-focus-draft-smoke.json`,
       `wechat-submit-smoke.json`, `wechat-selector-engine-smoke.json`,
       `testpypi-install.json`,
-      `trusted-publisher.json`, and `release-proof.json`.
+      `pypi-auth.json`, and `release-proof.json`.
 - [ ] Prefer generating the release asset directory with:
       ```bash
       python scripts/release_proof_bundle.py \
@@ -195,7 +201,7 @@ commit is mandatory.
         --wechat-submit-report ./wechat-submit-smoke.json \
         --wechat-selector-engine-report ./wechat-selector-engine-smoke.json \
         --testpypi-install-report ./testpypi-install.json \
-        --trusted-publisher-report ./trusted-publisher.json \
+        --pypi-auth-report ./pypi-auth.json \
         --expected-source-sha "$(git rev-parse HEAD)"
       ```
 - [ ] Re-run the unified strict release gate against `./release-proof/`:
@@ -214,9 +220,12 @@ commit is mandatory.
 4. Install all distributions from TestPyPI in a clean macOS virtual
    environment.
 5. Run imports, TextEdit smoke, and WeChat focus/draft smoke.
-6. Configure PyPI trusted publishing for `.github/workflows/release.yml`.
+6. Verify the `PYPI_API_TOKEN` GitHub repository secret and generate
+   `pypi-auth.json`.
 7. Create a draft GitHub Release and attach the proof JSON assets.
-8. Publish the GitHub Release to run the PyPI workflow.
+8. Publish the GitHub Release to run the token-authenticated PyPI workflow.
 9. Create GitHub release notes from `CHANGELOG.md`.
 
-Prefer PyPI trusted publishing. Do not commit tokens.
+Do not commit tokens, place them in proof assets, or pass them through workflow
+inputs. Trusted Publisher remains the preferred future migration when all three
+project bindings are configured and the workflow is reviewed for OIDC mode.

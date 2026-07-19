@@ -22,6 +22,7 @@ PROOF_ASSET_NAMES = {
     "wechat_submit_report": "wechat-submit-smoke.json",
     "wechat_selector_engine_report": "wechat-selector-engine-smoke.json",
     "testpypi_install_report": "testpypi-install.json",
+    "pypi_auth_report": "pypi-auth.json",
     "trusted_publisher_report": "trusted-publisher.json",
     "release_proof": "release-proof.json",
 }
@@ -36,10 +37,33 @@ def build_bundle(
     wechat_submit_report: Path,
     wechat_selector_engine_report: Path,
     testpypi_install_report: Path,
-    trusted_publisher_report: Path,
     expected_source_sha: str,
+    pypi_auth_report: Path | None = None,
+    trusted_publisher_report: Path | None = None,
     sensitive_canaries: tuple[str, ...] = (),
 ) -> dict[str, object]:
+    auth_reports = tuple(
+        (name, path, loader)
+        for name, path, loader in (
+            (
+                "pypi_auth_report",
+                pypi_auth_report,
+                release_preflight._load_pypi_auth_proof,
+            ),
+            (
+                "trusted_publisher_report",
+                trusted_publisher_report,
+                release_preflight._load_trusted_publisher_proof,
+            ),
+        )
+        if path is not None
+    )
+    if len(auth_reports) != 1:
+        raise ValueError(
+            "exactly one of pypi_auth_report or trusted_publisher_report is required"
+        )
+    auth_asset_key, auth_report, auth_loader = auth_reports[0]
+
     proof: dict[str, Any] = {}
     proof.update(release_preflight._load_helper_doctor_proof(helper_doctor_report))
     proof.update(release_preflight._load_textedit_smoke_proof(textedit_smoke_report))
@@ -62,9 +86,7 @@ def build_bundle(
             testpypi_install_report,
         )
     )
-    proof.update(
-        release_preflight._load_trusted_publisher_proof(trusted_publisher_report)
-    )
+    proof.update(auth_loader(auth_report))
     proof = {
         key: proof.get(key) is True
         for key in release_preflight.EXTERNAL_PROOFS
@@ -80,7 +102,7 @@ def build_bundle(
             wechat_selector_engine_report
         ),
         PROOF_ASSET_NAMES["testpypi_install_report"]: testpypi_install_report,
-        PROOF_ASSET_NAMES["trusted_publisher_report"]: trusted_publisher_report,
+        PROOF_ASSET_NAMES[auth_asset_key]: auth_report,
     }
     copied: list[dict[str, str]] = []
     for name, source in assets.items():
@@ -118,7 +140,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--wechat-submit-report", type=Path, required=True)
     parser.add_argument("--wechat-selector-engine-report", type=Path, required=True)
     parser.add_argument("--testpypi-install-report", type=Path, required=True)
-    parser.add_argument("--trusted-publisher-report", type=Path, required=True)
+    auth_group = parser.add_mutually_exclusive_group(required=True)
+    auth_group.add_argument("--pypi-auth-report", type=Path)
+    auth_group.add_argument("--trusted-publisher-report", type=Path)
     parser.add_argument("--expected-source-sha", required=True)
     parser.add_argument(
         "--sensitive-canary",
@@ -141,8 +165,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         wechat_submit_report=args.wechat_submit_report,
         wechat_selector_engine_report=args.wechat_selector_engine_report,
         testpypi_install_report=args.testpypi_install_report,
-        trusted_publisher_report=args.trusted_publisher_report,
         expected_source_sha=args.expected_source_sha,
+        pypi_auth_report=args.pypi_auth_report,
+        trusted_publisher_report=args.trusted_publisher_report,
         sensitive_canaries=tuple(args.sensitive_canary),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))

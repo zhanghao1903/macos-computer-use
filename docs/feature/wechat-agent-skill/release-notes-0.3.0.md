@@ -90,5 +90,6 @@ a possible submit.
 
 Publication requires source and package tests, coordinated wheel/sdist checks,
 clean installed-package API smoke, isolated TestPyPI installation, exact-head
-TextEdit and WeChat reports, selector-engine performance proof, Trusted
-Publisher verification, and strict release-asset validation before PyPI upload.
+TextEdit and WeChat reports, selector-engine performance proof, sanitized PyPI
+API-token authentication metadata, and strict release-asset validation before
+the Linux publish job receives the production GitHub Secret.
