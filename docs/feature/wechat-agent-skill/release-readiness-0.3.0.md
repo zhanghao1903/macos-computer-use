@@ -4,15 +4,15 @@
 
 | Field | Value |
 | --- | --- |
-| Lifecycle phase | F7 release preparation and publishing proof |
+| Lifecycle phase | F8 post-release traceability |
 | Release branch | `codex/release-0.3.0` |
 | Release-blocker branch | `codex/release-0.3.0-control-map-fallback` |
 | Publishing branch | `codex/release-token-publishing` |
-| Source baseline | latest merged release head `1b2c9a5` |
+| Source baseline | tagged release head `9923d64b74763586f284156bb1baa60c9bcf4802` |
 | Target version | `0.3.0` for all three packages |
 | Target tag | `v0.3.0` |
-| Last PyPI version | `0.1.1` |
-| Publication state | Not published |
+| Last PyPI version | `0.3.0` |
+| Publication state | Published on 2026-07-19 |
 | Release workflow | `.github/workflows/release.yml` on published GitHub Release |
 
 The repository prepared a `0.2.0` source milestone but did not create its tag,
@@ -52,24 +52,28 @@ required.
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| Version and dependency alignment | Source metadata, imports, helper template, preflight constants, and tag check agree on `0.3.0`. | Passed on release branch |
-| Changelog and release notes | Versioned changelog and `release-notes-0.3.0.md`. | Prepared on release branch |
-| Source tests | Root and all three package suites. | Passed: 132 + 55 + 168 (1 skipped) + 171 |
-| Distribution contents | Three wheels and three sdists plus clean install/API smoke. | Passed on release branch |
-| Helper doctor | Exact-head `helper-doctor.json`. | Pending |
-| TextEdit real smoke | Exact-head `textedit-smoke.json`. | Pending |
-| WeChat focus/draft smoke | Exact-head sanitized report. | Pending |
-| WeChat submit smoke | Exact-head sanitized report with explicit one-shot authorization. | Pending |
-| Selector-engine live proof | Exact-head v2 report, non-empty collections, all timings at most 3000 ms. | Pending |
-| TestPyPI coordinated install | Strict isolated `testpypi-install.json` for all `0.3.0` packages. | Pending |
-| PyPI publish authentication | `PYPI_API_TOKEN` GitHub secret metadata and sanitized `pypi-auth.json`. | Pending final configuration |
-| Strict proof bundle | Eight exact-name assets accepted with `--require-external`. | Pending |
-| Release PR and CI | Release commit merged and final `main` CI green. | Pending |
-| GitHub Release and PyPI | Published `v0.3.0` workflow succeeds and PyPI reports all packages. | Pending |
+| Version and dependency alignment | Source metadata, imports, helper template, preflight constants, and tag check agree on `0.3.0`. | Passed |
+| Changelog and release notes | Versioned changelog and `release-notes-0.3.0.md`. | Passed |
+| Source tests | Root and all three package suites. | Passed: 147 + 55 + 168 (1 skipped) + 172 |
+| Distribution contents | Three wheels and three sdists plus clean install/API smoke. | Passed |
+| Helper doctor | Detailed `helper-doctor.json` accepted by final strict preflight. | Passed |
+| TextEdit real smoke | Detailed real-run `textedit-smoke.json`. | Passed |
+| WeChat focus/draft smoke | Sanitized real-run report. | Passed |
+| WeChat submit smoke | Sanitized report with explicit one-shot authorization. | Passed |
+| Selector-engine live proof | Exact-head v2 report, non-empty collections, all timings at most 3000 ms. | Passed at `9923d64` |
+| TestPyPI coordinated install | Strict isolated `testpypi-install.json` for all `0.3.0` packages. | Passed |
+| PyPI publish authentication | `PYPI_API_TOKEN` GitHub secret metadata and sanitized `pypi-auth.json`. | Passed |
+| Strict proof bundle | Eight exact-name assets accepted with `--require-external`. | Passed |
+| Release PR and CI | Release source merged and final `main` CI green. | Passed: PR #9 |
+| GitHub Release and PyPI | Published `v0.3.0` workflow succeeds and PyPI reports all packages. | Passed: run 29667048852 |
 
 No gate may be marked complete from an old source SHA or from a manually
 invented success report. The selector proof must bind to the exact release
 source commit. Detailed reports override manual proof booleans.
+
+The complete F8 evidence, production file digests, workflow recovery, and
+remaining follow-ups are recorded in
+`docs/feature/pypi-token-publishing/post-release-summary-0.3.0.md`.
 
 ## Live Proof Blocker Remediation
 
