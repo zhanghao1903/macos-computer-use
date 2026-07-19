@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Docs
+
+- Record the `0.3.0` GitHub Release, production PyPI artifact digests,
+  isolated install/API smoke, token-upload recovery, and remaining follow-ups
+  in the F8 post-release summary.
+
 ## 0.3.0 - 2026-07-19
 
 ### Added
