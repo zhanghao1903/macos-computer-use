@@ -6,7 +6,7 @@
 | --- | --- |
 | Feature | WeChat Tool Internal Modularization |
 | Branch | `codex/wechat-tool-modularization` |
-| Current phase | F4 implementation (I0 behavior lock) |
+| Current phase | F4 implementation (I1 diagnostics extraction) |
 | Baseline | `23d293d01245f3c46c67c5be6a6553a989d14e0a` (`origin/main`) |
 | Affected package | `wechat-desktop-tool` |
 | Public surface | No planned change |
