@@ -618,17 +618,17 @@ def _search_focus_assessment(observation: ToolObservation) -> dict[str, JsonValu
     if accessibility is None:
         return {"state": "unknown", "reason": "no_accessibility_snapshot"}
     if accessibility.get("available") is False:
-        payload: dict[str, JsonValue] = {
+        accessibility_payload: dict[str, JsonValue] = {
             "state": "unknown",
             "reason": "accessibility_snapshot_unavailable",
         }
         failure_kind = accessibility.get("failureKind")
         if isinstance(failure_kind, str):
-            payload["failureKind"] = failure_kind
+            accessibility_payload["failureKind"] = failure_kind
         message = accessibility.get("message")
         if isinstance(message, str):
-            payload["message"] = message
-        return payload
+            accessibility_payload["message"] = message
+        return accessibility_payload
     focused = _mapping_value(accessibility.get("focusedElement"))
     if focused is None:
         return {"state": "unknown", "reason": "no_focused_element"}

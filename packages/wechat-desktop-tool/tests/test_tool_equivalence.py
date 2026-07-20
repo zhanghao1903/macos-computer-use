@@ -6,7 +6,7 @@ import unittest
 from app_control_protocol import ToolEventType
 
 import wechat_desktop_tool
-from test_tool import (
+from _tool_test_fixtures import (
     FakeAppControl,
     _contradictory_predispatch_action_response,
     _visible_open_contact_responses,

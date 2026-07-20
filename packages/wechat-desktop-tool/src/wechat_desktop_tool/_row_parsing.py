@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import re
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import ToolCommand, ToolObservation, ToolStatus
 from app_control_protocol.json_types import JsonValue
@@ -44,13 +44,14 @@ def _row_items_from_collection_items(
         element_node = _node_from_collection_element(item.get("element"))
         if element_node is None:
             continue
+        parsed: dict[str, Any]
         if section == "contacts":
             display_name = _string_value(item.get("displayName"))
             if display_name is None:
                 continue
             if not _is_contact_collection_item(item):
                 continue
-            parsed: dict[str, Any] = {
+            parsed = {
                 "displayName": display_name,
                 "badges": [],
             }
@@ -135,6 +136,7 @@ def _row_items_from_nodes(
         row_path = str(row.get("axPath") or "")
         label = contact_labels_by_row.get(row_path) or labels_by_row.get(row_path)
         label = label or _node_label(row)
+        parsed: dict[str, Any]
         if section == "contacts":
             if not _is_contact_row_node(row):
                 continue
@@ -729,7 +731,7 @@ def _contact_ambiguity_failure(
         return None
     observation_payload: dict[str, JsonValue] = {
         "requestedContact": contact,
-        "candidateContacts": matches,
+        "candidateContacts": cast(JsonValue, matches),
     }
     return _failure(
         command,
@@ -771,7 +773,7 @@ def _contact_candidates_ambiguity_failure(
         "schema": "wechat.open_contact.v1",
         "target": contact,
         "status": "needs_disambiguation",
-        "candidates": summaries,
+        "candidates": cast(JsonValue, summaries),
     }
     if source is not None:
         observation["source"] = dict(source)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import (
     AppControlClient,
@@ -289,7 +289,7 @@ class WeChatToolRuntime:
                     "maxDepth": 1,
                     "limit": 80,
                     "timeBudgetMs": 10_000,
-                    "attributes": _QUERY_ATTRIBUTES,
+                    "attributes": cast(JsonValue, _QUERY_ATTRIBUTES),
                     "actions": True,
                     "includeChildrenCount": False,
                 },
@@ -615,7 +615,7 @@ def _safe_app_control_observation(
             )
         payload["observation"] = safe_observation
         return payload
-    return _redact_input_text(observation.to_dict())
+    return cast(dict[str, JsonValue], _redact_input_text(observation.to_dict()))
 
 
 def _safe_accessibility_query_payload(
@@ -695,9 +695,13 @@ def _safe_accessibility_action_payload(
             ("action", ("action",)),
             ("actionEffect", ("actionEffect", "action_effect")),
         ):
-            evidence = _consistent_string_evidence(proof_payloads, keys)
-            if evidence.present and evidence.valid and evidence.value is not None:
-                payload[output_key] = evidence.value
+            string_evidence = _consistent_string_evidence(proof_payloads, keys)
+            if (
+                string_evidence.present
+                and string_evidence.valid
+                and string_evidence.value is not None
+            ):
+                payload[output_key] = string_evidence.value
         native_code = _consistent_int_evidence(
             proof_payloads,
             ("nativeErrorCode", "native_error_code"),
@@ -709,9 +713,13 @@ def _safe_accessibility_action_payload(
             ("requestDispatched", ("requestDispatched", "request_dispatched")),
             ("retryable", ("retryable",)),
         ):
-            evidence = _consistent_bool_evidence(proof_payloads, keys)
-            if evidence.present and evidence.valid and evidence.value is not None:
-                payload[output_key] = evidence.value
+            bool_evidence = _consistent_bool_evidence(proof_payloads, keys)
+            if (
+                bool_evidence.present
+                and bool_evidence.valid
+                and bool_evidence.value is not None
+            ):
+                payload[output_key] = bool_evidence.value
     elif observation.failure_kind is not None:
         payload["failureKind"] = observation.failure_kind
     return payload
@@ -722,7 +730,7 @@ def _safe_executed_action_result(
 ) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
         "operation": observation.operation,
-        "status": observation.status.value,
+        "status": cast(ToolStatus, observation.status).value,
         "success": observation.success,
     }
     if observation.failure_kind is not None:
@@ -924,7 +932,11 @@ def _from_app_control_failure(
 ) -> ToolObservation:
     return _failure(
         command,
-        status=result.status if result.status != ToolStatus.OK else ToolStatus.FAILED,
+        status=(
+            cast(ToolStatus, result.status)
+            if result.status != ToolStatus.OK
+            else ToolStatus.FAILED
+        ),
         failure_kind=failure_kind,
         message=result.summary,
         retryable=result.retryable if result.retryable is not None else True,

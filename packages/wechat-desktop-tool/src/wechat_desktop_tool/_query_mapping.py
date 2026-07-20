@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import ToolCommand, ToolObservation, ToolStatus
 from app_control_protocol.json_types import JsonValue
@@ -423,8 +423,16 @@ def _window_from_query(
     main_nodes: list[dict[str, Any]],
     include_actionables: bool,
 ) -> dict[str, JsonValue]:
-    app = query.get("app") if isinstance(query.get("app"), Mapping) else {}
-    window = query.get("window") if isinstance(query.get("window"), Mapping) else {}
+    app = (
+        cast(Mapping[str, Any], query.get("app"))
+        if isinstance(query.get("app"), Mapping)
+        else {}
+    )
+    window = (
+        cast(Mapping[str, Any], query.get("window"))
+        if isinstance(query.get("window"), Mapping)
+        else {}
+    )
     title = _string_value(window.get("title")) or config.app_name
     element: dict[str, JsonValue] = {
         "axPath": "0",
@@ -512,10 +520,10 @@ def _window_from_query(
             (str(item["label"]) for item in navigation if item.get("selected") is True),
             None,
         ),
-        "navigation": navigation,
+        "navigation": cast(JsonValue, navigation),
         "regions": regions,
-        "actionables": actionables,
-        "availableActions": available_actions,
+        "actionables": cast(JsonValue, actionables),
+        "availableActions": cast(JsonValue, available_actions),
     }
 
 
@@ -538,8 +546,16 @@ def _wechat_environment_from_query(
     config: WeChatDesktopConfig,
     query: Mapping[str, Any],
 ) -> dict[str, JsonValue]:
-    app = query.get("app") if isinstance(query.get("app"), Mapping) else {}
-    window = query.get("window") if isinstance(query.get("window"), Mapping) else {}
+    app = (
+        cast(Mapping[str, Any], query.get("app"))
+        if isinstance(query.get("app"), Mapping)
+        else {}
+    )
+    window = (
+        cast(Mapping[str, Any], query.get("window"))
+        if isinstance(query.get("window"), Mapping)
+        else {}
+    )
     return {
         "configuredAppName": config.app_name,
         "configuredBundleId": config.bundle_id,
@@ -790,7 +806,11 @@ def _frame_numbers(value: object) -> tuple[float, float, float, float] | None:
         for item in raw_values
     ):
         return None
-    x, y, width, height = (float(item) for item in raw_values)
+    numeric_values = cast(
+        tuple[int | float, int | float, int | float, int | float],
+        raw_values,
+    )
+    x, y, width, height = (float(item) for item in numeric_values)
     if not all(math.isfinite(item) for item in (x, y, width, height)):
         return None
     if width <= 0 or height <= 0:
@@ -817,8 +837,8 @@ def _node_actions(node: Mapping[str, Any]) -> set[str]:
     return {str(item) for item in actions}
 
 
-def _label_precondition_values(label: str) -> list[str]:
-    values = [label]
+def _label_precondition_values(label: str) -> list[JsonValue]:
+    values: list[JsonValue] = [label]
     for key, labels in _NAV_QUERY_LABELS.items():
         if label in labels:
             values.extend(item for item in labels if item not in values)
@@ -871,7 +891,12 @@ def _selector_element_center_coordinates(element: Any) -> dict[str, JsonValue] |
     y = getattr(frame, "y", None)
     width = getattr(frame, "width", None)
     height = getattr(frame, "height", None)
-    if not all(isinstance(value, int | float) for value in (x, y, width, height)):
+    if (
+        not isinstance(x, int | float)
+        or not isinstance(y, int | float)
+        or not isinstance(width, int | float)
+        or not isinstance(height, int | float)
+    ):
         return None
     return {
         "x": int(round(float(x) + float(width) / 2)),

@@ -8,6 +8,13 @@
   isolated install/API smoke, token-upload recovery, and remaining follow-ups
   in the F8 post-release summary.
 
+### Internal
+
+- Modularize `wechat-desktop-tool` into private runtime, domain workflow,
+  parsing, diagnostics, and action-safety modules; split its monolithic
+  regression suite and add size, dependency, and package-content gates without
+  changing public APIs or desktop behavior.
+
 ## 0.3.0 - 2026-07-19
 
 ### Added

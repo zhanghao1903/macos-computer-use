@@ -11,7 +11,7 @@ from wechat_desktop_tool._contact_operations import (
     _open_visible_contact_with_control_map,
 )
 
-from test_tool import (
+from _tool_test_fixtures import (
     FakeAppControl,
     WeChatDesktopTool,
     _accessibility_query_response,

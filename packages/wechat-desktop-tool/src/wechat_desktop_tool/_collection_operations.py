@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from app_control_protocol import ToolCommand, ToolObservation, ToolStatus
 from app_control_protocol.json_types import JsonValue
 
@@ -215,7 +217,7 @@ def _list_row_items_with_selector_profile(
         observation={
             "schema": schema,
             "section": section,
-            "items": rows,
+            "items": cast(JsonValue, rows),
             "pagination": {
                 "mode": "visibleWindow",
                 "limit": limit,
@@ -296,7 +298,7 @@ def _list_row_items_with_control_map(
         observation={
             "schema": schema,
             "section": section,
-            "items": rows,
+            "items": cast(JsonValue, rows),
             "pagination": {
                 "mode": "visibleWindow",
                 "limit": limit,

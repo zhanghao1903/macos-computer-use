@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import ToolCommand, ToolObservation
 from app_control_protocol.json_types import JsonValue
@@ -135,7 +135,7 @@ def _inspect_window(
                 "maxDepth": 1,
                 "limit": 80,
                 "timeBudgetMs": 10_000,
-                "attributes": _QUERY_ATTRIBUTES,
+                "attributes": cast(JsonValue, _QUERY_ATTRIBUTES),
                 "actions": True,
                 "includeChildrenCount": False,
             },
@@ -176,7 +176,7 @@ def _inspect_window(
                     "maxDepth": 1,
                     "limit": 80,
                     "timeBudgetMs": 2_000,
-                    "attributes": _QUERY_ATTRIBUTES,
+                    "attributes": cast(JsonValue, _QUERY_ATTRIBUTES),
                     "actions": True,
                     "includeChildrenCount": False,
                 },
@@ -215,11 +215,15 @@ def _inspect_window(
                     ),
                 }
             )
-    normalization = {
+    normalization: dict[str, JsonValue] = {
         "status": "normalized",
         "reason": normalization_reason,
-        "actionableCount": len(window.get("actionables", [])),
-        "availableActionCount": len(window.get("availableActions", [])),
+        "actionableCount": len(
+            cast(list[JsonValue], window.get("actionables", []))
+        ),
+        "availableActionCount": len(
+            cast(list[JsonValue], window.get("availableActions", []))
+        ),
         "queryMode": "scoped",
     }
     payload: dict[str, JsonValue] = {
@@ -236,7 +240,7 @@ def _inspect_window(
     if include_raw:
         payload["rawQueries"] = {
             "topLevel": top_query,
-            "mainContent": main_nodes,
+            "mainContent": cast(JsonValue, main_nodes),
         }
     return ToolObservation.ok(
         command_id=command.command_id,

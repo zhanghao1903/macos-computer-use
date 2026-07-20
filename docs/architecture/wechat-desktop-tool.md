@@ -46,21 +46,58 @@ schemas and failure kinds.
 
 - `adapter.py`: builds a `WeChatDesktopTool` from an app-control client.
 - `commands.py`: protocol command builders for the `wechat.desktop` tool.
-- `tool.py`: operation dispatcher, workflow orchestration, phase evidence,
-  WeChat normalization, and semantic failure handling.
+- `tool.py`: public facade, command/event timing wrapper, and operation
+  dispatcher. It does not own domain workflow implementations.
+- `_runtime.py`: validated runtime dependencies, app-control child commands,
+  readiness phases, bounded Accessibility queries, and phase events.
+- `_window_operations.py`, `_collection_operations.py`,
+  `_contact_operations.py`, `_contact_search.py`, and
+  `_message_operations.py`: WeChat domain workflow orchestration.
+- `_action_operations.py` and `_mapped_controls.py`: validated actionRef,
+  node-action, control-map action, and scoped control-map query orchestration.
+- `_diagnostics.py`, `_query_mapping.py`, `_row_parsing.py`, and
+  `_action_safety.py`: failure/evidence projection, Accessibility result
+  normalization, domain row parsing, and mutation proof decisions.
 - `window_model.py`: normalization from scoped Accessibility query results into
   `wechat.window.v1`.
 - `models.py`: public dataclasses, enums, and message/window model helpers.
+- `control_map.py` and `profiles.py`: packaged stable-path hints and semantic
+  selector profile loading.
 - `recipes.py`: higher-level convenience flows.
 - `observations.py`: WeChat observation helpers.
 - `errors.py`: stable WeChat failure kinds.
 - `cli.py`: package CLI and example runners.
 
+All underscore-prefixed modules are private implementation details. Application
+code continues to depend on the package exports, `WeChatDesktopTool`, command
+builders, models, and recipes rather than importing workflow modules directly.
+
+## Internal Dependency Direction
+
+The implementation uses one-way dependencies:
+
+```text
+public facade / adapter / recipes
+  -> domain operation modules
+    -> mapped/action orchestration
+      -> runtime
+        -> pure diagnostics, query mapping, row parsing, and action safety
+          -> commands, models, profiles, and app-control protocol
+```
+
+Message workflows may compose contact workflows, contact opening may compose
+search focus, mapped controls may compose action operations, and all workflows
+may use the runtime and pure helpers. Lower layers do not import operation
+modules or `tool.py`. Package-boundary tests enforce an acyclic private-module
+graph and module-size maintenance alarms.
+
 ## Operation Lifecycle
 
 1. A caller invokes a method or builds a `wechat.desktop` command.
-2. `WeChatDesktopTool` opens or verifies the WeChat window when required.
-3. The tool runs one or more app-control phases, such as `open_app`,
+2. `WeChatDesktopTool` dispatches to the private module that owns the requested
+   domain workflow.
+3. The workflow uses the shared runtime to open or verify WeChat and run one or
+   more app-control phases, such as `open_app`,
    `accessibility_query`, `accessibility_action`, `hotkey`, `type_text`, or
    `press_key`.
 4. Each phase stores bounded evidence for diagnostics.

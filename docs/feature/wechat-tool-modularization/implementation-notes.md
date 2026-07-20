@@ -5,8 +5,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
-| Current lifecycle phase | F4 implementation |
-| Current slice | I7b collection operations complete; I7c contacts next |
+| Current lifecycle phase | F4 implementation complete |
+| Current slice | I8 test/docs/package finish complete; F5 verification next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -452,3 +452,62 @@ changed.
 ### Rollback
 
 Revert the I7d commit. I0-I7c remain independently validated.
+
+## Slice I8: Test, Documentation, And Package Finish
+
+### Scope
+
+- Removed the 7183-line discovered `test_tool.py` after moving its shared
+  fakes and fixture builders to `_tool_test_fixtures.py` and its four test
+  classes into seven responsibility-oriented regression modules.
+- Preserved all 138 legacy test methods one-to-one: class names and method
+  names are unchanged, and only the test-module portion of each discovered id
+  moved.
+- Kept `_tool_test_support.py` focused on the I0 equivalence canonicalizers.
+  This intentionally differs from the original plan to put every fixture in
+  that file: separating the large legacy fixture block keeps behavior-lock
+  support reviewable and avoids rewriting test bodies during a move-only
+  split.
+- Retained the direct diagnostics, query, parsing, safety, runtime, action,
+  mapped-control, and domain-operation suites added in I1-I7. The split
+  regression files preserve broad historical coverage while those focused
+  suites provide local ownership for future changes.
+- Added maintenance gates for facade/private-module/test-file size budgets,
+  an acyclic private import graph with no reverse facade edge, and failure-kind
+  inventory across every package source module.
+- Updated release preflight to require all 12 new private modules in wheel and
+  sdist contents and to execute representative modularized tests.
+- Added the final private component map and dependency direction to the stable
+  architecture document, plus an `Unreleased / Internal` changelog record.
+- Added type-only narrowing and annotations required by strict mypy after the
+  move. These edits do not alter conditions, command payloads, operation
+  ordering, result fields, or mutation decisions.
+
+No public import, signature, command, schema, configuration, failure kind,
+selector, control-map path, timeout, fallback, event, or desktop action changed.
+
+### Evidence
+
+- Legacy inventory comparison by `(class name, test method)` reported 138
+  before and 138 after, with zero missing, zero added, and zero changed method
+  ASTs.
+- Full `wechat-desktop-tool` suite: 254 tests passed in 1.662 seconds with
+  `ResourceWarning` treated as an error.
+- Package-boundary suite: 8 tests passed, including the new size and import
+  graph gates.
+- Release-preflight unit suite: 111 tests passed in 56.953 seconds, including
+  simulated wheel content checks for the modularized package.
+- Ruff reported no findings for production, tests, and changed release
+  tooling. Strict mypy reported no issues in all 29 package source files.
+- `tool.py` is 344 lines. The largest private implementation module is
+  `_query_mapping.py` at 1091 lines; the largest moved regression test is
+  `test_tool_contact_regressions.py` at 1569 lines; the shared fixture module
+  is 1724 lines. All are below their documented budgets.
+- `git diff --check` passed. Full cross-package, source-preflight, and real
+  wheel/sdist evidence is deliberately recorded in F5 rather than claimed in
+  this implementation slice.
+
+### Rollback
+
+Revert the I8 commit to restore the monolithic regression test layout and the
+previous release-preflight manifest. I0-I7d remain independently validated.

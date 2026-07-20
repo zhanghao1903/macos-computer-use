@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 import re
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import ToolObservation
 from app_control_protocol.json_types import JsonValue
@@ -749,7 +749,9 @@ def _chat_panel(
         return None
     panel = max(
         split_groups,
-        key=lambda item: (_frame(item).width if _frame(item) else 0),
+        key=lambda item: (
+            cast(WeChatFrame, _frame(item)).width if _frame(item) else 0
+        ),
     )
     panel_children = _children(panel)
     title = _chat_title(panel_children)
@@ -792,7 +794,9 @@ def _message_list(
         return None
     scroll_area, table = max(
         candidates,
-        key=lambda pair: (_frame(pair[0]).height if _frame(pair[0]) else 0),
+        key=lambda pair: (
+            cast(WeChatFrame, _frame(pair[0])).height if _frame(pair[0]) else 0
+        ),
     )
     viewport = _frame(scroll_area)
     rows: list[WeChatMessageRow] = []
@@ -863,7 +867,7 @@ def _composer(
         return None
     composer_node = max(
         candidates,
-        key=lambda item: (_frame(item).y if _frame(item) is not None else 0),
+        key=lambda item: cast(WeChatFrame, _frame(item)).y if _frame(item) else 0,
     )
     element = _element_ref(
         composer_node,
@@ -1006,7 +1010,7 @@ def _frame(node: Mapping[str, Any]) -> WeChatFrame | None:
         y = _number_value(frame.get("y"))
         width = _number_value(frame.get("width") or frame.get("w"))
         height = _number_value(frame.get("height") or frame.get("h"))
-        if None not in (x, y, width, height):
+        if x is not None and y is not None and width is not None and height is not None:
             return WeChatFrame(x=x, y=y, width=width, height=height)
 
     position = _mapping_value(_attr(node, "position", "AXPosition"))
@@ -1016,7 +1020,7 @@ def _frame(node: Mapping[str, Any]) -> WeChatFrame | None:
         y = _number_value(position.get("y"))
         width = _number_value(size.get("width") or size.get("w"))
         height = _number_value(size.get("height") or size.get("h"))
-        if None not in (x, y, width, height):
+        if x is not None and y is not None and width is not None and height is not None:
             return WeChatFrame(x=x, y=y, width=width, height=height)
 
     position_numbers = _numbers_from_ax_value(_attr(node, "AXPosition", "position"))
@@ -1033,7 +1037,7 @@ def _frame(node: Mapping[str, Any]) -> WeChatFrame | None:
     y = _number_value(node.get("y"))
     width = _number_value(node.get("width"))
     height = _number_value(node.get("height"))
-    if None not in (x, y, width, height):
+    if x is not None and y is not None and width is not None and height is not None:
         return WeChatFrame(x=x, y=y, width=width, height=height)
     return None
 

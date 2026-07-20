@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timezone
 import time
-from typing import Any
+from typing import Any, cast
 
 from app_control_protocol import (
     ToolCommand,
@@ -107,7 +107,9 @@ def _with_timing(
     duration_ms: int,
 ) -> ToolObservation:
     payload = observation.to_dict()
-    timing = dict(payload.get("timing", {}))
+    timing = dict(
+        cast(Mapping[str, JsonValue], payload.get("timing", {}))
+    )
     timing.setdefault("startedAt", started_at)
     timing.setdefault("durationMs", duration_ms)
     payload["timing"] = timing
@@ -124,7 +126,7 @@ def _safe_app_control_envelope(
         "commandId": observation.command_id,
         "tool": observation.tool,
         "operation": observation.operation,
-        "status": observation.status.value,
+        "status": cast(ToolStatus, observation.status).value,
         "success": observation.success,
         "summary": summary,
     }
@@ -488,7 +490,7 @@ def _nested_failure(
     observation.setdefault("failedPhase", phase)
     return _failure(
         command,
-        status=result.status,
+        status=cast(ToolStatus, result.status),
         failure_kind=result.failure_kind or f"{phase}_failed",
         message=result.summary,
         recovery_hint=result.recovery_hint,

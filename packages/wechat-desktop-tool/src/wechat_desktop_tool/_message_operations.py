@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from app_control_protocol import ToolCommand, ToolObservation, ToolStatus
 from app_control_protocol.json_types import JsonValue
 
@@ -155,7 +157,10 @@ def _observe_current_chat(
                 runtime.config.app_name,
             ),
             "wechatEnvironment": _wechat_environment(runtime.config, result),
-            "visibleMessages": [message.to_dict() for message in messages],
+            "visibleMessages": cast(
+                JsonValue,
+                [message.to_dict() for message in messages],
+            ),
             "messageCount": len(messages),
             "appControlObservation": _safe_app_control_observation(result),
         },
@@ -235,7 +240,7 @@ def _read_visible_messages(
         observation={
             "schema": "wechat.messages.v1",
             "chat": {"title": chat_title},
-            "messages": messages,
+            "messages": cast(JsonValue, messages),
             "pagination": {
                 "limit": limit,
                 "canReadOlder": _query_truncated(messages_result),
@@ -282,7 +287,7 @@ def _read_visible_messages_with_control_map(
         observation={
             "schema": "wechat.messages.v1",
             "chat": {"title": chat_title},
-            "messages": messages,
+            "messages": cast(JsonValue, messages),
             "pagination": {
                 "limit": limit,
                 "canReadOlder": _query_truncated(query_result),
