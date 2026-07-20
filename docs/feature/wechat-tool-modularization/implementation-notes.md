@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I4 action safety extraction complete; I5 runtime next |
+| Current slice | I5 runtime extraction complete; I6 actions next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -197,3 +197,50 @@ rule, actionRef field, or app-control call changed.
 
 Revert the I4 commit. I0 behavior locks and I1-I3 extracted modules remain
 independently validated.
+
+## Slice I5: Runtime Extraction
+
+### Scope
+
+- Added private `_runtime.py` with a frozen `WeChatToolRuntime` dependency
+  container for the app-control client, resolved config, selector assets,
+  control map, and selector profile.
+- Moved 11 complete transport/query/input methods, eight complete safe
+  projection and readiness functions, `_PhaseEventCollector`,
+  `_WeChatSelectorQueryRunner`, and `_QUERY_ATTRIBUTES` out of `tool.py`.
+- Replaced the facade's five independently assigned private dependency fields
+  with one runtime instance and read-only compatibility properties.
+- Routed existing operation call sites directly through the runtime. The
+  selector query runner now holds the runtime instead of the public facade;
+  its counter, phase names, command inputs, and failure payload are unchanged.
+- Added six focused runtime tests covering single construction-time selector
+  loading, helper-backend rejection text, dependency identity and read-only
+  facade aliases, input/child-command construction, phase events, and selector
+  runner sequencing.
+
+The runtime adds no cache, retry, process, socket, serialization, or desktop
+round trip. Selector assets are still loaded once during tool construction.
+
+### Evidence
+
+- AST equivalence compared 20 moved methods/functions/classes against the I4
+  commit: 20 equal, 0 changed; `_QUERY_ATTRIBUTES` was also AST-identical.
+- The selector runner's intentional facade-to-runtime dependency change is
+  covered by an exact two-query phase/command characterization test.
+- Focused runtime suite: 6 tests passed in 0.012 seconds.
+- Existing public equivalence suite: 5 tests passed in 0.010 seconds.
+- Existing selector/profile suite: 12 tests passed in 0.042 seconds.
+- Full `wechat-desktop-tool` suite: 207 tests passed in 1.433 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, Black, and `git diff --check` passed for the
+  production and focused test modules.
+- `tool.py` decreased to 3460 lines; `_runtime.py` is 895 lines and the new
+  focused test module is 214 lines.
+- The dependency direction remains acyclic: runtime imports diagnostics,
+  query mapping, and action safety; none imports runtime or the facade.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I5 commit. The facade returns to owning its five dependency fields;
+I0-I4 remain independently validated.
