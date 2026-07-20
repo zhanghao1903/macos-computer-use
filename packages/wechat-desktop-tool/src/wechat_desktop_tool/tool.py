@@ -29,6 +29,7 @@ from ._action_safety import (
     _should_fallback_from_accessibility_action,
     _should_press_return_for_search_result,
 )
+from ._collection_operations import _list_contacts, _list_conversations
 
 from ._diagnostics import (
     _CHAT_INPUT_MARKERS,
@@ -43,7 +44,6 @@ from ._diagnostics import (
     _nested_failure,
     _observation_indicates_input_not_focused,
     _optional_string_from_mapping,
-    _optional_string_input,
     _positive_int,
     _required_input,
     _send_unverified,
@@ -66,7 +66,6 @@ from ._query_mapping import (
     _accessibility_element_contains,
     _contact_target_query_issue,
     _coordinate_click_disabled,
-    _failure_from_collection_result,
     _failure_from_selector_query,
     _failure_from_selector_result,
     _focused_text_field_position,
@@ -80,13 +79,10 @@ from ._query_mapping import (
     _query_snapshot_id,
     _query_truncated,
     _selector_element_center_coordinates,
-    _selector_element_selected,
 )
 
 from ._row_parsing import (
     _chat_title_from_query_nodes,
-    _collection_extraction_limit,
-    _collection_has_more,
     _contact_ambiguity_failure,
     _contact_candidates_ambiguity_failure,
     _contact_confidence,
@@ -95,8 +91,6 @@ from ._row_parsing import (
     _messages_from_observation,
     _messages_from_query_nodes,
     _next_page_token,
-    _row_items_from_collection_items,
-    _row_items_from_nodes,
     _search_candidates_from_nodes,
     _visible_contact_candidates_from_nodes,
 )
@@ -116,7 +110,6 @@ from ._window_operations import _inspect_window, _open_wechat
 from .commands import WECHAT_TOOL
 from .control_map import WeChatControlMap
 from .models import WeChatDesktopConfig, wechat_message_hash
-from .profiles import build_packaged_collection_extractor
 from .profiles import build_packaged_selector_resolver
 from .profiles import WeChatSelectorAssets
 
@@ -375,9 +368,11 @@ class WeChatDesktopTool:
                     self._runtime, command, phase_events=phase_events
                 )
             if operation == "list_contacts":
-                return self._list_contacts(command, phase_events=phase_events)
+                return _list_contacts(self._runtime, command, phase_events=phase_events)
             if operation == "list_conversations":
-                return self._list_conversations(command, phase_events=phase_events)
+                return _list_conversations(
+                    self._runtime, command, phase_events=phase_events
+                )
             if operation == "open_contact":
                 return self._open_contact(command, phase_events=phase_events)
             if operation == "execute_action":
@@ -411,276 +406,6 @@ class WeChatDesktopTool:
                 failure_kind="invalid_input",
                 message=str(exc),
             )
-
-    def _list_contacts(
-        self,
-        command: ToolCommand,
-        *,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        return self._list_row_items_with_selector_profile(
-            command,
-            section="contacts",
-            schema="wechat.contacts.v1",
-            collection_id="contacts",
-            navigation_selector_id="navigation.contacts",
-            summary="Listed visible WeChat contacts.",
-            phase_events=phase_events,
-        )
-
-    def _list_conversations(
-        self,
-        command: ToolCommand,
-        *,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        return self._list_row_items_with_selector_profile(
-            command,
-            section="chats",
-            schema="wechat.conversations.v1",
-            collection_id="conversations",
-            navigation_selector_id="navigation.chats",
-            summary="Listed visible WeChat conversations.",
-            phase_events=phase_events,
-        )
-
-    def _list_row_items_with_selector_profile(
-        self,
-        command: ToolCommand,
-        *,
-        section: str,
-        schema: str,
-        collection_id: str,
-        navigation_selector_id: str,
-        summary: str,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        limit = _positive_int(command.input.get("limit"), default=30)
-        page_token = _optional_string_input(command, "pageToken", "page_token")
-        if page_token is not None:
-            return _failure(
-                command,
-                status=ToolStatus.FAILED,
-                failure_kind="pagination_not_supported",
-                message=(
-                    "WeChat visible-window lists do not support continuation "
-                    "page tokens. Request a larger limit or refresh the list."
-                ),
-                recovery_hint="Retry without pageToken.",
-                retryable=False,
-                observation={
-                    "schema": schema,
-                    "section": section,
-                    "pagination": {
-                        "mode": "visibleWindow",
-                        "limit": limit,
-                        "pageToken": page_token,
-                        "hasMore": False,
-                        "nextPageToken": None,
-                    },
-                },
-            )
-        evidence: dict[str, JsonValue] = {}
-        opened = self._runtime._open_wechat_phase(
-            command,
-            evidence,
-            phase_events=phase_events,
-        )
-        if not opened.success:
-            return _open_wechat_phase_failure(command, opened, evidence)
-
-        fast_result = self._list_row_items_with_control_map(
-            command,
-            section=section,
-            schema=schema,
-            collection_id=collection_id,
-            summary=summary,
-            limit=limit,
-            page_token=page_token,
-            active_window_title=_string_from_observation(
-                opened,
-                "windowTitle",
-                "window_title",
-                "title",
-            ),
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if fast_result is not None:
-            return fast_result
-
-        selector_runner = _WeChatSelectorQueryRunner(
-            self._runtime,
-            command,
-            evidence=evidence,
-            phase_prefix=f"selectors.{section}",
-            phase_events=phase_events,
-        )
-        resolver = build_packaged_selector_resolver(
-            selector_runner,
-            app_bundle_id=self._config.bundle_id or "",
-            selector_profile=self._selector_profile,
-        )
-        navigation = resolver.resolve(navigation_selector_id)
-        if navigation.status != "resolved" or not navigation.elements:
-            return _failure_from_selector_result(
-                command,
-                navigation,
-                failure_kind="wechat_navigation_failed",
-                message=f"Could not locate WeChat {section} navigation item.",
-                evidence=evidence,
-            )
-        if not _selector_element_selected(navigation.elements[0]):
-            clicked = _click_node_phase(
-                self._runtime,
-                command,
-                _node_from_selector_element(navigation.elements[0]),
-                phase=f"switch_{section}",
-                evidence=evidence,
-                snapshot_id=navigation.snapshot_id,
-                phase_events=phase_events,
-            )
-            if not clicked.success:
-                return _from_app_control_failure(
-                    command,
-                    "wechat_navigation_failed",
-                    clicked,
-                    evidence=evidence,
-                )
-
-        collection_limit = _collection_extraction_limit(section, limit)
-        collection = build_packaged_collection_extractor(resolver).extract(
-            collection_id,
-            limit=collection_limit,
-        )
-        if collection.status == "failed":
-            return _failure_from_collection_result(
-                command,
-                collection,
-                failure_kind="wechat_list_failed",
-                message=f"Could not list WeChat {section} items.",
-                evidence=evidence,
-            )
-        page_rows = _row_items_from_collection_items(
-            collection.items,
-            section=section,
-            limit=limit + 1,
-            snapshot_id=collection.snapshot_id,
-        )
-        rows = page_rows[:limit]
-        semantic_has_more = len(page_rows) > limit
-        return ToolObservation.ok(
-            command_id=command.command_id,
-            tool=WECHAT_TOOL,
-            operation=command.operation,
-            summary=summary,
-            observation={
-                "schema": schema,
-                "section": section,
-                "items": rows,
-                "pagination": {
-                    "mode": "visibleWindow",
-                    "limit": limit,
-                    "pageToken": page_token,
-                    "hasMore": semantic_has_more or _collection_has_more(collection),
-                    "nextPageToken": None,
-                },
-                "availableActions": [
-                    {
-                        "id": "wechat.open_contact",
-                        "status": "needs_input",
-                        "operation": "open_contact",
-                    }
-                ],
-            },
-            evidence=evidence,
-        )
-
-    def _list_row_items_with_control_map(
-        self,
-        command: ToolCommand,
-        *,
-        section: str,
-        schema: str,
-        collection_id: str,
-        summary: str,
-        limit: int,
-        page_token: str | None,
-        active_window_title: str | None,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation | None:
-        navigation_key = "contacts" if section == "contacts" else "chats"
-        switched = _press_mapped_navigation(
-            self._runtime,
-            command,
-            navigation_key,
-            active_window_title=active_window_title,
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if switched is None:
-            return None
-        if not switched.success:
-            return _from_app_control_failure(
-                command,
-                "wechat_navigation_failed",
-                switched,
-                evidence=evidence,
-            )
-        collection_query = _query_mapped_collection(
-            self._runtime,
-            command,
-            collection_id,
-            semantic_limit=limit + 1,
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if collection_query is None:
-            return None
-        query_result, collection, nodes = collection_query
-        page_rows = _row_items_from_nodes(
-            nodes,
-            section=section,
-            limit=limit + 1,
-            snapshot_id=_query_snapshot_id(_query_payload(query_result)),
-        )
-        if not page_rows and nodes:
-            return None
-        rows = page_rows[:limit]
-        semantic_has_more = len(page_rows) > limit
-        return ToolObservation.ok(
-            command_id=command.command_id,
-            tool=WECHAT_TOOL,
-            operation=command.operation,
-            summary=summary,
-            observation={
-                "schema": schema,
-                "section": section,
-                "items": rows,
-                "pagination": {
-                    "mode": "visibleWindow",
-                    "limit": limit,
-                    "pageToken": page_token,
-                    "hasMore": semantic_has_more or _query_truncated(query_result),
-                    "nextPageToken": None,
-                },
-                "source": {
-                    "mode": "control_map",
-                    "mapId": self._control_map.map_id,
-                    "mapVersion": self._control_map.map_version,
-                    "collection": collection.collection_id,
-                },
-                "availableActions": [
-                    {
-                        "id": "wechat.open_contact",
-                        "status": "needs_input",
-                        "operation": "open_contact",
-                    }
-                ],
-            },
-            evidence=evidence,
-        )
 
     def _open_contact(
         self,

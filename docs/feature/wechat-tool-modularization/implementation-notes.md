@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I7a window operations complete; I7b collections next |
+| Current slice | I7b collection operations complete; I7c contacts next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -328,3 +328,37 @@ available action, failure translation, or app-control call changed.
 ### Rollback
 
 Revert the I7a commit. I0-I6 remain independently validated.
+
+## Slice I7b: Collection Operations
+
+### Scope
+
+- Added private `_collection_operations.py` for `list_contacts`,
+  `list_conversations`, selector-profile listing, and control-map fast-path
+  listing.
+- Moved four complete facade methods to explicit-runtime functions and changed
+  only facade dispatch plus the three internal collection-function calls.
+- Added six focused tests covering pre-I/O page-token rejection, contact and
+  conversation control-map results, semantic `hasMore`, selector fallback
+  when mapped controls are unavailable, and navigation failure translation.
+
+No pagination contract, selector id, control-map query, query bound, row
+normalization, source metadata, fallback order, or result schema changed.
+
+### Evidence
+
+- Canonical AST comparison normalized runtime access and internal collection
+  calls: all four moved method bodies were equal.
+- Focused collection-operation suite: 6 tests passed in 0.013 seconds.
+- Full `wechat-desktop-tool` suite: 232 tests passed in 1.449 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, Black, and `git diff --check` passed for the
+  changed production and focused test modules.
+- `tool.py` decreased to 2276 lines; `_collection_operations.py` is 322 lines
+  and its focused test module is 284 lines.
+- Collections depend on mapped/action/runtime layers and pure parsing; no
+  contact or message operation dependency was introduced.
+
+### Rollback
+
+Revert the I7b commit. I0-I7a remain independently validated.
