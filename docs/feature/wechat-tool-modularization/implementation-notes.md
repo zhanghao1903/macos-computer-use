@@ -5,8 +5,8 @@
 | Field | Value |
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
-| Current lifecycle phase | F4 implementation complete |
-| Current slice | I8 test/docs/package finish complete; F5 verification next |
+| Current lifecycle phase | F5 verification complete |
+| Current slice | I8 complete; F6 review and merge readiness next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock

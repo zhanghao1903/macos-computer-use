@@ -6,7 +6,7 @@
 | --- | --- |
 | Feature | WeChat Tool Internal Modularization |
 | Branch | `codex/wechat-tool-modularization` |
-| Current phase | F4 implementation complete (I8 test/docs/package finish) |
+| Current phase | F5 verification complete; F6 review next |
 | Baseline | `23d293d01245f3c46c67c5be6a6553a989d14e0a` (`origin/main`) |
 | Affected package | `wechat-desktop-tool` |
 | Public surface | No planned change |
@@ -60,7 +60,7 @@ evidence will be completed in later lifecycle phases before implementation.
 
 - Feature: WeChat Tool Internal Modularization.
 - Feature branch: `codex/wechat-tool-modularization`.
-- Current phase: F1 requirement confirmation.
+- Current phase at report creation: F1 requirement confirmation.
 - User problem / scenario: `tool.py` is too large to review and maintain safely.
 - Current behavior: one module owns most semantic workflows, query mapping,
   action safety, diagnostics, and redaction.

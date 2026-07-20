@@ -7,7 +7,7 @@
 | Feature directory | `docs/feature/wechat-tool-modularization/` |
 | Branch | `codex/wechat-tool-modularization` |
 | Design | [`design.md`](./design.md) |
-| Current phase | F4 implementation complete; F5 verification next |
+| Current phase | F5 verification complete; F6 review next |
 | Baseline source | `23d293d01245f3c46c67c5be6a6553a989d14e0a` |
 | Baseline tests | 172 `wechat-desktop-tool` tests passed |
 | Delivery model | One documented commit and push per implementation slice |
