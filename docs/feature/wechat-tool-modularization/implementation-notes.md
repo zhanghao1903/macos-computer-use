@@ -362,3 +362,51 @@ normalization, source metadata, fallback order, or result schema changed.
 ### Rollback
 
 Revert the I7b commit. I0-I7a remain independently validated.
+
+## Slice I7c: Contact Operations
+
+### Scope
+
+- Added private `_contact_operations.py` for verified contact discovery,
+  visible/control-map contact opening, opened-chat title verification, and the
+  `focus_contact` composition workflow.
+- Added private `_contact_search.py` for search-box coordinate/action focus,
+  focused-search verification, focus assessment, and the retained legacy
+  contact focus workflow.
+- Moved ten complete facade methods, eight complete top-level helpers, one
+  dataclass, and the 500 ms search-focus query constant. Facade dispatch now
+  passes `self._runtime` to contact operations explicitly.
+- Updated tests that intentionally exercise private contact phases to call the
+  owning module through test-only runtime adapters; no private compatibility
+  methods were restored on the public facade.
+- Added six focused contact-operation tests and six focused contact-search
+  tests. They cover matching and mismatched chat-title verification,
+  incomplete target-query fail-closed behavior, selector fallback, verified
+  focus composition, exact-path focus queries, coordinate/action ordering,
+  unknown mutation no-replay, and refusal to type into an unverified field.
+
+No contact matching threshold, query bound, timeout, selector, control-map
+path, fallback order, child-command phase, mutation proof branch, failure
+payload, confidence calculation, or public result changed.
+
+### Evidence
+
+- Canonical AST comparison normalized only facade/runtime dependency access
+  and internal moved-method calls: all 19 moved symbols/constants were equal.
+- Contact-focused suite: 17 tests passed in 0.093 seconds, including the five
+  existing contact-target fail-closed contract tests.
+- Full `wechat-desktop-tool` suite: 244 tests passed in 1.504 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, Black, and `git diff --check` passed for the
+  changed production and focused test modules.
+- `tool.py` decreased to 823 lines; `_contact_operations.py` is 870 lines,
+  `_contact_search.py` is 671 lines, and their focused test modules are 198 and
+  265 lines.
+- The dependency direction remains acyclic: contact operations may depend on
+  contact search, while contact search does not depend on contact operations;
+  neither module imports the public facade.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I7c commit. I0-I7b remain independently validated.

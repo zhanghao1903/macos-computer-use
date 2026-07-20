@@ -38,9 +38,10 @@ from computer_use_macos.client import _accessibility_action_worker_script
 from computer_use_macos.commands import CommandResult
 import wechat_desktop_tool._action_operations as action_operations_module
 import wechat_desktop_tool._action_safety as action_safety_module
+import wechat_desktop_tool._contact_operations as contact_operations_module
+import wechat_desktop_tool._contact_search as contact_search_module
 import wechat_desktop_tool._query_mapping as query_mapping_module
 import wechat_desktop_tool.cli as cli_module
-import wechat_desktop_tool.tool as tool_module
 from wechat_desktop_tool import (
     WECHAT_WINDOW_SCHEMA,
     WECHAT_TOOL,
@@ -526,6 +527,30 @@ def _click_node_phase_for_test(
     )
 
 
+def _open_visible_contact_for_test(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation | None:
+    return contact_operations_module._open_visible_contact_phase(
+        tool._runtime,
+        *args,
+        **kwargs,
+    )
+
+
+def _open_visible_contact_with_control_map_for_test(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation | None:
+    return contact_operations_module._open_visible_contact_with_control_map(
+        tool._runtime,
+        *args,
+        **kwargs,
+    )
+
+
 def _cross_package_click_node(
     tool: WeChatDesktopTool,
     *,
@@ -556,11 +581,24 @@ def _cross_package_focus_search(
         ),
         frame=None,
     )
-    return tool._focus_search_box_phase(
+    return _focus_search_box_for_test(
+        tool,
         wechat_command("open_contact", {"contact": "File Transfer"}),
         contact="File Transfer",
         search_box=argparse.Namespace(elements=[search_element]),
         evidence={},
+    )
+
+
+def _focus_search_box_for_test(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation:
+    return contact_search_module._focus_search_box_phase(
+        tool._runtime,
+        *args,
+        **kwargs,
     )
 
 
@@ -4107,9 +4145,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         [response] if nodes else [response, response]
                     )
 
-                    result = WeChatDesktopTool(
-                        app_control
-                    )._open_visible_contact_with_control_map(
+                    result = _open_visible_contact_with_control_map_for_test(
+                        WeChatDesktopTool(app_control),
                         wechat_command("open_contact", {"contact": "Ada"}),
                         contact="Ada",
                         evidence={},
@@ -4151,9 +4188,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         ]
                     )
 
-                    result = WeChatDesktopTool(
-                        app_control
-                    )._open_visible_contact_phase(
+                    result = _open_visible_contact_for_test(
+                        WeChatDesktopTool(app_control),
                         wechat_command("open_contact", {"contact": "Ada"}),
                         contact="Ada",
                         main_content={"axPath": "0/11", "role": "AXSplitGroup"},
@@ -4346,7 +4382,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         tool = WeChatDesktopTool(app_control)
 
-        result = tool._open_visible_contact_phase(
+        result = _open_visible_contact_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "File Transfer"}),
             contact="File Transfer",
             main_content={"axPath": "0/11", "role": "AXSplitGroup"},
@@ -4689,7 +4726,7 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 summary="queried search focus",
                 observation=response["observation"],
             )
-            return tool_module._search_focus_assessment(observation)
+            return contact_search_module._search_focus_assessment(observation)
 
         self.assertEqual(assessment(True)["state"], "verified")
         self.assertEqual(
@@ -4727,7 +4764,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             frame=argparse.Namespace(x=383, y=49, width=205, height=26),
         )
 
-        result = tool._focus_search_box_phase(
+        result = _focus_search_box_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             contact="Ada",
             search_box=argparse.Namespace(elements=[search_element]),
@@ -4762,7 +4800,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             frame=None,
         )
 
-        result = tool._focus_search_box_phase(
+        result = _focus_search_box_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             contact="Ada",
             search_box=argparse.Namespace(elements=[search_element]),
@@ -4793,7 +4832,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             frame=None,
         )
 
-        result = tool._focus_search_box_phase(
+        result = _focus_search_box_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             contact="Ada",
             search_box=argparse.Namespace(elements=[search_element]),
@@ -4821,7 +4861,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
             frame=argparse.Namespace(x=383, y=49, width=205, height=26),
         )
 
-        result = tool._focus_search_box_phase(
+        result = _focus_search_box_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             contact="Ada",
             search_box=argparse.Namespace(elements=[search_element]),
