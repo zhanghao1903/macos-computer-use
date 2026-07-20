@@ -410,3 +410,45 @@ payload, confidence calculation, or public result changed.
 ### Rollback
 
 Revert the I7c commit. I0-I7b remain independently validated.
+
+## Slice I7d: Message Operations And Thin Facade
+
+### Scope
+
+- Added private `_message_operations.py` for current-chat observation, visible
+  and contact message reads, control-map message extraction, draft creation,
+  draft submission, and the send-message convenience flow.
+- Moved seven complete facade methods and the input-focus failure helper to the
+  message module with an explicit runtime dependency.
+- Changed only facade dispatch and the five internal message-workflow calls to
+  pass the same runtime explicitly.
+- Added seven focused message-operation tests covering semantic chat
+  observation, child-operation composition, control-map pagination/source,
+  pre-I/O draft length validation, input-focus protection, unknown submit
+  no-replay, and optional post-submit verification.
+
+No message parsing, query bound, selector, control-map path, pagination token,
+input-focus decision, redaction, message hash, child-command phase, submit
+uncertainty, retryability, verification, result payload, or public method
+changed.
+
+### Evidence
+
+- Canonical AST comparison normalized only facade/runtime dependency access
+  and internal moved-method calls: all eight moved symbols were equal.
+- Focused message-operation suite: 7 tests passed in 0.016 seconds.
+- Existing public equivalence suite: 5 tests passed in 0.008 seconds before
+  focused-test addition.
+- Full `wechat-desktop-tool` suite: 251 tests passed in 1.511 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, Black, and `git diff --check` passed for the
+  changed production and focused test modules.
+- `tool.py` decreased to 344 lines; `_message_operations.py` is 517 lines and
+  its focused test module is 326 lines.
+- Message operations depend on contact operations, runtime, mapped controls,
+  and pure parsing/diagnostics; no operation module imports the public facade.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I7d commit. I0-I7c remain independently validated.
