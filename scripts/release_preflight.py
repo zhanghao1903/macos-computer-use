@@ -63,7 +63,8 @@ PACKAGE_TESTS = (
     "packages/app-control-protocol/tests/test_schemas.py",
     "packages/computer-use-macos/tests/test_package.py",
     "packages/wechat-desktop-tool/tests/test_package_boundary.py",
-    "packages/wechat-desktop-tool/tests/test_tool.py",
+    "packages/wechat-desktop-tool/tests/test_tool_equivalence.py",
+    "packages/wechat-desktop-tool/tests/test_tool_facade.py",
 )
 
 MARKDOWN_JSON_DOCS = (
@@ -261,6 +262,18 @@ EXPECTED_WHEEL_CONTENT = {
     ),
     "wechat-desktop-tool": (
         "wechat_desktop_tool/__init__.py",
+        "wechat_desktop_tool/_action_operations.py",
+        "wechat_desktop_tool/_action_safety.py",
+        "wechat_desktop_tool/_collection_operations.py",
+        "wechat_desktop_tool/_contact_operations.py",
+        "wechat_desktop_tool/_contact_search.py",
+        "wechat_desktop_tool/_diagnostics.py",
+        "wechat_desktop_tool/_mapped_controls.py",
+        "wechat_desktop_tool/_message_operations.py",
+        "wechat_desktop_tool/_query_mapping.py",
+        "wechat_desktop_tool/_row_parsing.py",
+        "wechat_desktop_tool/_runtime.py",
+        "wechat_desktop_tool/_window_operations.py",
         "wechat_desktop_tool/py.typed",
         "wechat_desktop_tool/cli.py",
         "wechat_desktop_tool/__main__.py",

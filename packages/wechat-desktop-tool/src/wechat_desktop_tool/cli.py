@@ -19,6 +19,7 @@ from app_control_protocol import (
     load_app_control_config,
     validate_protocol_payload,
 )
+from app_control_protocol.json_types import JsonValue
 
 from .commands import WECHAT_TOOL
 from .models import wechat_message_hash
@@ -51,7 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _add_send_message_parser(
-    subcommands: argparse._SubParsersAction[object],
+    subcommands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     send = subcommands.add_parser(
         "send-message",
@@ -85,7 +86,7 @@ def _add_send_message_parser(
 
 
 def _add_inspect_window_parser(
-    subcommands: argparse._SubParsersAction[object],
+    subcommands: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     inspect = subcommands.add_parser(
         "inspect-window",
@@ -234,7 +235,7 @@ def _focus_current_chat_for_example(
     assume_current_chat: bool = False,
 ) -> ToolObservation:
     opened = tool.open_wechat()
-    evidence = {"open_wechat": opened.to_dict()}
+    evidence: dict[str, JsonValue] = {"open_wechat": opened.to_dict()}
     if not opened.success:
         return ToolObservation.failure(
             command_id="wechat-example-focus-current-chat",

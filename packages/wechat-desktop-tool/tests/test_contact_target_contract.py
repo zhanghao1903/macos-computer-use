@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 import unittest
 
-from test_tool import (
+from app_control_protocol import ToolObservation
+
+from wechat_desktop_tool._contact_operations import (
+    _open_visible_contact_phase,
+    _open_visible_contact_with_control_map,
+)
+
+from _tool_test_fixtures import (
     FakeAppControl,
     WeChatDesktopTool,
     _accessibility_query_response,
@@ -18,6 +26,30 @@ from test_tool import (
 
 CONTACT = "Ada"
 SENSITIVE_MESSAGE = "PRIVATE_MESSAGE_MUST_NOT_BE_DRAFTED"
+
+
+def _open_with_control_map(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation | None:
+    return _open_visible_contact_with_control_map(
+        tool._runtime,
+        *args,
+        **kwargs,
+    )
+
+
+def _open_visible(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation | None:
+    return _open_visible_contact_phase(
+        tool._runtime,
+        *args,
+        **kwargs,
+    )
 
 
 def _diagnostic_response(
@@ -85,9 +117,8 @@ class ContactTargetContractTests(unittest.TestCase):
         ):
             with self.subTest(path="control_map", variant=variant):
                 app = FakeAppControl([_diagnostic_response([cell], variant)])
-                result = WeChatDesktopTool(
-                    app
-                )._open_visible_contact_with_control_map(
+                result = _open_with_control_map(
+                    WeChatDesktopTool(app),
                     wechat_command("open_contact", {"contact": CONTACT}),
                     contact=CONTACT,
                     evidence={},
@@ -98,7 +129,8 @@ class ContactTargetContractTests(unittest.TestCase):
 
             with self.subTest(path="selector_visible", variant=variant):
                 app = FakeAppControl([_diagnostic_response([row], variant)])
-                result = WeChatDesktopTool(app)._open_visible_contact_phase(
+                result = _open_visible(
+                    WeChatDesktopTool(app),
                     wechat_command("open_contact", {"contact": CONTACT}),
                     contact=CONTACT,
                     main_content={"axPath": "0/11", "role": "AXSplitGroup"},
@@ -154,9 +186,8 @@ class ContactTargetContractTests(unittest.TestCase):
                         {},
                     ]
                 )
-                result = WeChatDesktopTool(
-                    app
-                )._open_visible_contact_with_control_map(
+                result = _open_with_control_map(
+                    WeChatDesktopTool(app),
                     wechat_command("open_contact", {"contact": CONTACT}),
                     contact=CONTACT,
                     evidence={},
@@ -180,7 +211,8 @@ class ContactTargetContractTests(unittest.TestCase):
             ]
         )
 
-        result = WeChatDesktopTool(app)._open_visible_contact_phase(
+        result = _open_visible(
+            WeChatDesktopTool(app),
             wechat_command("open_contact", {"contact": CONTACT}),
             contact=CONTACT,
             main_content={"axPath": "0/11", "role": "AXSplitGroup"},

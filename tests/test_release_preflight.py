@@ -1650,6 +1650,34 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("wheel-entry-point:computer-use-macos", names)
         self.assertIn("wheel-metadata-deps:computer-use-macos", names)
 
+    def test_wechat_modularized_sources_are_required_build_content(self) -> None:
+        preflight = _load_preflight()
+        private_modules = {
+            "_action_operations.py",
+            "_action_safety.py",
+            "_collection_operations.py",
+            "_contact_operations.py",
+            "_contact_search.py",
+            "_diagnostics.py",
+            "_mapped_controls.py",
+            "_message_operations.py",
+            "_query_mapping.py",
+            "_row_parsing.py",
+            "_runtime.py",
+            "_window_operations.py",
+        }
+        wheel_content = set(preflight.EXPECTED_WHEEL_CONTENT["wechat-desktop-tool"])
+        sdist_content = set(preflight.EXPECTED_SDIST_CONTENT["wechat-desktop-tool"])
+
+        self.assertLessEqual(
+            {f"wechat_desktop_tool/{name}" for name in private_modules},
+            wheel_content,
+        )
+        self.assertLessEqual(
+            {f"src/wechat_desktop_tool/{name}" for name in private_modules},
+            sdist_content,
+        )
+
     def test_wheel_dir_reports_missing_protocol_schema(self) -> None:
         preflight = _load_preflight()
 
