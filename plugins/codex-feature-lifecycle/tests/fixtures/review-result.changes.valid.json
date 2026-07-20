@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "messageType": "ReviewResult",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "dispatchId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reviewedSnapshot": {
+    "repositoryKey": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "pullRequestNumber": 42,
+    "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "headSha": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "routes": {
+    "sourceThreadId": "review-thread",
+    "destinationThreadId": "main-thread"
+  },
+  "decision": "REQUEST_CHANGES",
+  "findings": [
+    {
+      "id": "FINDING-001",
+      "severity": "high",
+      "summary": "Unsafe merge precondition",
+      "file": "workflow.py",
+      "line": 12,
+      "impact": "A changed head could be merged without review.",
+      "evidence": "The merge path does not compare the current head.",
+      "requiredAction": "Add and test an exact-head comparison."
+    }
+  ],
+  "verification": ["targeted review: completed"],
+  "limitations": [],
+  "merge": {
+    "status": "NOT_ATTEMPTED"
+  },
+  "createdAt": "2026-07-18T12:10:00Z"
+}

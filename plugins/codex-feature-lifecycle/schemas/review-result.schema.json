@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-feature-lifecycle/schemas/review-result.schema.json",
+  "title": "Codex Feature Lifecycle ReviewResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "messageType",
+    "workflowId",
+    "dispatchId",
+    "reviewedSnapshot",
+    "routes",
+    "decision",
+    "findings",
+    "verification",
+    "limitations",
+    "merge",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "messageType": {"const": "ReviewResult"},
+    "workflowId": {"type": "string", "format": "uuid"},
+    "dispatchId": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewedSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryKey", "pullRequestNumber", "baseSha", "headSha"],
+      "properties": {
+        "repositoryKey": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+        "pullRequestNumber": {"type": "integer", "minimum": 1},
+        "baseSha": {"$ref": "#/$defs/gitSha"},
+        "headSha": {"$ref": "#/$defs/gitSha"}
+      }
+    },
+    "routes": {"$ref": "#/$defs/routes"},
+    "decision": {"enum": ["APPROVE", "COMMENT", "REQUEST_CHANGES", "STALE", "FAILED"]},
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    },
+    "verification": {"$ref": "#/$defs/stringArray"},
+    "limitations": {"$ref": "#/$defs/stringArray"},
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["NOT_ATTEMPTED", "NOT_AUTHORIZED", "DEFERRED", "MERGED", "FAILED"]},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "sha": {"$ref": "#/$defs/gitSha"},
+        "error": {"type": "string", "minLength": 1}
+      },
+      "oneOf": [
+        {
+          "properties": {"status": {"const": "MERGED"}},
+          "required": ["url", "sha"],
+          "not": {"required": ["error"]}
+        },
+        {
+          "properties": {"status": {"const": "FAILED"}},
+          "required": ["error"],
+          "not": {"anyOf": [{"required": ["url"]}, {"required": ["sha"]}]}
+        },
+        {
+          "properties": {
+            "status": {"enum": ["NOT_ATTEMPTED", "NOT_AUTHORIZED", "DEFERRED"]}
+          },
+          "not": {
+            "anyOf": [
+              {"required": ["url"]},
+              {"required": ["sha"]},
+              {"required": ["error"]}
+            ]
+          }
+        }
+      ]
+    },
+    "createdAt": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"decision": {"const": "APPROVE"}}},
+      "then": {
+        "properties": {
+          "merge": {
+            "properties": {
+              "status": {"enum": ["NOT_AUTHORIZED", "DEFERRED", "MERGED", "FAILED"]}
+            }
+          },
+          "findings": {
+            "items": {
+              "properties": {"severity": {"enum": ["medium", "low"]}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {"enum": ["COMMENT", "REQUEST_CHANGES", "STALE", "FAILED"]}
+        }
+      },
+      "then": {
+        "properties": {
+          "merge": {"properties": {"status": {"const": "NOT_ATTEMPTED"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"decision": {"const": "REQUEST_CHANGES"}}},
+      "then": {"properties": {"findings": {"minItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceThreadId", "destinationThreadId"],
+      "properties": {
+        "sourceThreadId": {"type": "string", "minLength": 1},
+        "destinationThreadId": {"type": "string", "minLength": 1},
+        "hostId": {"type": "string", "minLength": 1}
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "summary", "file", "impact", "evidence", "requiredAction"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Z][A-Z0-9_-]{1,63}$"},
+        "severity": {"enum": ["blocker", "high", "medium", "low"]},
+        "summary": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "line": {"type": "integer", "minimum": 1},
+        "impact": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "minLength": 1},
+        "requiredAction": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

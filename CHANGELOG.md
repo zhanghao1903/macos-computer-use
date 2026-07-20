@@ -19,6 +19,9 @@
 
 ### Added
 
+- Add the `codex-feature-lifecycle` 0.1.0 repository plugin for a Codex-only,
+  two-task feature workflow with explicit Init, automated exact-snapshot review
+  handoff, structured findings/results, and policy-gated GitHub merge.
 - Add a versioned, framework-neutral `wechat-use` Agent skill to
   `wechat-desktop-tool`, with in-memory loading, safe filesystem export,
   semantic WeChat operation guidance, and wheel/sdist verification.
@@ -31,6 +34,9 @@
 
 ### Internal
 
+- Document, package, install-test, and independently forward-test the Codex
+  feature workflow plugin while keeping cross-application/provider support out
+  of this first plugin.
 - Add repository-local `pr-review`, `technical-plan-write`, and
   `technical-plan-review` skills for evidence-driven pull request review and
   implementation-ready technical plan authoring and review.

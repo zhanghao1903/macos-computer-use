@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "messageType": "ReviewResult",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "dispatchId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reviewedSnapshot": {
+    "repositoryKey": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "pullRequestNumber": 42,
+    "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "headSha": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "routes": {
+    "sourceThreadId": "review-thread",
+    "destinationThreadId": "main-thread"
+  },
+  "decision": "APPROVE",
+  "findings": [
+    {
+      "id": "FINDING-001",
+      "severity": "blocker",
+      "summary": "Blocking defect",
+      "file": "workflow.py",
+      "impact": "The workflow is unsafe.",
+      "evidence": "A blocking path is reachable.",
+      "requiredAction": "Fix before approval."
+    }
+  ],
+  "verification": [],
+  "limitations": [],
+  "merge": {
+    "status": "NOT_AUTHORIZED"
+  },
+  "createdAt": "2026-07-18T12:10:00Z"
+}
