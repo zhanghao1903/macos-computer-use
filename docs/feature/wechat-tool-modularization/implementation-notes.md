@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I6 actions/mapped controls complete; I7 domains next |
+| Current slice | I7a window operations complete; I7b collections next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -294,3 +294,37 @@ timeout, query bound, map lookup, postcondition, or failure payload changed.
 
 Revert the I6 commit. Runtime and all pure extraction slices I0-I5 remain
 independently validated.
+
+## Slice I7a: Window Operations
+
+### Scope
+
+- Added private `_window_operations.py` for the `open_wechat` and
+  `inspect_window` workflows.
+- Moved both complete facade methods to explicit-runtime functions and changed
+  only facade dispatch dependency wiring.
+- Added six focused tests covering the two-phase ready flow, exact scoped
+  query sequence, explicit raw inclusion with safe evidence, actionable
+  suppression, query-failure translation, and missing-main-content diagnostic
+  output.
+
+No readiness check, query payload, raw-data boundary, normalization reason,
+available action, failure translation, or app-control call changed.
+
+### Evidence
+
+- Canonical AST comparison normalized only facade/runtime dependency access:
+  both moved method bodies were equal.
+- Focused window-operation suite: 6 tests passed in 0.014 seconds.
+- Full `wechat-desktop-tool` suite: 226 tests passed in 1.500 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, Black, and `git diff --check` passed for the
+  changed production and focused test modules.
+- `tool.py` decreased to 2551 lines; `_window_operations.py` is 248 lines and
+  its focused test module is 259 lines.
+- The window module depends only on runtime, diagnostics, pure query/row
+  mapping, commands, and models; no facade import was introduced.
+
+### Rollback
+
+Revert the I7a commit. I0-I6 remain independently validated.
