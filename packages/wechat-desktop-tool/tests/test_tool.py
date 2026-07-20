@@ -36,6 +36,7 @@ from computer_use_macos import ComputerUseClient
 from computer_use_macos.client import _AccessibilityWorker
 from computer_use_macos.client import _accessibility_action_worker_script
 from computer_use_macos.commands import CommandResult
+import wechat_desktop_tool._action_operations as action_operations_module
 import wechat_desktop_tool._action_safety as action_safety_module
 import wechat_desktop_tool._query_mapping as query_mapping_module
 import wechat_desktop_tool.cli as cli_module
@@ -513,12 +514,25 @@ def AXUIElementSetAttributeValue(element, attribute, value):
     )
 
 
+def _click_node_phase_for_test(
+    tool: WeChatDesktopTool,
+    *args: Any,
+    **kwargs: Any,
+) -> ToolObservation:
+    return action_operations_module._click_node_phase(
+        tool._runtime,
+        *args,
+        **kwargs,
+    )
+
+
 def _cross_package_click_node(
     tool: WeChatDesktopTool,
     *,
     ax_path: str = "0/11/1/0/0",
 ) -> ToolObservation:
-    return tool._click_node_phase(
+    return _click_node_phase_for_test(
+        tool,
         wechat_command("open_contact", {"contact": "File Transfer"}),
         _normalized_row(ax_path, "File Transfer"),
         phase="open_visible_contact",
@@ -3227,7 +3241,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 app_control = FakeAppControl([response])
                 tool = WeChatDesktopTool(app_control)
 
-                result = tool._click_node_phase(
+                result = _click_node_phase_for_test(
+                    tool,
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
                     phase="open_visible_contact",
@@ -3321,7 +3336,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         for label, response in cases:
             with self.subTest(label=label):
                 app_control = FakeAppControl([response])
-                result = WeChatDesktopTool(app_control)._click_node_phase(
+                result = _click_node_phase_for_test(
+                    WeChatDesktopTool(app_control),
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
                     phase="open_visible_contact",
@@ -3354,7 +3370,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         {},
                     ]
                 )
-                result = WeChatDesktopTool(app_control)._click_node_phase(
+                result = _click_node_phase_for_test(
+                    WeChatDesktopTool(app_control),
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
                     phase="open_visible_contact",
@@ -3397,7 +3414,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                             )
                         ]
                     )
-                    result = WeChatDesktopTool(app_control)._click_node_phase(
+                    result = _click_node_phase_for_test(
+                        WeChatDesktopTool(app_control),
                         wechat_command("open_contact", {"contact": "Ada"}),
                         _normalized_row("0/11/1/0/0", "Ada"),
                         phase="open_visible_contact",
@@ -3431,7 +3449,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
                         )
                     ]
                 )
-                result = WeChatDesktopTool(app_control)._click_node_phase(
+                result = _click_node_phase_for_test(
+                    WeChatDesktopTool(app_control),
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
                     phase="open_visible_contact",
@@ -3655,7 +3674,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         command = wechat_command("open_contact", {"contact": "Ada"})
         evidence: dict[str, Any] = {}
 
-        result = tool._click_node_phase(
+        result = _click_node_phase_for_test(
+            tool,
             command,
             {
                 "axPath": "0/11/2",
@@ -3679,7 +3699,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         tool = WeChatDesktopTool(app_control)
         command = wechat_command("open_contact", {"contact": "Ada"})
 
-        result = tool._click_node_phase(
+        result = _click_node_phase_for_test(
+            tool,
             command,
             {
                 "axPath": "0/11/1/0/0",
@@ -3700,7 +3721,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         tool = WeChatDesktopTool(app_control)
 
-        result = tool._click_node_phase(
+        result = _click_node_phase_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             _normalized_row("0/11/1/0/0", "Ada"),
             phase="open_visible_contact",
@@ -3758,7 +3780,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
 
             with self.subTest(label=label, caller="click_node"):
                 app_control = FakeAppControl([response, {}])
-                result = WeChatDesktopTool(app_control)._click_node_phase(
+                result = _click_node_phase_for_test(
+                    WeChatDesktopTool(app_control),
                     wechat_command("open_contact", {"contact": "Ada"}),
                     _normalized_row("0/11/1/0/0", "Ada"),
                     phase="open_visible_contact",
@@ -3778,7 +3801,8 @@ class WeChatDesktopToolTests(unittest.TestCase):
         )
         tool = WeChatDesktopTool(app_control)
 
-        result = tool._click_node_phase(
+        result = _click_node_phase_for_test(
+            tool,
             wechat_command("open_contact", {"contact": "Ada"}),
             _normalized_row("0/11/1/0/0", "Ada"),
             phase="open_visible_contact",

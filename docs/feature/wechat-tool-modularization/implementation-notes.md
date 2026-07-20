@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I5 runtime extraction complete; I6 actions next |
+| Current slice | I6 actions/mapped controls complete; I7 domains next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -244,3 +244,53 @@ round trip. Selector assets are still loaded once during tool construction.
 
 Revert the I5 commit. The facade returns to owning its five dependency fields;
 I0-I4 remain independently validated.
+
+## Slice I6: Action And Mapped-Control Extraction
+
+### Scope
+
+- Added private `_action_operations.py` with explicit-runtime functions for
+  public action execution, node click routing, and actionRef execution.
+- Added private `_mapped_controls.py` with explicit-runtime functions for
+  mapped navigation, verified control execution/postconditions, bounded
+  collection and conversation-target queries, and mapped region lookup.
+- Moved nine complete facade methods and four mapped-control timeout constants;
+  operation call sites now pass `self._runtime` explicitly.
+- Moved shared app-control/open-phase failure translation to `_runtime.py` and
+  pure contact-target query integrity checks to `_query_mapping.py`, preserving
+  the directional import graph.
+- Updated legacy private-helper tests through one test-only adapter instead of
+  retaining an action proxy on the public facade.
+- Added six focused action-operation tests and seven focused mapped-control
+  tests. They cover successful envelopes, expiry before dispatch,
+  pre-dispatch selector fallback, unknown-result no-replay, verified AX-frame
+  coordinate use, navigation skip/missing cases, configured query bounds,
+  target-window validation, and selected-state postconditions.
+
+No action proof branch, coordinate gate, selector fallback, command phase,
+timeout, query bound, map lookup, postcondition, or failure payload changed.
+
+### Evidence
+
+- Canonical AST comparison normalized only `self` dependency access into the
+  explicit runtime argument: all nine moved method bodies were equal.
+- Four shared moved functions and four moved timeout constants were directly
+  AST-identical to the I5 commit.
+- Focused action-operation suite: 6 tests passed in 0.015 seconds.
+- Focused mapped-control suite: 7 tests passed in 0.014 seconds.
+- Full `wechat-desktop-tool` suite: 220 tests passed in 1.469 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile, Pyflakes, formatting checks for new/changed production
+  modules and new focused tests, and `git diff --check` passed.
+- `tool.py` decreased to 2767 lines; `_action_operations.py` is 250 lines,
+  `_mapped_controls.py` is 459, `_runtime.py` is 933, and
+  `_query_mapping.py` is 1066.
+- The import graph remains acyclic: mapped controls depend on action
+  operations and runtime; action operations depend on runtime; runtime and the
+  pure helper modules import neither operation module nor the facade.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I6 commit. Runtime and all pure extraction slices I0-I5 remain
+independently validated.

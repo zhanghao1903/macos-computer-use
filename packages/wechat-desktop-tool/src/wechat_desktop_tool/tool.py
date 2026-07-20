@@ -19,26 +19,24 @@ from app_control_protocol import (
 )
 from app_control_protocol.json_types import JsonValue
 
+from ._action_operations import (
+    _click_node_phase,
+    _execute_action,
+    _execute_action_ref,
+)
 from ._action_safety import (
-    _action_ref_expiry_failure,
-    _action_ref_expiry_value,
-    _action_ref_identity_failure,
     _execute_action_failure_kind,
-    _selector_fallback_from_action_ref,
     _should_fallback_from_accessibility_action,
     _should_press_return_for_search_result,
-    _should_try_coordinate_click_after_accessibility_action,
 )
 
 from ._diagnostics import (
     _CHAT_INPUT_MARKERS,
     _SEARCH_FOCUS_MARKERS,
-    _action_ref_input,
     _bool_input,
     _duration_ms,
     _emit,
     _event,
-    _executed_action_method,
     _failure,
     _mapping_from_observation,
     _mapping_value,
@@ -57,28 +55,28 @@ from ._diagnostics import (
     _with_timing,
 )
 
+from ._mapped_controls import (
+    _mapped_region_node,
+    _press_mapped_navigation,
+    _query_mapped_collection,
+    _query_mapped_conversation_target,
+)
+
 from ._query_mapping import (
     _accessibility_element_contains,
-    _action_ref_from_node,
+    _contact_target_query_issue,
     _coordinate_click_disabled,
     _failure_from_collection_result,
     _failure_from_selector_query,
     _failure_from_selector_result,
-    _first_concrete_label,
     _focused_text_field_position,
     _is_text_like_accessibility_element,
     _main_content_node,
-    _mapped_control_node_matches,
     _navigation_from_query_nodes,
-    _node_actions,
     _node_ax_path,
-    _node_center_coordinates,
     _node_frame_within_query_window,
     _node_from_selector_element,
-    _node_label,
-    _node_selected,
     _public_accessibility_element,
-    _query_matches_target_app_window,
     _query_nodes,
     _query_normalization_reason,
     _query_payload,
@@ -88,7 +86,6 @@ from ._query_mapping import (
     _selector_element_selected,
     _wechat_environment_from_query,
     _window_from_query,
-    _window_title_matches_navigation,
 )
 
 from ._row_parsing import (
@@ -98,7 +95,6 @@ from ._row_parsing import (
     _contact_ambiguity_failure,
     _contact_candidates_ambiguity_failure,
     _contact_confidence,
-    _conversation_rows_from_cells,
     _current_chat_title,
     _message_observed,
     _messages_from_observation,
@@ -114,8 +110,9 @@ from ._runtime import (
     _QUERY_ATTRIBUTES,
     _PhaseEventCollector,
     _WeChatSelectorQueryRunner,
+    _from_app_control_failure,
+    _open_wechat_phase_failure,
     _safe_app_control_observation,
-    _safe_executed_action_result,
     _wechat_identity_failure,
     _wechat_login_failure,
     WeChatToolRuntime,
@@ -123,8 +120,6 @@ from ._runtime import (
 
 from .commands import WECHAT_TOOL
 from .control_map import WeChatControlMap
-from .control_map import WeChatMappedCollection
-from .control_map import WeChatMappedControl
 from .models import (
     WECHAT_WINDOW_SCHEMA,
     WeChatDesktopConfig,
@@ -138,10 +133,6 @@ if TYPE_CHECKING:
     from app_control_protocol import AppControlConfig
 
 
-_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS = 2_000
-_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS = 800
-_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS = 1_200
-_MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS = 450
 _SEARCH_FOCUS_QUERY_TIMEOUT_MS = 500
 
 
@@ -397,7 +388,9 @@ class WeChatDesktopTool:
             if operation == "open_contact":
                 return self._open_contact(command, phase_events=phase_events)
             if operation == "execute_action":
-                return self._execute_action(command, phase_events=phase_events)
+                return _execute_action(
+                    self._runtime, command, phase_events=phase_events
+                )
             if operation == "focus_contact":
                 return self._focus_contact(command, phase_events=phase_events)
             if operation == "observe_current_chat":
@@ -754,7 +747,8 @@ class WeChatDesktopTool:
                 evidence=evidence,
             )
         if not _selector_element_selected(navigation.elements[0]):
-            clicked = self._click_node_phase(
+            clicked = _click_node_phase(
+                self._runtime,
                 command,
                 _node_from_selector_element(navigation.elements[0]),
                 phase=f"switch_{section}",
@@ -833,7 +827,8 @@ class WeChatDesktopTool:
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
         navigation_key = "contacts" if section == "contacts" else "chats"
-        switched = self._press_mapped_navigation(
+        switched = _press_mapped_navigation(
+            self._runtime,
             command,
             navigation_key,
             active_window_title=active_window_title,
@@ -849,7 +844,8 @@ class WeChatDesktopTool:
                 switched,
                 evidence=evidence,
             )
-        collection_query = self._query_mapped_collection(
+        collection_query = _query_mapped_collection(
+            self._runtime,
             command,
             collection_id,
             semantic_limit=limit + 1,
@@ -902,410 +898,6 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
-    def _press_mapped_navigation(
-        self,
-        command: ToolCommand,
-        navigation_key: str,
-        *,
-        active_window_title: str | None = None,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation | None:
-        control = self._control_map.navigation.get(navigation_key)
-        if control is None:
-            return None
-        if _window_title_matches_navigation(active_window_title, control):
-            phase = f"control_map_switch_{navigation_key}_skipped"
-            skipped = ToolObservation.ok(
-                command_id=f"{command.command_id}:{phase}",
-                tool=WECHAT_TOOL,
-                operation=command.operation,
-                summary=f"WeChat is already on {navigation_key}.",
-                observation={
-                    "schema": "wechat.control_map.navigation.v1",
-                    "status": "already_selected",
-                    "navigation": navigation_key,
-                    "control": control.control_id,
-                    "source": {
-                        "mode": "control_map",
-                        "mapId": self._control_map.map_id,
-                        "mapVersion": self._control_map.map_version,
-                    },
-                },
-            )
-            evidence[phase] = _safe_app_control_observation(skipped)
-            return skipped
-        return self._execute_mapped_control(
-            command,
-            control,
-            action_id=f"nav.{navigation_key}.press",
-            target_summary=f"Switch to {navigation_key}",
-            phase=f"control_map_switch_{navigation_key}",
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-
-    def _execute_mapped_control(
-        self,
-        command: ToolCommand,
-        control: WeChatMappedControl,
-        *,
-        action_id: str,
-        target_summary: str,
-        phase: str,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation | None:
-        for index, ax_path in enumerate(control.ax_paths):
-            query_phase = f"{phase}:target_{index}"
-            target_query = self._runtime._app_control_command(
-                command,
-                phase=query_phase,
-                operation="accessibility_query",
-                input=self._runtime._accessibility_query_input(
-                    root={"kind": "axPath", "axPath": ax_path},
-                    query={
-                        "scope": "self",
-                        "maxDepth": 0,
-                        "limit": 1,
-                        "timeBudgetMs": _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
-                        "attributes": [
-                            "AXRole",
-                            "AXDescription",
-                            "AXTitle",
-                            "AXValue",
-                            "AXEnabled",
-                            "AXSelected",
-                            "AXFrame",
-                            "AXPosition",
-                            "AXSize",
-                        ],
-                        "actions": True,
-                        "includeChildrenCount": False,
-                        "match": {"roleIn": [control.role]},
-                    },
-                ),
-                timeout_ms=_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
-                phase_events=phase_events,
-            )
-            evidence[query_phase] = _safe_app_control_observation(target_query)
-            if not target_query.success:
-                continue
-            if not _query_matches_target_app_window(target_query, self._config):
-                continue
-            nodes = _query_nodes(target_query)
-            if not nodes:
-                continue
-            target_node = nodes[0]
-            if not _mapped_control_node_matches(target_node, control):
-                continue
-            if not _node_frame_within_query_window(target_node, target_query):
-                continue
-            if _node_selected(target_node):
-                selected_phase = f"{phase}:already_selected_{index}"
-                selected = ToolObservation.ok(
-                    command_id=f"{command.command_id}:{selected_phase}",
-                    tool=WECHAT_TOOL,
-                    operation=command.operation,
-                    summary=(
-                        f"WeChat navigation control {control.control_id} "
-                        "is already selected."
-                    ),
-                    observation={
-                        "schema": "wechat.control_map.navigation.v1",
-                        "status": "already_selected",
-                        "control": control.control_id,
-                        "axPath": ax_path,
-                    },
-                )
-                evidence[selected_phase] = _safe_app_control_observation(selected)
-                return selected
-
-            if control.action in _node_actions(target_node):
-                action_ref = _action_ref_from_node(
-                    target_node,
-                    action_id=action_id,
-                    kind=control.kind,
-                    risk=control.risk,
-                    target_summary=target_summary,
-                    snapshot_id=_query_snapshot_id(_query_payload(target_query)),
-                )
-                if action_ref is not None:
-                    action_result = self._execute_action_ref(
-                        command,
-                        action_ref,
-                        phase=f"{phase}:action_{index}",
-                        evidence=evidence,
-                        timeout_ms=_MAPPED_NAVIGATION_ACTION_TIMEOUT_MS,
-                        phase_events=phase_events,
-                    )
-                    if action_result.success:
-                        return self._verify_mapped_navigation_postcondition(
-                            command,
-                            control,
-                            ax_path=ax_path,
-                            phase=f"{phase}:verify_{index}",
-                            evidence=evidence,
-                            phase_events=phase_events,
-                        )
-                    if not _should_try_coordinate_click_after_accessibility_action(
-                        action_result,
-                        expected_action=(
-                            _optional_string_from_mapping(action_ref, "action")
-                            or control.action
-                        ),
-                    ):
-                        return action_result
-
-            coordinates = _node_center_coordinates(target_node)
-            if coordinates is None:
-                continue
-            coordinate_phase = f"{phase}:coordinate_{index}"
-            coordinate_result = self._runtime._app_control_command(
-                command,
-                phase=coordinate_phase,
-                operation="click",
-                input=self._runtime._target_app_input(coordinates=coordinates),
-                timeout_ms=_MAPPED_NAVIGATION_CLICK_TIMEOUT_MS,
-                command_metadata={
-                    "coordinateSource": "accessibility_frame",
-                },
-                phase_events=phase_events,
-            )
-            evidence[coordinate_phase] = _safe_app_control_observation(
-                coordinate_result
-            )
-            if coordinate_result.success:
-                return self._verify_mapped_navigation_postcondition(
-                    command,
-                    control,
-                    ax_path=ax_path,
-                    phase=f"{phase}:verify_{index}",
-                    evidence=evidence,
-                    phase_events=phase_events,
-                )
-            if not _coordinate_click_disabled(coordinate_result):
-                return coordinate_result
-
-        return _failure(
-            command,
-            status=ToolStatus.FAILED,
-            failure_kind="wechat_navigation_target_unverified",
-            message=(
-                "Could not verify a current Accessibility target for "
-                f"WeChat navigation control {control.control_id}."
-            ),
-            recovery_hint="Refresh the WeChat window and retry navigation.",
-            retryable=True,
-            evidence=evidence,
-        )
-
-    def _verify_mapped_navigation_postcondition(
-        self,
-        command: ToolCommand,
-        control: WeChatMappedControl,
-        *,
-        ax_path: str,
-        phase: str,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        verification = self._runtime._app_control_command(
-            command,
-            phase=phase,
-            operation="accessibility_query",
-            input=self._runtime._accessibility_query_input(
-                root={"kind": "axPath", "axPath": ax_path},
-                query={
-                    "scope": "self",
-                    "maxDepth": 0,
-                    "limit": 1,
-                    "timeBudgetMs": _MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
-                    "attributes": [
-                        "AXRole",
-                        "AXDescription",
-                        "AXTitle",
-                        "AXValue",
-                        "AXEnabled",
-                        "AXSelected",
-                    ],
-                    "actions": False,
-                    "includeChildrenCount": False,
-                    "match": {"roleIn": [control.role]},
-                },
-            ),
-            timeout_ms=_MAPPED_NAVIGATION_FRAME_QUERY_TIMEOUT_MS,
-            phase_events=phase_events,
-        )
-        evidence[phase] = _safe_app_control_observation(verification)
-        nodes = _query_nodes(verification) if verification.success else []
-        if (
-            _query_matches_target_app_window(
-                verification,
-                self._config,
-            )
-            and nodes
-            and _mapped_control_node_matches(
-                nodes[0],
-                control,
-            )
-            and _node_selected(nodes[0])
-        ):
-            return ToolObservation.ok(
-                command_id=f"{command.command_id}:{phase}",
-                tool=WECHAT_TOOL,
-                operation=command.operation,
-                summary=f"Selected WeChat navigation control {control.control_id}.",
-                observation={
-                    "schema": "wechat.control_map.navigation.v1",
-                    "status": "selected",
-                    "control": control.control_id,
-                    "axPath": ax_path,
-                },
-                evidence=evidence,
-            )
-        return _failure(
-            command,
-            status=ToolStatus.FAILED,
-            failure_kind="wechat_navigation_postcondition_failed",
-            message=(
-                f"WeChat navigation control {control.control_id} is not "
-                "selected after the action."
-            ),
-            recovery_hint="Restore the expected WeChat view and retry.",
-            retryable=True,
-            evidence=evidence,
-        )
-
-    def _query_mapped_collection(
-        self,
-        command: ToolCommand,
-        collection_id: str,
-        *,
-        semantic_limit: int,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
-        collection = self._control_map.collections.get(collection_id)
-        if collection is None:
-            return None
-        query_limit = max(
-            collection.minimum_limit,
-            semantic_limit * collection.limit_multiplier,
-        )
-        for index, root_ax_path in enumerate(collection.root_ax_paths):
-            result = self._runtime._query_accessibility_nodes(
-                command,
-                root_node={"axPath": root_ax_path},
-                phase=f"control_map_{collection_id}_{index}",
-                scope="descendants",
-                max_depth=collection.max_depth,
-                role_in=list(collection.roles),
-                limit=query_limit,
-                time_budget_ms=collection.time_budget_ms,
-                attributes=list(collection.attributes) or None,
-                actions=collection.actions,
-                root_resolver=collection.root_resolvers.get(root_ax_path),
-                prefer_visible_rows=collection.prefer_visible_rows,
-                evidence=evidence,
-                phase_events=phase_events,
-            )
-            if not result.success:
-                continue
-            nodes = _query_nodes(result)
-            if nodes:
-                return result, collection, nodes
-        return None
-
-    def _query_mapped_conversation_target(
-        self,
-        command: ToolCommand,
-        contact: str,
-        *,
-        evidence: dict[str, JsonValue],
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> tuple[ToolObservation, WeChatMappedCollection, list[dict[str, Any]]] | None:
-        collection = self._control_map.collections.get("conversations")
-        if collection is None:
-            return None
-        successful_query: (
-            tuple[
-                ToolObservation,
-                WeChatMappedCollection,
-                list[dict[str, Any]],
-            ]
-            | None
-        ) = None
-        for index, root_ax_path in enumerate(collection.root_ax_paths):
-            result = self._runtime._query_accessibility_nodes(
-                command,
-                root_node={"axPath": root_ax_path},
-                phase=f"control_map_conversation_target_{index}",
-                scope="descendants",
-                max_depth=2,
-                role_in=["AXCell"],
-                limit=2,
-                time_budget_ms=min(
-                    collection.time_budget_ms,
-                    _MAPPED_CONVERSATION_TARGET_QUERY_TIMEOUT_MS,
-                ),
-                attributes=[
-                    "AXRole",
-                    "AXDescription",
-                    "AXPosition",
-                    "AXSize",
-                    "AXFrame",
-                ],
-                actions=False,
-                match={"descriptionContains": f"{contact},"},
-                prefer_visible_rows=True,
-                evidence=evidence,
-                phase_events=phase_events,
-            )
-            query_issue = _contact_target_query_issue(result)
-            if (
-                query_issue is not None
-                and query_issue[0] == "failed"
-                and result.failure_kind == "accessibility_query_root_not_found"
-            ):
-                continue
-            if query_issue is not None:
-                return result, collection, []
-            rows = _conversation_rows_from_cells(_query_nodes(result))
-            if rows:
-                return result, collection, rows
-            successful_query = (result, collection, [])
-        return successful_query
-
-    def _mapped_region_node(
-        self,
-        region_id: str,
-        *,
-        reference_ax_path: str | None = None,
-    ) -> dict[str, Any] | None:
-        region = self._control_map.regions.get(region_id)
-        if region is None or not region.ax_paths:
-            return None
-        ax_path = region.ax_paths[0]
-        if reference_ax_path is not None:
-            reference_root = "/".join(reference_ax_path.split("/")[:2])
-            ax_path = next(
-                (
-                    candidate
-                    for candidate in region.ax_paths
-                    if "/".join(candidate.split("/")[:2]) == reference_root
-                ),
-                ax_path,
-            )
-        node: dict[str, Any] = {
-            "axPath": ax_path,
-            "role": region.role,
-        }
-        label = _first_concrete_label(region.labels)
-        if label is not None:
-            node["label"] = label
-        return node
-
     def _open_contact(
         self,
         command: ToolCommand,
@@ -1321,7 +913,8 @@ class WeChatDesktopTool:
         )
         if not opened.success:
             return _open_wechat_phase_failure(command, opened, evidence)
-        chats_ready = self._press_mapped_navigation(
+        chats_ready = _press_mapped_navigation(
+            self._runtime,
             command,
             "chats",
             active_window_title=_string_from_observation(
@@ -1478,7 +1071,8 @@ class WeChatDesktopTool:
                 reason="search_candidate_frame_invalid",
                 evidence=evidence,
             )
-        selected = self._click_node_phase(
+        selected = _click_node_phase(
+            self._runtime,
             command,
             element,
             phase="open_search_result",
@@ -1513,7 +1107,8 @@ class WeChatDesktopTool:
             command,
             contact=contact,
             main_content=(
-                self._mapped_region_node(
+                _mapped_region_node(
+                    self._runtime,
                     "chatPanel",
                     reference_ax_path=_node_ax_path(
                         _node_from_selector_element(main_content.elements[0])
@@ -1591,7 +1186,8 @@ class WeChatDesktopTool:
             expected_action = (
                 _optional_string_from_mapping(action_ref, "action") or "AXPress"
             )
-            opened = self._execute_action_ref(
+            opened = _execute_action_ref(
+                self._runtime,
                 command,
                 action_ref,
                 phase="open_visible_contact",
@@ -1599,7 +1195,8 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         else:
-            opened = self._click_node_phase(
+            opened = _click_node_phase(
+                self._runtime,
                 command,
                 element,
                 phase="open_visible_contact",
@@ -1625,7 +1222,8 @@ class WeChatDesktopTool:
             command,
             contact=contact,
             main_content=(
-                self._mapped_region_node(
+                _mapped_region_node(
+                    self._runtime,
                     "chatPanel",
                     reference_ax_path=_node_ax_path(main_content),
                 )
@@ -1644,7 +1242,8 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
-        collection_query = self._query_mapped_conversation_target(
+        collection_query = _query_mapped_conversation_target(
+            self._runtime,
             command,
             contact,
             evidence=evidence,
@@ -1701,7 +1300,8 @@ class WeChatDesktopTool:
             expected_action = (
                 _optional_string_from_mapping(action_ref, "action") or "AXPress"
             )
-            opened = self._execute_action_ref(
+            opened = _execute_action_ref(
+                self._runtime,
                 command,
                 action_ref,
                 phase="control_map_open_visible_contact",
@@ -1709,7 +1309,8 @@ class WeChatDesktopTool:
                 phase_events=phase_events,
             )
         else:
-            opened = self._click_node_phase(
+            opened = _click_node_phase(
+                self._runtime,
                 command,
                 element,
                 phase="control_map_open_visible_contact",
@@ -1735,7 +1336,8 @@ class WeChatDesktopTool:
             command,
             contact=contact,
             main_content=(
-                self._mapped_region_node(
+                _mapped_region_node(
+                    self._runtime,
                     "chatPanel",
                     reference_ax_path=_node_ax_path(element),
                 )
@@ -2122,46 +1724,6 @@ class WeChatDesktopTool:
                 includeVisibleText=True,
             ),
             phase_events=phase_events,
-        )
-
-    def _execute_action(
-        self,
-        command: ToolCommand,
-        *,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        action_ref = _action_ref_input(command)
-        action_id = _optional_string_from_mapping(action_ref, "id") or "unknown"
-        evidence: dict[str, JsonValue] = {}
-        result = self._execute_action_ref(
-            command,
-            action_ref,
-            phase="execute_action",
-            evidence=evidence,
-            phase_events=phase_events,
-        )
-        if not result.success:
-            if result.tool == WECHAT_TOOL:
-                return result
-            return _from_app_control_failure(
-                command,
-                _execute_action_failure_kind(result),
-                result,
-                evidence=evidence,
-            )
-        return ToolObservation.ok(
-            command_id=command.command_id,
-            tool=WECHAT_TOOL,
-            operation=command.operation,
-            summary="Executed WeChat action.",
-            observation={
-                "schema": "wechat.execute_action.v1",
-                "status": "ok",
-                "actionId": action_id,
-                "method": _executed_action_method(action_ref, result),
-                "result": _safe_executed_action_result(result),
-            },
-            evidence=evidence,
         )
 
     def _read_contact_messages(
@@ -2639,7 +2201,8 @@ class WeChatDesktopTool:
         evidence: dict[str, JsonValue],
         phase_events: "_PhaseEventCollector | None" = None,
     ) -> ToolObservation | None:
-        collection_query = self._query_mapped_collection(
+        collection_query = _query_mapped_collection(
+            self._runtime,
             command,
             "visibleMessages",
             semantic_limit=limit,
@@ -2870,229 +2433,11 @@ class WeChatDesktopTool:
             evidence=evidence,
         )
 
-    def _click_node_phase(
-        self,
-        command: ToolCommand,
-        node: Mapping[str, Any],
-        *,
-        phase: str,
-        evidence: dict[str, JsonValue],
-        snapshot_id: str | None = None,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        role = str(node.get("role") or "")
-        node_label = _node_label(node)
-        if role == "AXRow" and node_label is None:
-            return _failure(
-                command,
-                status=ToolStatus.FAILED,
-                failure_kind="wechat_action_target_unverified",
-                message="Could not verify the identity of the WeChat row target.",
-                recovery_hint="Refresh the WeChat list and retry the semantic action.",
-                retryable=True,
-                evidence=evidence,
-            )
-        if role == "AXRow" and "AXPress" not in _node_actions(node):
-            coordinates = _node_center_coordinates(node)
-            if coordinates is not None:
-                coordinate_phase = f"{phase}:coordinate"
-                coordinate_result = self._runtime._app_control_command(
-                    command,
-                    phase=coordinate_phase,
-                    operation="click",
-                    input=self._runtime._target_app_input(coordinates=coordinates),
-                    command_metadata={
-                        "coordinateSource": "accessibility_frame",
-                    },
-                    phase_events=phase_events,
-                )
-                evidence[coordinate_phase] = _safe_app_control_observation(
-                    coordinate_result
-                )
-                if coordinate_result.success:
-                    return coordinate_result
-                if not _coordinate_click_disabled(coordinate_result):
-                    return coordinate_result
-        action_ref = _action_ref_from_node(node, snapshot_id=snapshot_id)
-        if action_ref is not None:
-            expected_action = (
-                _optional_string_from_mapping(action_ref, "action") or "AXPress"
-            )
-            result = self._execute_action_ref(
-                command,
-                action_ref,
-                phase=phase,
-                evidence=evidence,
-                phase_events=phase_events,
-            )
-            if result.success:
-                return result
-            if _should_try_coordinate_click_after_accessibility_action(
-                result,
-                expected_action=expected_action,
-            ):
-                coordinates = _node_center_coordinates(node)
-                if coordinates is not None:
-                    coordinate_phase = f"{phase}:coordinate_fallback"
-                    coordinate_result = self._runtime._app_control_command(
-                        command,
-                        phase=coordinate_phase,
-                        operation="click",
-                        input=self._runtime._target_app_input(coordinates=coordinates),
-                        command_metadata={
-                            "coordinateSource": "accessibility_frame",
-                        },
-                        phase_events=phase_events,
-                    )
-                    evidence[coordinate_phase] = _safe_app_control_observation(
-                        coordinate_result
-                    )
-                    if coordinate_result.success:
-                        return coordinate_result
-                    if not _coordinate_click_disabled(coordinate_result):
-                        return coordinate_result
-            if not _should_fallback_from_accessibility_action(
-                result,
-                expected_action=expected_action,
-            ):
-                return result
-
-        input_payload = self._runtime._target_app_input()
-        if node_label is not None:
-            input_payload["selector"] = {
-                "role": role,
-                "name": node_label,
-            }
-        else:
-            input_payload["selector"] = {
-                "role": role,
-                "index": 1,
-            }
-        result = self._runtime._app_control_command(
-            command,
-            phase=phase,
-            operation="click",
-            input=input_payload,
-            phase_events=phase_events,
-        )
-        evidence[phase] = _safe_app_control_observation(result)
-        return result
-
-    def _execute_action_ref(
-        self,
-        command: ToolCommand,
-        action_ref: Mapping[str, Any],
-        *,
-        phase: str,
-        evidence: dict[str, JsonValue],
-        timeout_ms: int | None = None,
-        phase_events: "_PhaseEventCollector | None" = None,
-    ) -> ToolObservation:
-        expiry_failure = _action_ref_expiry_failure(command, action_ref)
-        if expiry_failure is not None:
-            evidence[phase] = {
-                "failureKind": "action_ref_expired",
-                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
-                "expiresAt": _action_ref_expiry_value(action_ref),
-            }
-            return expiry_failure
-        identity_failure = _action_ref_identity_failure(command, action_ref)
-        if identity_failure is not None:
-            evidence[phase] = {
-                "failureKind": "action_ref_identity_unverified",
-                "actionRefId": _optional_string_from_mapping(action_ref, "id"),
-            }
-            return identity_failure
-        input_payload = self._runtime._accessibility_action_input(action_ref)
-        expected_action = str(input_payload["action"])
-        result = self._runtime._app_control_command(
-            command,
-            phase=phase,
-            operation="accessibility_action",
-            input=input_payload,
-            timeout_ms=timeout_ms,
-            phase_events=phase_events,
-        )
-        evidence[phase] = _safe_app_control_observation(result)
-        if result.success or not _should_fallback_from_accessibility_action(
-            result,
-            expected_action=expected_action,
-        ):
-            return result
-        selector = _selector_fallback_from_action_ref(action_ref)
-        if selector is None:
-            return result
-        fallback_result = self._runtime._app_control_command(
-            command,
-            phase=f"{phase}:selector_fallback",
-            operation="click",
-            input=self._runtime._target_app_input(selector=selector),
-            timeout_ms=timeout_ms,
-            phase_events=phase_events,
-        )
-        evidence[f"{phase}:selector_fallback"] = _safe_app_control_observation(
-            fallback_result
-        )
-        return fallback_result
-
 
 def _coerce_command(command: ToolCommand | Mapping[str, Any]) -> ToolCommand:
     if isinstance(command, Mapping):
         return ToolCommand.from_dict(dict(command))
     return command
-
-
-def _contact_target_query_issue(
-    observation: ToolObservation,
-) -> tuple[str, str | None] | None:
-    if not observation.success:
-        return "failed", None
-    payload = _query_payload(observation)
-    invalid_reason = _contact_target_query_invalid_reason(payload)
-    if invalid_reason is not None:
-        return "invalid", invalid_reason
-    diagnostics = payload["diagnostics"]
-    assert isinstance(diagnostics, Mapping)
-    if diagnostics["truncated"] is True:
-        return "truncated", None
-    return None
-
-
-def _contact_target_query_invalid_reason(
-    payload: Mapping[str, Any],
-) -> str | None:
-    if payload.get("schema") != "macos.accessibility.query.v1":
-        return "schema_invalid"
-    if payload.get("available") is not True:
-        return "available_invalid"
-    if "status" in payload and payload.get("status") != "ok":
-        return "status_invalid"
-    if any(key in payload for key in ("failureKind", "failure_kind", "error")):
-        return "failure_evidence_conflict"
-    nodes = payload.get("nodes")
-    if not isinstance(nodes, list):
-        return "nodes_invalid"
-    if any(not isinstance(node, Mapping) for node in nodes):
-        return "node_member_invalid"
-    diagnostics = payload.get("diagnostics")
-    if not isinstance(diagnostics, Mapping):
-        return "diagnostics_invalid"
-    if "truncated" not in diagnostics or not isinstance(
-        diagnostics.get("truncated"),
-        bool,
-    ):
-        return "truncation_invalid"
-    if any(key in diagnostics for key in ("failureKind", "failure_kind")):
-        return "diagnostics_failure_conflict"
-    if "returnedNodes" in diagnostics:
-        returned_nodes = diagnostics.get("returnedNodes")
-        if (
-            not isinstance(returned_nodes, int)
-            or isinstance(returned_nodes, bool)
-            or returned_nodes != len(nodes)
-        ):
-            return "returned_nodes_invalid"
-    return None
 
 
 def _contact_target_query_validation_failure(
@@ -3419,42 +2764,4 @@ def _input_focus_failure(
         retryable=True,
         observation={"draftReady": False, "inputFocused": False},
         evidence={"draft": _safe_app_control_observation(observation)},
-    )
-
-
-def _open_wechat_phase_failure(
-    command: ToolCommand,
-    result: ToolObservation,
-    evidence: dict[str, JsonValue],
-) -> ToolObservation:
-    if result.tool == WECHAT_TOOL:
-        return result
-    failure_kind = (
-        "wechat_not_ready"
-        if result.operation in {"observe", "focus_app"}
-        else "wechat_open_failed"
-    )
-    return _from_app_control_failure(
-        command,
-        failure_kind,
-        result,
-        evidence=evidence,
-    )
-
-
-def _from_app_control_failure(
-    command: ToolCommand,
-    failure_kind: str,
-    result: ToolObservation,
-    *,
-    evidence: dict[str, JsonValue] | None = None,
-) -> ToolObservation:
-    return _failure(
-        command,
-        status=result.status if result.status != ToolStatus.OK else ToolStatus.FAILED,
-        failure_kind=failure_kind,
-        message=result.summary,
-        retryable=result.retryable if result.retryable is not None else True,
-        evidence=evidence
-        or {"appControlObservation": _safe_app_control_observation(result)},
     )

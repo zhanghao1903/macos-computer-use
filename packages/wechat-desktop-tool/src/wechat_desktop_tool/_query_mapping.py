@@ -249,8 +249,7 @@ def _failure_from_selector_query(
     if category is None:
         context = f"{cause_text} {diagnostic_message.casefold()}"
         if any(
-            token in context
-            for token in ("permission", "accessibility_not_trusted")
+            token in context for token in ("permission", "accessibility_not_trusted")
         ):
             category = "permission"
         elif "timeout" in context or "timed_out" in context:
@@ -281,9 +280,7 @@ def _failure_from_selector_query(
         status = ToolStatus.FAILED
         mapped_failure_kind = "accessibility_query_timeout"
         default_retryable = True
-        recovery_hint = (
-            "Retry the bounded Accessibility query after app state settles."
-        )
+        recovery_hint = "Retry the bounded Accessibility query after app state settles."
     elif category == "transport":
         status = ToolStatus.NOT_READY
         mapped_failure_kind = "app_control_transport_failed"
@@ -512,11 +509,7 @@ def _window_from_query(
         "snapshotId": _query_snapshot_id(query),
         "element": element,
         "activeSection": next(
-            (
-                str(item["label"])
-                for item in navigation
-                if item.get("selected") is True
-            ),
+            (str(item["label"]) for item in navigation if item.get("selected") is True),
             None,
         ),
         "navigation": navigation,
@@ -777,8 +770,7 @@ def _query_matches_target_app_window(
         if observed_bundle_id != config.bundle_id:
             return False
     elif (
-        observed_name is None
-        or observed_name.casefold() != config.app_name.casefold()
+        observed_name is None or observed_name.casefold() != config.app_name.casefold()
     ):
         return False
     window = payload.get("window")
@@ -1018,4 +1010,57 @@ def _element_frame_int(element: Mapping[str, JsonValue], key: str) -> int | None
     value = frame.get(key)
     if isinstance(value, int) and not isinstance(value, bool):
         return value
+    return None
+
+
+def _contact_target_query_issue(
+    observation: ToolObservation,
+) -> tuple[str, str | None] | None:
+    if not observation.success:
+        return "failed", None
+    payload = _query_payload(observation)
+    invalid_reason = _contact_target_query_invalid_reason(payload)
+    if invalid_reason is not None:
+        return "invalid", invalid_reason
+    diagnostics = payload["diagnostics"]
+    assert isinstance(diagnostics, Mapping)
+    if diagnostics["truncated"] is True:
+        return "truncated", None
+    return None
+
+
+def _contact_target_query_invalid_reason(
+    payload: Mapping[str, Any],
+) -> str | None:
+    if payload.get("schema") != "macos.accessibility.query.v1":
+        return "schema_invalid"
+    if payload.get("available") is not True:
+        return "available_invalid"
+    if "status" in payload and payload.get("status") != "ok":
+        return "status_invalid"
+    if any(key in payload for key in ("failureKind", "failure_kind", "error")):
+        return "failure_evidence_conflict"
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, list):
+        return "nodes_invalid"
+    if any(not isinstance(node, Mapping) for node in nodes):
+        return "node_member_invalid"
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, Mapping):
+        return "diagnostics_invalid"
+    if "truncated" not in diagnostics or not isinstance(
+        diagnostics.get("truncated"),
+        bool,
+    ):
+        return "truncation_invalid"
+    if any(key in diagnostics for key in ("failureKind", "failure_kind")):
+        return "diagnostics_failure_conflict"
+    if "returnedNodes" in diagnostics:
+        returned_nodes = diagnostics.get("returnedNodes")
+        if (
+            not isinstance(returned_nodes, int)
+            or isinstance(returned_nodes, bool)
+            or returned_nodes != len(nodes)
+        ):
+            return "returned_nodes_invalid"
     return None

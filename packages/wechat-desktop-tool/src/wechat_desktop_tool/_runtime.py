@@ -893,3 +893,41 @@ def _accessibility_query_window_title(observation: ToolObservation) -> str | Non
     if role != "AXWindow" or not isinstance(title, str) or not title.strip():
         return None
     return title.strip()
+
+
+def _open_wechat_phase_failure(
+    command: ToolCommand,
+    result: ToolObservation,
+    evidence: dict[str, JsonValue],
+) -> ToolObservation:
+    if result.tool == WECHAT_TOOL:
+        return result
+    failure_kind = (
+        "wechat_not_ready"
+        if result.operation in {"observe", "focus_app"}
+        else "wechat_open_failed"
+    )
+    return _from_app_control_failure(
+        command,
+        failure_kind,
+        result,
+        evidence=evidence,
+    )
+
+
+def _from_app_control_failure(
+    command: ToolCommand,
+    failure_kind: str,
+    result: ToolObservation,
+    *,
+    evidence: dict[str, JsonValue] | None = None,
+) -> ToolObservation:
+    return _failure(
+        command,
+        status=result.status if result.status != ToolStatus.OK else ToolStatus.FAILED,
+        failure_kind=failure_kind,
+        message=result.summary,
+        retryable=result.retryable if result.retryable is not None else True,
+        evidence=evidence
+        or {"appControlObservation": _safe_app_control_observation(result)},
+    )
