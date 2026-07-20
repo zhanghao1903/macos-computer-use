@@ -7,7 +7,7 @@
 | Feature directory | `docs/feature/wechat-tool-modularization/` |
 | Branch | `codex/wechat-tool-modularization` |
 | Design | [`design.md`](./design.md) |
-| Current phase | F3 implementation planning |
+| Current phase | F4 implementation (I4 complete; I5 next) |
 | Baseline source | `23d293d01245f3c46c67c5be6a6553a989d14e0a` |
 | Baseline tests | 172 `wechat-desktop-tool` tests passed |
 | Delivery model | One documented commit and push per implementation slice |
@@ -75,8 +75,7 @@ so extraction can be reviewed mechanically.
 
 ### `_diagnostics.py`
 
-- Evidence dataclasses: `_BooleanEvidence`, `_StringEvidence`,
-  `_IntegerEvidence`, `_ContactQueryFailureContext`.
+- Contact-query context: `_ContactQueryFailureContext`.
 - Time/event helpers: `_utc_now`, `_utc_now_datetime`, `_isoformat_utc`,
   `_duration_ms`, `_with_timing`, `_event`, `_emit`, `_PhaseEventCollector`.
 - Safe projections and redaction: `_safe_app_control_observation`,

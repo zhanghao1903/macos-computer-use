@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/wechat-tool-modularization` |
 | Current lifecycle phase | F4 implementation |
-| Current slice | I3 row parsing extraction |
+| Current slice | I4 action safety extraction complete; I5 runtime next |
 | Production behavior | Unchanged |
 
 ## Slice I0: Behavior Lock
@@ -156,4 +156,44 @@ does not import row parsing.
 ### Rollback
 
 Revert the I3 commit. Earlier diagnostics and query-mapping modules remain
+independently validated.
+
+## Slice I4: Action Safety Extraction
+
+### Scope
+
+- Added private `_action_safety.py` for actionRef expiry and target identity,
+  native Accessibility mutation proof reconciliation, fallback eligibility,
+  request-dispatch evidence, failure classification, and selector fallback.
+- Moved 22 complete functions, three frozen evidence data classes, and the
+  native unsupported-error constant from `tool.py`.
+- Updated tests that intentionally exercise private fallback policies to use
+  their new owning module.
+- Moved five shared Accessibility action response fixtures into
+  `_tool_test_support.py` so focused safety tests do not import the monolithic
+  test module; existing tests consume the same fixtures through compatibility
+  aliases.
+- Added six focused tests covering immutable evidence, pre-dispatch fallback,
+  proven native unsupported fallback, contradictory/unknown no-replay,
+  actionRef expiry, and row target identity.
+
+No fallback branch, native error code, proof key, failure payload, expiry
+rule, actionRef field, or app-control call changed.
+
+### Evidence
+
+- AST equivalence compared all 25 moved functions/classes against the I3
+  commit: 25 equal, 0 changed.
+- Focused action-safety suite: 6 tests passed.
+- Full `wechat-desktop-tool` suite: 201 tests passed in 1.542 seconds with
+  `ResourceWarning` treated as an error.
+- Python compile and `git diff --check` passed.
+- `tool.py` decreased to 4206 lines and `_action_safety.py` is 551 lines.
+- The private module dependency scan remains acyclic: action safety imports
+  diagnostics and query mapping only; neither imports action safety.
+- Ruff remains deferred for the same I1 environment limitation.
+
+### Rollback
+
+Revert the I4 commit. I0 behavior locks and I1-I3 extracted modules remain
 independently validated.

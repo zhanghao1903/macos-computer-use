@@ -19,6 +19,7 @@ from typing import Any
 import unittest
 from unittest.mock import patch
 
+import _tool_test_support as tool_test_support
 from app_control_protocol import (
     AppControlConfig,
     LoggingConfig,
@@ -35,6 +36,7 @@ from computer_use_macos import ComputerUseClient
 from computer_use_macos.client import _AccessibilityWorker
 from computer_use_macos.client import _accessibility_action_worker_script
 from computer_use_macos.commands import CommandResult
+import wechat_desktop_tool._action_safety as action_safety_module
 import wechat_desktop_tool._query_mapping as query_mapping_module
 import wechat_desktop_tool.cli as cli_module
 import wechat_desktop_tool.tool as tool_module
@@ -66,6 +68,23 @@ from wechat_desktop_tool.cli import LocalServiceAppControl
 from wechat_desktop_tool.cli import _app_control_for_args
 from wechat_desktop_tool.cli import main as cli_main
 from wechat_desktop_tool.window_model import build_wechat_window_model
+
+
+_accessibility_action_failure_with_observation = (
+    tool_test_support.accessibility_action_failure_with_observation
+)
+_contradictory_predispatch_action_response = (
+    tool_test_support.contradictory_predispatch_action_response
+)
+_definite_unsupported_accessibility_action_response = (
+    tool_test_support.definite_unsupported_accessibility_action_response
+)
+_failed_accessibility_action_response = (
+    tool_test_support.failed_accessibility_action_response
+)
+_predispatch_accessibility_action_response = (
+    tool_test_support.predispatch_accessibility_action_response
+)
 
 
 class FakeAppControl:
@@ -1168,96 +1187,6 @@ def _precondition_failed_accessibility_action_response() -> ToolObservation:
     )
 
 
-def _failed_accessibility_action_response() -> ToolObservation:
-    transport = {
-        "mode": "worker",
-        "fallback": False,
-        "requestDispatched": True,
-    }
-    return ToolObservation.failure(
-        command_id="cmd_accessibility_action",
-        tool="macos.computer_use",
-        operation="accessibility_action",
-        status=ToolStatus.FAILED,
-        error=ToolError(
-            failure_kind="accessibility_action_failed",
-            message="AXUIElementPerformAction returned error: -25204",
-            retryable=False,
-        ),
-        summary="AXUIElementPerformAction returned error: -25204",
-        observation={
-            "actionAttempted": True,
-            "actionEffect": "unknown",
-            "nativeErrorCode": -25204,
-            "metadata": {
-                "action_attempted": True,
-                "action_effect": "unknown",
-                "native_error_code": -25204,
-                "accessibility_action_transport": transport,
-            },
-            "accessibilityAction": {
-                "failureKind": "accessibility_action_failed",
-                "message": "AXUIElementPerformAction returned error: -25204",
-                "actionAttempted": True,
-                "actionEffect": "unknown",
-                "nativeErrorCode": -25204,
-                "diagnostics": {"transport": transport},
-            }
-        },
-    )
-
-
-def _definite_unsupported_accessibility_action_response(
-    *,
-    action: str = "AXPress",
-) -> ToolObservation:
-    native_error_code = -25205 if action == "AXSetFocus" else -25206
-    method = (
-        "AXUIElementSetAttributeValue"
-        if action == "AXSetFocus"
-        else "AXUIElementPerformAction"
-    )
-    transport = {
-        "mode": "worker",
-        "fallback": False,
-        "requestDispatched": True,
-    }
-    return ToolObservation.failure(
-        command_id="cmd_accessibility_action",
-        tool="macos.computer_use",
-        operation="accessibility_action",
-        status=ToolStatus.FAILED,
-        error=ToolError(
-            failure_kind="accessibility_action_unsupported",
-            message=f"{method} returned unsupported error: {native_error_code}",
-            retryable=False,
-        ),
-        summary=f"{method} returned unsupported error: {native_error_code}",
-        observation={
-            "actionAttempted": True,
-            "actionEffect": "none",
-            "nativeErrorCode": native_error_code,
-            "metadata": {
-                "action_attempted": True,
-                "action_effect": "none",
-                "native_error_code": native_error_code,
-                "accessibility_action_transport": transport,
-            },
-            "accessibilityAction": {
-                "failureKind": "accessibility_action_unsupported",
-                "message": (
-                    f"{method} returned unsupported error: {native_error_code}"
-                ),
-                "action": action,
-                "actionAttempted": True,
-                "actionEffect": "none",
-                "nativeErrorCode": native_error_code,
-                "diagnostics": {"transport": transport},
-            },
-        },
-    )
-
-
 def _definite_unsupported_action_proof(
     *,
     action: str = "AXPress",
@@ -1371,52 +1300,6 @@ def _mutated_unsupported_accessibility_action_response(
     )
 
 
-def _predispatch_accessibility_action_response() -> ToolObservation:
-    return ToolObservation.failure(
-        command_id="cmd_accessibility_action",
-        tool="macos.computer_use",
-        operation="accessibility_action",
-        status=ToolStatus.TIMEOUT,
-        error=ToolError(
-            failure_kind="accessibility_action_timeout",
-            message="Timed out before dispatch.",
-            retryable=True,
-        ),
-        summary="Timed out before dispatch.",
-        observation={
-            "metadata": {
-                "accessibility_action_transport": {
-                    "mode": "worker",
-                    "fallback": False,
-                    "requestDispatched": False,
-                }
-            }
-        },
-    )
-
-
-def _accessibility_action_failure_with_observation(
-    observation: dict[str, Any],
-    *,
-    failure_kind: str = "unsupported_operation",
-    retryable: bool = False,
-    status: ToolStatus = ToolStatus.FAILED,
-) -> ToolObservation:
-    return ToolObservation.failure(
-        command_id="cmd_accessibility_action",
-        tool="macos.computer_use",
-        operation="accessibility_action",
-        status=status,
-        error=ToolError(
-            failure_kind=failure_kind,
-            message=failure_kind,
-            retryable=retryable,
-        ),
-        summary=failure_kind,
-        observation=observation,
-    )
-
-
 def _legacy_unsupported_action_response(
     *,
     observation: Mapping[str, Any] | None = None,
@@ -1442,24 +1325,6 @@ def _legacy_unsupported_action_response(
         message=error.message,
         retryable=error.retryable,
         error=error,
-    )
-
-
-def _contradictory_predispatch_action_response() -> ToolObservation:
-    return _accessibility_action_failure_with_observation(
-        {
-            "actionAttempted": False,
-            "actionEffect": "performed",
-            "nativeErrorCode": -25204,
-            "metadata": {
-                "accessibility_action_transport": {
-                    "requestDispatched": False,
-                }
-            },
-        },
-        failure_kind="accessibility_action_timeout",
-        retryable=True,
-        status=ToolStatus.TIMEOUT,
     )
 
 
@@ -3876,10 +3741,14 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 _contradictory_predispatch_action_response(),
             ),
         )
+        coordinate_click_policy = (
+            action_safety_module
+            ._should_try_coordinate_click_after_accessibility_action
+        )
         policy_functions = (
-            tool_module._should_fallback_from_accessibility_action,
-            tool_module._should_try_coordinate_click_after_accessibility_action,
-            tool_module._should_press_return_for_search_result,
+            action_safety_module._should_fallback_from_accessibility_action,
+            coordinate_click_policy,
+            action_safety_module._should_press_return_for_search_result,
         )
 
         for label, response in cases:
@@ -3969,8 +3838,10 @@ class WeChatDesktopToolTests(unittest.TestCase):
                 self.assertEqual(result.retryable, False)
                 self.assertEqual(len(requests), 1)
                 self.assertEqual(requests[0]["action"], "AXPress")
-                dispatch = tool_module._accessibility_action_request_dispatched(
-                    result
+                dispatch = (
+                    action_safety_module._accessibility_action_request_dispatched(
+                        result
+                    )
                 )
                 self.assertTrue(dispatch.present)
                 self.assertTrue(dispatch.valid)
