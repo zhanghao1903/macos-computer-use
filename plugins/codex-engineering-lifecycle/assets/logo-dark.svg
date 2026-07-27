@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-labelledby="title">
+  <title id="title">Codex Engineering Lifecycle</title>
+  <rect width="320" height="96" rx="20" fill="#11162A"/>
+  <rect x="16" y="16" width="64" height="64" rx="16" fill="#5376FF"/>
+  <path d="M31 32h34v8H39v8h22v8H39v8h26v8H31z" fill="#fff"/>
+  <circle cx="65" cy="36" r="5" fill="#77E7C7"/>
+  <text x="96" y="45" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700" fill="#F4F6FF">Engineering</text>
+  <text x="96" y="69" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700" fill="#86A0FF">Lifecycle</text>
+</svg>

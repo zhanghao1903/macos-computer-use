@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "featureId": "sample-feature-0123456789ab",
+  "authorizationId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "mergeCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "version": "1.2.3",
+  "tag": "v1.2.3",
+  "targets": [
+    {
+      "targetId": "8888888888888888888888888888888888888888888888888888888888888888",
+      "kind": "GITHUB_RELEASE",
+      "status": "FAILED",
+      "error": "The release API returned a sanitized transient error."
+    }
+  ],
+  "publishedAt": "2026-07-27T12:00:00Z"
+}

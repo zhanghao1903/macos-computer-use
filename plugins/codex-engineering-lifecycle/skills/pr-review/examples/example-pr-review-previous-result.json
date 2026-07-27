@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "review": {
+    "repository": "acme/payments",
+    "pr_number": 482,
+    "url": "https://github.com/acme/payments/pull/482",
+    "title": "Retry provider requests after transient failures",
+    "author": "dev-example",
+    "base_ref": "main",
+    "base_sha": "1111111111111111111111111111111111111111",
+    "head_ref": "feature/provider-retry",
+    "head_sha": "6e20a1b333333333333333333333333333333333",
+    "reviewed_at": "2026-07-11T07:45:00Z",
+    "reviewer": "AI PR Reviewer",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "src/payments/provider-client.ts",
+      "src/payments/submit.ts",
+      "test/payments/retry.test.ts",
+      "payment submission and retry call path"
+    ],
+    "excluded_scope": [
+      "production provider logs were unavailable"
+    ]
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "The retry path can create a second charge after a lost response because requests are not idempotent.",
+    "blocking_finding_ids": [
+      "PRR-001"
+    ]
+  },
+  "summary": "The initial review found that an ambiguous transport failure can retry a completed payment without a stable idempotency key.",
+  "findings": [
+    {
+      "id": "PRR-001",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Lost-response retries can submit the same payment twice",
+      "location": {
+        "path": "src/payments/submit.ts",
+        "line_start": 118,
+        "line_end": 134,
+        "symbol": "submitPayment",
+        "side": "RIGHT",
+        "commit_sha": "6e20a1b333333333333333333333333333333333"
+      },
+      "observation": "The retry loop creates a new provider request on each attempt and does not reuse an idempotency key.",
+      "trigger": "The provider accepts the first charge, but the client loses the response and classifies the transport error as retryable.",
+      "impact": "The same customer operation can produce two provider charges and inconsistent reconciliation state.",
+      "evidence": [
+        {
+          "kind": "code",
+          "description": "Each loop iteration constructs a request without a stable idempotency identifier.",
+          "reference": "src/payments/submit.ts:118-134"
+        }
+      ],
+      "remediation": "Use one stable provider idempotency key for every attempt of the same logical payment.",
+      "verification": "Simulate an accepted request followed by a transport error and prove every attempt uses the same payment-scoped key.",
+      "status": "open",
+      "fingerprint": "data-integrity:submitPayment:missing-stable-idempotency-key"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-001",
+      "action": "Make provider retries idempotent and add a lost-response regression test.",
+      "status": "open"
+    }
+  ],
+  "risks": [
+    {
+      "category": "data-integrity",
+      "level": "High",
+      "description": "Ambiguous retry outcomes can create duplicate charges.",
+      "mitigation": "Resolve PRR-001 before merge.",
+      "owner": null
+    }
+  ],
+  "validation": {
+    "overall_status": "PARTIAL",
+    "reviewer_runs": [
+      {
+        "command": "npm test -- retry.test.ts",
+        "environment": "Node.js 22 on Linux; no provider network access",
+        "head_sha": "6e20a1b333333333333333333333333333333333",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "Existing retry tests passed; no lost-response scenario was present.",
+        "evidence_ref": null
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "unit-tests",
+        "observed_at": "2026-07-11T07:35:00Z",
+        "status": "PASS",
+        "summary": "Repository unit tests passed for the previous head.",
+        "evidence_ref": null
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Provider sandbox integration test",
+        "reason": "No sandbox credentials were available."
+      }
+    ]
+  },
+  "limitations": [
+    "Provider sandbox behavior and production request logs were unavailable."
+  ],
+  "open_questions": [
+    "Does the provider guarantee idempotency when one payment key is reused across retries?"
+  ],
+  "assumptions": [
+    "A transport error can occur after the provider has accepted the request."
+  ]
+}

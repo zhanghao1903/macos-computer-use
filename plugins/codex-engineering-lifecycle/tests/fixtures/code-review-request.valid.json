@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "type": "CodeReviewRequest",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "messageId": "9878acd51c2cad8ec682fc46eb5989bfac46195de2e06430dcf3744a99a4c137",
+  "featureId": "sample-feature-0123456789ab",
+  "repositoryKey": "example/project",
+  "routing": {
+    "sourceTaskId": "task-main",
+    "destinationTaskId": "task-review"
+  },
+  "cycle": 1,
+  "createdAt": "2026-07-27T12:00:00Z",
+  "body": {
+    "pullRequest": {
+      "number": 7,
+      "url": "https://github.com/example/project/pull/7",
+      "baseRef": "main",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headRef": "codex/sample-feature",
+      "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "reviewRecordBranch": "codex/review-records/sample-feature-0123456789ab/code-1-bbbbbbbbbbbb",
+    "mergePolicy": {
+      "mode": "review-only",
+      "method": "squash",
+      "deleteBranch": false,
+      "requireGreenChecks": true,
+      "requireExactHead": true
+    }
+  }
+}

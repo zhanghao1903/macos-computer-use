@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Review"
+  short_description: "Review technical plans, code, and exact-head merges."
+  default_prompt: "Use $engineering-review to process the next validated plan or code review request."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Requirements"
+  short_description: "Collect, confirm, and hand off feature requirements."
+  default_prompt: "Use $engineering-requirements to turn this feature request into a confirmed requirements handoff."

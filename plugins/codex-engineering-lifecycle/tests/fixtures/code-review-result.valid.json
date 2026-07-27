@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "type": "CodeReviewResult",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "messageId": "ea3fe035fd45fa5a80fa1d7345bbab29bd815d93689d370a139139bc72f341a7",
+  "featureId": "sample-feature-0123456789ab",
+  "repositoryKey": "example/project",
+  "routing": {
+    "sourceTaskId": "task-review",
+    "destinationTaskId": "task-main"
+  },
+  "cycle": 1,
+  "createdAt": "2026-07-27T12:00:00Z",
+  "body": {
+    "requestMessageId": "9878acd51c2cad8ec682fc46eb5989bfac46195de2e06430dcf3744a99a4c137",
+    "reviewedPullRequest": {
+      "number": 7,
+      "url": "https://github.com/example/project/pull/7",
+      "baseRef": "main",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headRef": "codex/sample-feature",
+      "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "decision": "APPROVE",
+    "findings": {"blocker": 0, "major": 0, "minor": 0},
+    "report": {
+      "branch": "codex/review-records/sample-feature-0123456789ab/code-1-bbbbbbbbbbbb",
+      "path": "docs/reviews/code.md",
+      "commitSha": "cccccccccccccccccccccccccccccccccccccccc",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "checks": {
+      "status": "PASSING",
+      "checkedAt": "2026-07-27T12:00:00Z",
+      "detailsUrl": "https://github.com/example/project/actions/runs/1"
+    },
+    "merge": {"status": "READY"},
+    "summary": "Exact head is approved and ready for the configured merge owner."
+  }
+}
