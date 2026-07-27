@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-engineering-lifecycle/schemas/code-review-request.schema.json",
+  "title": "CodeReviewRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "type", "workflowId", "messageId", "featureId", "repositoryKey", "routing", "cycle", "createdAt", "body"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "type": {"const": "CodeReviewRequest"},
+    "workflowId": {"type": "string", "format": "uuid"},
+    "messageId": {"$ref": "#/$defs/digest"},
+    "featureId": {"$ref": "#/$defs/featureId"},
+    "repositoryKey": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 300},
+    "routing": {"$ref": "#/$defs/routing"},
+    "cycle": {"type": "integer", "minimum": 1},
+    "createdAt": {"$ref": "#/$defs/timestamp"},
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pullRequest", "reviewRecordBranch", "mergePolicy"],
+      "properties": {
+        "pullRequest": {"$ref": "#/$defs/pullRequest"},
+        "reviewRecordBranch": {"type": "string", "pattern": "^codex/review-records/.+/code-[1-9][0-9]*-[0-9a-f]{12}$", "maxLength": 240},
+        "mergePolicy": {"$ref": "#/$defs/mergePolicy"},
+        "previousResultMessageId": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "featureId": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-[0-9a-f]{12}$", "maxLength": 76},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceTaskId", "destinationTaskId"],
+      "properties": {
+        "sourceTaskId": {"type": "string", "minLength": 1, "maxLength": 200},
+        "destinationTaskId": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "url", "baseRef", "baseSha", "headRef", "headSha"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+        "baseRef": {"type": "string", "minLength": 1, "maxLength": 240},
+        "baseSha": {"$ref": "#/$defs/sha"},
+        "headRef": {"type": "string", "minLength": 1, "maxLength": 240},
+        "headSha": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "mergePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "method", "deleteBranch", "requireGreenChecks", "requireExactHead"],
+      "properties": {
+        "mode": {"enum": ["review-only", "merge-on-approve"]},
+        "method": {"enum": ["squash", "merge", "rebase"]},
+        "deleteBranch": {"type": "boolean"},
+        "requireGreenChecks": {"const": true},
+        "requireExactHead": {"const": true}
+      }
+    }
+  }
+}

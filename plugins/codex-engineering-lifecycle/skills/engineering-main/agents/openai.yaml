@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Main"
+  short_description: "Design, implement, release, and close features."
+  default_prompt: "Use $engineering-main to continue the authorized engineering lifecycle for this feature."

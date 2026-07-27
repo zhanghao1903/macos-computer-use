@@ -1,0 +1,4 @@
+interface:
+  display_name: "Engineering Workflow Init"
+  short_description: "Initialize the three-task engineering workflow."
+  default_prompt: "Use $engineering-workflow-init to initialize this repository three-task engineering workflow."

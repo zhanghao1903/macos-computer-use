@@ -1,0 +1,45 @@
+{
+  "name": "codex-engineering-lifecycle",
+  "version": "0.1.0",
+  "description": "A three-task Codex workflow for confirmed requirements, independent plan and code review, Goal-mode delivery, merge, release, and feature closure.",
+  "author": {
+    "name": "zhanghao1903",
+    "url": "https://github.com/zhanghao1903"
+  },
+  "homepage": "https://github.com/zhanghao1903/macos-computer-use/tree/main/plugins/codex-engineering-lifecycle",
+  "repository": "https://github.com/zhanghao1903/macos-computer-use",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "engineering-workflow",
+    "requirements",
+    "code-review",
+    "release"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Engineering Lifecycle",
+    "shortDescription": "Three-task feature delivery with independent review.",
+    "longDescription": "Initialize Requirements, Engineering Main, and Engineering Review tasks, then carry an immutable feature through confirmation, technical-plan review, serialized Goal-mode development, exact-head code review, merge, explicit release authorization, and auditable closure.",
+    "developerName": "zhanghao1903",
+    "category": "Productivity",
+    "capabilities": [
+      "Requirements",
+      "Goal workflow",
+      "Plan and code review",
+      "Release governance"
+    ],
+    "websiteURL": "https://github.com/zhanghao1903/macos-computer-use/tree/main/plugins/codex-engineering-lifecycle",
+    "privacyPolicyURL": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-engineering-lifecycle/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-engineering-lifecycle/TERMS.md",
+    "defaultPrompt": [
+      "Use $engineering-workflow-init to initialize this repository.",
+      "Use $engineering-requirements to turn my feature request into confirmed requirements.",
+      "Use $engineering-main to continue the authorized feature lifecycle."
+    ],
+    "brandColor": "#335CFF",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg",
+    "logoDark": "./assets/logo-dark.svg"
+  }
+}

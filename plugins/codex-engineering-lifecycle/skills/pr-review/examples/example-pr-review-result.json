@@ -1,0 +1,315 @@
+{
+  "schema_version": "1.1",
+  "review": {
+    "repository": "acme/payments",
+    "pr_number": 482,
+    "url": "https://github.com/acme/payments/pull/482",
+    "title": "Retry provider requests after transient failures",
+    "author": "dev-example",
+    "base_ref": "main",
+    "base_sha": "1111111111111111111111111111111111111111",
+    "head_ref": "feature/provider-retry",
+    "head_sha": "7f31a9c222222222222222222222222222222222",
+    "reviewed_at": "2026-07-11T08:30:00Z",
+    "reviewer": "AI PR Reviewer",
+    "report_status": "CURRENT",
+    "review_mode": "READ_ONLY",
+    "reviewed_scope": [
+      "previous finding PRR-001 closure at the current head",
+      "complete previous-head-to-current-head remediation delta",
+      "current base-to-head payment retry path and public failure routing"
+    ],
+    "excluded_scope": [
+      "production provider logs were unavailable"
+    ]
+  },
+  "review_context": {
+    "kind": "RE_REVIEW",
+    "previous_review": {
+      "report": "example-pr-review-previous-result.json",
+      "result_path": ".agents/skills/pr-review/examples/example-pr-review-previous-result.json",
+      "result_sha256": "f3281b3816fab9984a87b81812051c02f2091a209fd95bfbe1f91c0c1018bee5",
+      "repository": "acme/payments",
+      "pr_number": 482,
+      "reviewed_at": "2026-07-11T07:45:00Z",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "head_sha": "6e20a1b333333333333333333333333333333333",
+      "decision": "REQUEST_CHANGES",
+      "finding_ids": [
+        "PRR-001"
+      ],
+      "blocking_finding_ids": [
+        "PRR-001"
+      ]
+    },
+    "delta_review": {
+      "previous_base_sha": "1111111111111111111111111111111111111111",
+      "previous_head_sha": "6e20a1b333333333333333333333333333333333",
+      "current_base_sha": "1111111111111111111111111111111111111111",
+      "current_head_sha": "7f31a9c222222222222222222222222222222222",
+      "triggers": [
+        "HEAD_CHANGED"
+      ],
+      "commit_range": "6e20a1b333333333333333333333333333333333..7f31a9c222222222222222222222222222222222",
+      "commits_reviewed": [
+        "7f31a9c222222222222222222222222222222222"
+      ],
+      "changed_files": [
+        "src/payments/errors.ts",
+        "src/payments/provider-client.ts",
+        "src/payments/submit.ts",
+        "test/payments/retry.test.ts"
+      ],
+      "reviewed_files": [
+        "src/payments/errors.ts",
+        "src/payments/provider-client.ts",
+        "src/payments/submit.ts",
+        "test/payments/retry.test.ts"
+      ],
+      "excluded_files": [],
+      "unclassified_changes": [],
+      "full_pr_diff_reconciled": true,
+      "summary": "The remediation adds payment-scoped idempotency keys and a new provider outcome used to report a replay.",
+      "evidence": "All four delta files and the complete base-to-head retry path were inspected."
+    },
+    "finding_revalidation": [
+      {
+        "finding_id": "PRR-001",
+        "previous_status": "open",
+        "current_status": "resolved",
+        "evidence": "The current implementation derives one key from the immutable payment ID, and the lost-response regression proves all attempts reuse it.",
+        "accepted_by": null,
+        "acceptance_rationale": null,
+        "accepted_at": null
+      }
+    ],
+    "forward_risk_review": [
+      {
+        "surface": "New provider idempotency replay outcome and its public routing contract",
+        "risk_triggers": [
+          "public-contract",
+          "test-adequacy"
+        ],
+        "reason": "The fix emits a new public outcome while changing retry consumers and tests.",
+        "affected_paths": [
+          "src/payments/errors.ts",
+          "src/payments/provider-client.ts",
+          "src/payments/submit.ts",
+          "test/payments/retry.test.ts"
+        ],
+        "checks": [
+          "Run the lost-response regression with a real provider-client observation",
+          "Assert every emitted provider outcome belongs to PROVIDER_OUTCOMES"
+        ],
+        "finding_ids": [
+          "PRR-002"
+        ],
+        "result": "FAIL"
+      }
+    ],
+    "approval_renewal": {
+      "old_decision_invalidated": true,
+      "previous_findings_revalidated": true,
+      "forward_risk_review_completed": true,
+      "all_delta_changes_classified": true,
+      "current_head_validation_complete": true,
+      "decision_blocking_limitations": [],
+      "result": "WITHHELD",
+      "independent_pass": {
+        "status": "PASS",
+        "reviewer": "fresh-context reviewer",
+        "summary": "The independent delta pass confirmed PRR-001 closure and reproduced the missing public outcome registration."
+      }
+    }
+  },
+  "decision": {
+    "status": "REQUEST_CHANGES",
+    "mergeable": false,
+    "rationale": "PRR-001 is resolved, but the remediation emits idempotency_replay without declaring it in the stable PROVIDER_OUTCOMES registry.",
+    "blocking_finding_ids": [
+      "PRR-002"
+    ]
+  },
+  "summary": "This re-review closes the duplicate-charge finding with a payment-scoped idempotency key. The independent forward-risk track found that the remediation also emits a new public provider outcome that is absent from the advertised registry. Approval renewal is withheld until PRR-002 is resolved.",
+  "change_map": [
+    {
+      "area": "Payment retry identity",
+      "change": "All attempts for one payment reuse a key derived from its immutable payment ID.",
+      "external_behavior": "An accepted request followed by a lost response no longer creates a second charge.",
+      "risk": "Low",
+      "validation": "Lost-response regression passes at the current head."
+    },
+    {
+      "area": "Provider outcome contract",
+      "change": "The client emits idempotency_replay when the provider returns the original operation.",
+      "external_behavior": "Registry-based consumers receive an undeclared public value.",
+      "risk": "Medium",
+      "validation": "Executable registry assertion fails."
+    }
+  ],
+  "findings": [
+    {
+      "id": "PRR-002",
+      "severity": "S2",
+      "blocking": true,
+      "confidence": "High",
+      "category": "api-contract",
+      "title": "New idempotency replay outcome is absent from the public registry",
+      "location": {
+        "path": "src/payments/errors.ts",
+        "line_start": 18,
+        "line_end": 31,
+        "symbol": "PROVIDER_OUTCOMES",
+        "side": "RIGHT",
+        "commit_sha": "7f31a9c222222222222222222222222222222222"
+      },
+      "observation": "provider-client.ts emits idempotency_replay, but PROVIDER_OUTCOMES does not include that value.",
+      "trigger": "A lost-response retry returns the provider's original operation and a caller routes the outcome through the stable registry.",
+      "impact": "A documented registry consumer treats a legitimate package outcome as unknown and can select the wrong recovery path.",
+      "evidence": [
+        {
+          "kind": "reproduction",
+          "description": "A real provider-client observation returned idempotency_replay and the registry membership assertion failed.",
+          "reference": "test/payments/retry.test.ts"
+        }
+      ],
+      "remediation": "Declare idempotency_replay in PROVIDER_OUTCOMES and validate real emitted observations against the registry.",
+      "verification": "The replay observation belongs to PROVIDER_OUTCOMES and the package and retry tests pass.",
+      "status": "open",
+      "origin": "DELTA_INTRODUCED",
+      "fingerprint": "api-contract:provider-outcomes:idempotency-replay"
+    },
+    {
+      "id": "PRR-001",
+      "severity": "S1",
+      "blocking": true,
+      "confidence": "High",
+      "category": "data-integrity",
+      "title": "Lost-response retries can submit the same payment twice",
+      "location": {
+        "path": "src/payments/submit.ts",
+        "line_start": 118,
+        "line_end": 138,
+        "symbol": "submitPayment",
+        "side": "RIGHT",
+        "commit_sha": "7f31a9c222222222222222222222222222222222"
+      },
+      "observation": "The current implementation reuses a payment-scoped idempotency key across every retry attempt.",
+      "trigger": "The provider accepts the first charge and the response is lost.",
+      "impact": "The provider returns the original operation instead of creating a duplicate charge.",
+      "evidence": [
+        {
+          "kind": "test",
+          "description": "The lost-response regression records one logical provider key across all attempts.",
+          "reference": "test/payments/retry.test.ts"
+        }
+      ],
+      "remediation": "Completed at the current head.",
+      "verification": "The original trigger now returns one provider operation and uses one payment-scoped key.",
+      "status": "resolved",
+      "origin": "BASE_DIFF",
+      "fingerprint": "data-integrity:submitPayment:missing-stable-idempotency-key"
+    }
+  ],
+  "required_actions": [
+    {
+      "finding_id": "PRR-002",
+      "action": "Register the new provider outcome and add executable contract coverage.",
+      "status": "open"
+    },
+    {
+      "finding_id": "PRR-001",
+      "action": "Make provider retries idempotent and add a lost-response regression test.",
+      "status": "completed"
+    }
+  ],
+  "risks": [
+    {
+      "category": "data-integrity",
+      "level": "Low",
+      "description": "The original duplicate-charge path is covered by a current-head regression.",
+      "mitigation": "Preserve the payment-scoped idempotency invariant.",
+      "owner": "payments owner"
+    },
+    {
+      "category": "api-compatibility",
+      "level": "Medium",
+      "description": "Registry-based consumers cannot classify the new replay outcome.",
+      "mitigation": "Resolve PRR-002 before merge.",
+      "owner": "provider client owner"
+    }
+  ],
+  "validation": {
+    "overall_status": "FAILED",
+    "reviewer_runs": [
+      {
+        "command": "npm test -- retry.test.ts",
+        "environment": "Node.js 22 on Linux; test configuration; no provider network access",
+        "head_sha": "7f31a9c222222222222222222222222222222222",
+        "status": "PASS",
+        "exit_code": 0,
+        "summary": "The lost-response regression passed and closed PRR-001.",
+        "required_for_approval": true,
+        "evidence_ref": "artifacts/retry-test.log"
+      },
+      {
+        "command": "assert observation.outcome in PROVIDER_OUTCOMES",
+        "environment": "Node.js 22 on Linux; real provider-client fixture",
+        "head_sha": "7f31a9c222222222222222222222222222222222",
+        "status": "FAIL",
+        "exit_code": 1,
+        "summary": "idempotency_replay is not declared in PROVIDER_OUTCOMES.",
+        "required_for_approval": true,
+        "evidence_ref": "PRR-002"
+      }
+    ],
+    "ci_checks": [
+      {
+        "name": "unit-tests",
+        "observed_at": "2026-07-11T08:20:00Z",
+        "head_sha": "7f31a9c222222222222222222222222222222222",
+        "status": "PASS",
+        "summary": "Repository unit tests passed for the reviewed head SHA.",
+        "evidence_ref": null
+      }
+    ],
+    "not_run": [
+      {
+        "check": "Provider sandbox integration test",
+        "reason": "No sandbox credentials were available; the deterministic public-contract failure is local."
+      }
+    ]
+  },
+  "limitations": [
+    "Provider sandbox behavior and production request logs were not available."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    {
+      "id": "ASM-001",
+      "statement": "One immutable payment ID represents one logical provider charge.",
+      "decision_critical": true,
+      "status": "VERIFIED",
+      "method": "Inspect the payment identity contract and run the lost-response regression.",
+      "evidence": "Payment IDs are immutable and every retry in the regression reuses the derived key.",
+      "impact_if_false": "The idempotency fix could merge distinct logical payments or fail to deduplicate retries."
+    },
+    {
+      "id": "ASM-002",
+      "statement": "Provider sandbox replay behavior matches production.",
+      "decision_critical": false,
+      "status": "UNVERIFIED",
+      "method": null,
+      "evidence": null,
+      "impact_if_false": "A later live validation may require rollout-specific mitigation."
+    }
+  ],
+  "non_blocking_recommendations": [
+    {
+      "id": "NOTE-001",
+      "category": "observability",
+      "recommendation": "Emit a metric for idempotency replays.",
+      "value": "This makes rollout anomalies and duplicate prevention visible."
+    }
+  ]
+}

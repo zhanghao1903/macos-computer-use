@@ -1,0 +1,7 @@
+interface:
+  display_name: "Product Workflow Gate"
+  short_description: "Gate package API, docs, tests, and release work."
+  default_prompt: "Use $product-workflow-gate to classify and gate this package change before implementation."
+
+policy:
+  allow_implicit_invocation: false
