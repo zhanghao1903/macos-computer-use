@@ -33,7 +33,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 1. Scaffold | `plugins/codex-engineering-lifecycle/`, `.agents/plugins/marketplace.json` | Valid plugin manifest, repo marketplace entry, assets/resources directories | Plugin validator and JSON parsing | Manifest metadata | Remove new plugin and marketplace entry |
 | 2. Role skills | Four `skills/engineering-*` directories | Init and three role boundaries, task bootstrap, handoff procedures | Quick validator, cross-skill assertions | Skill references for lifecycle and recovery | Remove role skills; no state migration |
-| 3. Source skill packaging | Five copied skill directories | Preserve repository skill names/instructions/resources in plugin namespace | Source/copy digest parity, quick validators, pr-review validator tests | Plugin README composition table | Regenerate copies from source |
+| 3. Source skill packaging | Five copied skill directories | Preserve repository skill instructions/resources; add explicit-only packaged metadata overlay | Source/copy parity with one allowed policy difference, quick validators, pr-review validator tests | Plugin README composition table | Regenerate copies and overlay from source |
 | 4. Contracts | `schemas/*.schema.json`, `scripts/validate_contracts.py`, fixtures | Exact-key versioned routed contracts and release/closure authority | Positive/negative schema and runtime parity | Contract reference | Reject unsupported schema; remove plugin |
 | 5. State runtime | `scripts/workflowctl.py` | Config/state persistence, transitions, deterministic IDs, artifact proof, Goal queue, review/release/closure guards | Unit and temporary-Git integration tests | Runtime/recovery reference | State remains intact; reinstall prior plugin version |
 | 6. User docs and policy | README, CHANGELOG, LICENSE, PRIVACY, TERMS, SUPPORT | Install/update/uninstall/Init/recovery/data cleanup and safety boundaries | Link/path/manifest checks | User-facing plugin docs | Docs-only revert |
@@ -103,9 +103,10 @@ mentions the skill name. Add only required `references/` or `assets/`.
 - Write and push design and implementation plan.
 - Dispatch plan review and remediate failed review results.
 - On exact PASS, notify the user, obtain the Goal slot, and call `create_goal`.
-- Persist Goal state, continue until genuine completion, and prepare the PR.
-- Dispatch exact-head code review; remediate findings under the same feature
-  Goal or a resumed Goal.
+- Persist immutable GoalRun state, continue until genuine completion, and
+  prepare the PR.
+- Dispatch exact-head code review; remediate findings in a new
+  `CODE_REMEDIATION` GoalRun because a completed Goal is never reopened.
 - Accept merge proof, prepare an exact release proposal, require per-release
   authorization, publish, record proof, and close.
 - Never approve its own plan or code.
@@ -115,6 +116,9 @@ mentions the skill name. Add only required `references/` or `assets/`.
 - Validate and accept only routed plan/code requests.
 - Load `technical-plan-review` for plan requests and `pr-review` for code.
 - Create a fresh immutable review-record branch per request.
+- On delivery retry, reuse only the exact state-recorded branch/report proof;
+  reject an existing wrong-base, unexpected-tip, or unrecorded branch and
+  never force-push.
 - Produce Markdown and JSON report proof and push only that branch.
 - Never edit the feature branch.
 - Merge only an approved exact head with green checks and matching policy.
@@ -145,9 +149,19 @@ Do not package the source skill's own unit tests inside the runtime skill
 directory. Copy the pr-review validator tests into the plugin test suite where
 they can run without becoming skill runtime content.
 
-Add a test that hashes every packaged runtime file against its source file.
-Any intentional wrapper-specific difference must live outside the copied
-source directories.
+Keep every packaged `SKILL.md` and runtime resource byte-identical to source.
+Apply one intentional semantic overlay to each packaged
+`agents/openai.yaml`:
+
+```yaml
+policy:
+  allow_implicit_invocation: false
+```
+
+Add a parity test that hashes all unchanged files, parses source and packaged
+agent metadata, and proves the only semantic difference is the explicit-only
+policy. Role wrappers remain implicitly invocable and call composition skills
+explicitly.
 
 ## Slice 4 — schemas and contract validation
 
@@ -172,8 +186,9 @@ Use:
 - bounded text and arrays;
 - strict RFC3339 UTC `Z` timestamps;
 - enumerated stages, decisions, check states, merge states, and release modes;
-- conditional requirements for PASS/FAIL, APPROVE/CHANGES, MERGED/FAILED, and
-  release success/failure.
+- conditional requirements for PASS/FAIL, APPROVE/CHANGES, MERGED/FAILED,
+  typed `GITHUB_RELEASE`/`PYPI` targets, per-target PUBLISHED/FAILED evidence,
+  and all-target release success.
 
 `validate_contracts.py` validates one file or all fixtures. It must:
 
@@ -250,12 +265,16 @@ or tests show a clear module boundary. A future split must not change the CLI.
 - Task IDs are pairwise distinct.
 - Every feature map key equals `featureId`.
 - Every feature stage has exactly the artifacts required by that stage.
-- `developmentQueue` contains unique approved feature IDs.
-- `activeGoalFeatureId` is null or the only `DEVELOPMENT_ACTIVE` feature.
+- `developmentQueue` contains unique approved/remediation feature entries.
+- `activeGoal` is null or identifies the only ACTIVE GoalRun.
+- GoalRun IDs are deterministic; completed runs are immutable; remediation
+  uses a new run bound to the requesting code-review result.
 - Result cycles and request IDs match the latest pending request.
 - Merge proof matches the reviewed PR head and configured policy.
-- Release proof matches the exact authorization and merge commit.
-- Closure references an accepted release result.
+- Release proof matches the exact authorization, merge commit, typed target
+  set, and required artifact digests.
+- Closure references a release result where every authorized target is
+  PUBLISHED.
 - Duplicate IDs have identical canonical payloads.
 
 ## Slice 6 — user documentation and policy
@@ -335,7 +354,7 @@ Also run:
 - XML parsing for SVG assets;
 - secret-pattern scan;
 - generated artifact and cache scan;
-- source/packaged skill parity check;
+- source/packaged skill parity with only the explicit-only metadata overlay;
 - clean-worktree check before review.
 
 ### Manual forward-test
@@ -345,9 +364,13 @@ Use fresh, isolated subagents only after the plugin is complete:
 1. invoke Init against a disposable local GitHub-shaped fixture;
 2. send a feature request to Requirements and inspect the confirmed handoff;
 3. feed a plan request to Review and inspect PASS/FAIL evidence;
-4. simulate Goal authorization and queue behavior in Main;
+4. simulate initial and code-remediation GoalRun authorization and queue
+   behavior in Main;
 5. feed a PR review request to Review and inspect exact-head behavior;
-6. verify release authorization and pre-release closure rejection.
+6. verify typed multi-target release authorization, partial failure, and
+   pre-release closure rejection;
+7. verify an identical review-record retry reuses proof and a conflicting
+   existing branch fails closed.
 
 Forward-tests must not push, merge, publish, or modify production repositories.
 

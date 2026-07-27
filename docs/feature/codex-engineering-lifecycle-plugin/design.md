@@ -88,8 +88,21 @@ plugins/codex-engineering-lifecycle/
 ```
 
 The five source skills are copied from `.agents/skills/` at build time and
-validated as independent plugin skills. Role wrappers compose them but do not
-rename or rewrite their internal contracts.
+validated as independent plugin skills. Their `SKILL.md` and referenced runtime
+resources remain byte-identical. Their packaged `agents/openai.yaml` receives
+one intentional metadata overlay:
+
+```yaml
+policy:
+  allow_implicit_invocation: false
+```
+
+This keeps all five directly usable through explicit `$skill-name` invocation
+while preventing role tasks from triggering composition skills outside their
+wrapper. Tests allow only that semantic metadata difference. The four role
+wrappers remain implicitly invocable. Regardless of skill invocation, only
+`workflowctl` can authorize a state transition, and it requires the configured
+source task ID.
 
 ## Task topology
 
@@ -174,7 +187,7 @@ stateDiagram-v2
     DEVELOPMENT_BLOCKED --> DEVELOPMENT_ACTIVE: User/external recovery
     DEVELOPMENT_COMPLETE --> CODE_REVIEW_PENDING
     CODE_REVIEW_PENDING --> CODE_CHANGES_REQUESTED: Findings
-    CODE_CHANGES_REQUESTED --> DEVELOPMENT_ACTIVE: Resume Goal remediation
+    CODE_CHANGES_REQUESTED --> DEVELOPMENT_QUEUED: Queue new remediation Goal
     CODE_REVIEW_PENDING --> MERGED: Approve + exact-head merge
     MERGED --> RELEASE_AWAITING_AUTHORIZATION
     RELEASE_AWAITING_AUTHORIZATION --> RELEASE_AUTHORIZED
@@ -186,8 +199,10 @@ stateDiagram-v2
 ```
 
 Only one feature may be `DEVELOPMENT_ACTIVE` because one Main task can own only
-one active Goal. Additional approved features remain `DEVELOPMENT_QUEUED` in
-deterministic approval order.
+one active Goal. Additional approved or remediation features remain
+`DEVELOPMENT_QUEUED` in deterministic queue-entry order. Every transition from
+the queue into active development creates a new immutable `GoalRun`; a completed
+Goal is never reopened.
 
 ## Core data structures
 
@@ -234,7 +249,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | `bootstrap` | object | yes | empty acknowledgements | Init | Exact role/task acknowledgements |
 | `features` | map | yes | `{}` | runtime | Keys equal validated feature IDs |
 | `developmentQueue` | string array | yes | `[]` | runtime | Unique feature IDs in approval order |
-| `activeGoalFeatureId` | string/null | yes | `null` | Main | At most one; must reference `DEVELOPMENT_ACTIVE` |
+| `activeGoal` | object/null | yes | `null` | Main | `{featureId, goalRunId}`; at most one and must reference an ACTIVE run |
 | `dispatches` | map | yes | `{}` | runtime | Deterministic message ledgers |
 | `updatedAt` | RFC3339 UTC | yes | now | runtime | Strict `Z` timestamp |
 
@@ -249,7 +264,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | `requirements` | `ArtifactSnapshot` | conditional | none | Requirements | Required after confirmation |
 | `plan` | `PlanSnapshot` | conditional | none | Main | Required after plan preparation |
 | `planReviewCycle` | integer | yes | `0` | runtime | Increments per immutable request |
-| `goal` | `GoalRecord` | conditional | none | Main | Required while/after development |
+| `goalRuns` | `GoalRun` array | yes | `[]` | Main | Ordered immutable run ledger; at most one ACTIVE run |
 | `pullRequest` | `PullRequestSnapshot` | conditional | none | Main | Required before code review |
 | `codeReviewCycle` | integer | yes | `0` | runtime | Increments per exact head |
 | `merge` | `MergeProof` | conditional | none | Review | Required after merge |
@@ -265,12 +280,12 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | --- | --- | --- |
 | `ArtifactSnapshot` | `path`, `commitSha`, `sha256` | Repo-relative Markdown path, lowercase 40-hex commit, lowercase 64-hex digest; content must exist at commit and match digest |
 | `PlanSnapshot` | `requirements`, `design`, `implementationPlan`, `planCommitSha`, `compositeSha256` | All artifacts at one commit; composite digest over canonical ordered artifact metadata |
-| `GoalRecord` | `threadId`, `objectiveDigest`, `status`, `startedAt`, `completedAt?`, `blockedReason?` | Thread must equal configured Main task; status mirrors supported Goal terminal semantics |
+| `GoalRun` | `goalRunId`, `purpose`, `reviewCycle`, `threadId`, `authorityMessageId`, `objectiveDigest`, `status`, `startedAt`, `completedAt?`, `blockedReason?`, `usage?` | Deterministic run ID; purpose is `INITIAL_IMPLEMENTATION` or `CODE_REMEDIATION`; thread equals Main; one ACTIVE run globally |
 | `PullRequestSnapshot` | `number`, `url`, `baseRef`, `baseSha`, `headRef`, `headSha` | Canonical repository PR URL and exact lowercase SHAs |
 | `ReviewReportProof` | `branch`, `path`, `commitSha`, `sha256`, `jsonPath?`, `jsonSha256?` | Branch uses `codex/review-records/`; report exists and matches digest |
 | `MergeProof` | `method`, `prUrl`, `approvedHeadSha`, `mergeCommitSha`, `mergedAt` | Exact approved head and canonical PR; method matches config |
 | `ReleaseRecord` | `authorization`, `result?` | Authorization and result schemas must bind the merge target and version/tag |
-| `ClosureRecord` | `releaseUrl`, `releaseTag`, `releaseDigest`, `summary`, `closedAt` | Release result already accepted; bounded summary and strict timestamp |
+| `ClosureRecord` | `releaseTargets`, `releaseTag`, `releaseDigest`, `summary`, `closedAt` | Every authorized release target succeeded; bounded summary and strict timestamp |
 
 ## Routed contract envelope
 
@@ -366,6 +381,29 @@ Body fields:
 head, green required checks, configured merge-on-approve, canonical URL, and
 merge SHA. A stale head yields a non-authorizing result and a new cycle.
 
+### `GoalRun`
+
+A feature has one initial implementation run and zero or more remediation runs.
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `goalRunId` | lowercase 64-hex | yes | Digest of workflow, feature, purpose, review cycle, and authority message |
+| `purpose` | enum | yes | `INITIAL_IMPLEMENTATION` or `CODE_REMEDIATION` |
+| `reviewCycle` | integer | yes | `0` for initial; exact code-review cycle for remediation |
+| `threadId` | string | yes | Configured Main task |
+| `authorityMessageId` | digest | yes | PASS plan result for initial; REQUEST_CHANGES code result for remediation |
+| `objectiveDigest` | digest | yes | Digest of the exact Goal objective shown to the platform |
+| `status` | enum | yes | `PREPARED`, `ACTIVE`, `COMPLETE`, or `BLOCKED` |
+| `startedAt` | UTC timestamp | conditional | Required for ACTIVE or later |
+| `completedAt` | UTC timestamp | conditional | Required only for COMPLETE |
+| `blockedReason` | string | conditional | Required only for BLOCKED; sanitized and bounded |
+| `usage` | object | optional | Sanitized final token/time evidence returned by the Goal tool |
+
+`start-development` creates or reuses the deterministic PREPARED run, then
+records the platform-created Goal as ACTIVE. `complete-development` requires
+authoritative Goal status COMPLETE. A code-review changes result enqueues a new
+`CODE_REMEDIATION` run; it never mutates or resumes the completed initial run.
+
 ### `ReleaseAuthorization`
 
 This is a user-to-Main authority record rather than a cross-task message.
@@ -378,14 +416,32 @@ This is a user-to-Main authority record rather than a cross-task message.
 | `mergeCommitSha` | lowercase SHA | yes | Matches accepted merge proof |
 | `version` | strict semver | yes | Repository policy compatible |
 | `tag` | string | yes | Exact configured/version tag |
-| `artifacts` | array | yes | Expected names and optional digests |
-| `targets` | string array | yes | Explicit publishing destinations |
+| `targets` | `ReleaseTarget` array | yes | Non-empty, unique target IDs, sorted canonically |
 | `authorizedBy` | string | yes | Non-empty user identity/evidence label |
 | `authorizationEvidence` | string | yes | Bounded exact-action confirmation |
 | `createdAt` | UTC timestamp | yes | Strict `Z` |
 | `authorizationId` | digest | yes | Deterministic canonical digest |
 
 The Init authorization for Goal mode does not authorize releases.
+
+### `ReleaseTarget`
+
+Every target includes:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `targetId` | lowercase 64-hex | yes | Digest of the canonical target object without `targetId` |
+| `kind` | enum | yes | `GITHUB_RELEASE` or `PYPI` |
+| `artifacts` | array | yes | Non-empty exact `{name, sha256}` records; names unique |
+
+`GITHUB_RELEASE` additionally requires `repositoryKey` equal to the workflow
+repository, exact `tag`, and exact `releaseName`.
+
+`PYPI` additionally requires `repository` equal to `PYPI` or `TEST_PYPI`,
+normalized `projectName`, and strict-semver `version`.
+
+Targets are closed in v0.1.0. A future target kind requires a schema/config
+version update rather than a free-form string.
 
 ### `ReleaseResult`
 
@@ -395,14 +451,26 @@ Fields:
 - `mergeCommitSha`;
 - `version`;
 - `tag`;
-- `releaseUrl`;
-- `tagCommitSha`;
-- `artifacts[]: {name, sha256, url}`;
+- `targets: ReleaseTargetResult[]`;
 - `publishedAt`;
 - `proofDigest`.
 
-It must match the accepted authorization exactly and be verifiable from GitHub
-or the configured publishing target.
+Every target result contains:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `targetId` | digest | yes | Matches exactly one authorized target |
+| `kind` | enum | yes | Matches that target |
+| `status` | enum | yes | `PUBLISHED` or `FAILED` |
+| `artifacts` | array | conditional | Required for PUBLISHED; names/digests exactly match authorization and include canonical URLs |
+| `publishedAt` | UTC timestamp | conditional | Required for PUBLISHED |
+| `error` | string | conditional | Required for FAILED; sanitized and bounded |
+
+A published GitHub result additionally contains `releaseUrl` and
+`tagCommitSha`. A published PyPI result additionally contains `projectUrl`,
+`repository`, `projectName`, and `version`. Result target IDs must be an exact
+set match for authorization targets. The overall result is successful only
+when every target status is PUBLISHED and every artifact digest matches.
 
 ### `ClosureRecord`
 
@@ -413,14 +481,16 @@ Fields:
 - `planReviewResultMessageId`;
 - `codeReviewResultMessageId`;
 - `mergeCommitSha`;
-- `releaseUrl`;
+- `releaseTargets[]`;
 - `scenariosSolved[]`;
 - `followUps[]`;
 - `closedAt`;
 - `closureId`.
 
 The record is stored in durable state and summarized in GitHub Release notes or
-another explicit F8 carrier. Closure cannot be replayed against another feature.
+another explicit F8 carrier. `releaseTargets` references every successful
+authorized target. Closure cannot be replayed against another feature and is
+rejected if any target is missing, failed, or digest-mismatched.
 
 ## End-to-end sequence
 
@@ -455,7 +525,7 @@ sequenceDiagram
         alt Changes requested
             Review->>GH: Push code review-record branch
             Review->>Main: Findings + report proof
-            Main->>Goal: Resume remediation
+            Main->>Goal: Create new CODE_REMEDIATION GoalRun
             Goal->>GH: Fix and push exact new head
             Main->>Review: Re-review request
         else Approved and merge authorized
@@ -465,8 +535,11 @@ sequenceDiagram
     end
     Main->>User: Exact release proposal
     User-->>Main: ReleaseAuthorization
-    Main->>GH: Publish tag, artifacts, release
-    GH-->>Main: ReleaseResult proof
+    loop Every authorized release target
+        Main->>GH: Publish exact artifacts
+        GH-->>Main: Per-target digest-bound proof
+    end
+    Main->>Main: Accept result only if all targets succeeded
     Main->>Main: Validate and persist ClosureRecord
     Main->>User: Feature closed with traceability
 ```
@@ -476,11 +549,17 @@ sequenceDiagram
 Review cannot mutate the feature branch. For every review cycle it:
 
 1. verifies the requested commit or PR head exists;
-2. creates a new branch from that immutable snapshot using the deterministic
-   review-record name;
-3. writes Markdown and, where supported, JSON review artifacts;
-4. commits and pushes only those artifacts to the review-record branch;
-5. returns the branch, report commit, paths, and digests in the result.
+2. computes the deterministic review-record branch and report paths;
+3. when the branch is absent, creates it from the immutable snapshot;
+4. when the branch already exists for the same recorded request, verifies its
+   base, report commit, paths, and digests and reuses the existing proof;
+5. rejects an existing unrecorded branch, wrong base, changed report, or
+   unexpected tip as `review_record_conflict`;
+6. writes Markdown and, where supported, JSON review artifacts;
+7. commits and pushes only those artifacts to the review-record branch without
+   force;
+8. persists the report commit/digests in local state before message delivery;
+9. returns the immutable proof in the result.
 
 Branches are never force-pushed, reused for a different snapshot, merged
 automatically, or deleted by the feature merge policy. They remain audit
@@ -489,8 +568,8 @@ records. Cleanup is a separate explicit repository-administration action.
 ## Goal lifecycle
 
 Main may call `create_goal` only because Init obtains explicit Goal-mode
-authorization and the plan result proves exact-snapshot approval. The Goal
-objective includes:
+authorization and a plan/code result proves an exact authorizing snapshot.
+Each `GoalRun` objective includes:
 
 - accepted requirements and plan snapshot IDs;
 - feature branch and repository;
@@ -498,10 +577,13 @@ objective includes:
 - the condition that completion requires all deliverables and no required work
   remains.
 
-Main records the returned Goal/thread identity. It uses `get_goal` before
-marking development complete. A near-exhausted budget, normal turn end, or
-partial implementation cannot advance the feature. A genuinely blocked Goal
-uses the platform's blocked semantics and leaves the feature recoverable.
+For `INITIAL_IMPLEMENTATION`, the authority is the accepted plan PASS. For
+`CODE_REMEDIATION`, the authority is the exact REQUEST_CHANGES result and its
+review cycle. Main records the returned Goal/thread identity and uses
+`get_goal` before marking that run complete. A near-exhausted budget, normal
+turn end, or partial implementation cannot advance the feature. A genuinely
+blocked Goal uses the platform's blocked semantics and leaves that run
+recoverable. Complete runs are immutable and never resumed.
 
 ## Persistence, locking, and atomicity
 
@@ -527,13 +609,13 @@ uses the platform's blocked semantics and leaves the feature recoverable.
 | Delivery timeout | `delivery_failed` without stage advance | Retry same deterministic message |
 | Stale plan result | `stale_result` | Review latest requested snapshot |
 | Failed plan | `PLAN_CHANGES_REQUESTED` | Main revises and dispatches next cycle |
-| Goal already active for another feature | `goal_slot_busy` | Keep queued; start after active feature leaves slot |
+| Goal already active for another feature/run | `goal_slot_busy` | Keep queued; start after active run leaves slot |
 | Goal blocked | `DEVELOPMENT_BLOCKED` | User/external recovery, then resume same feature |
 | PR head changed during review | `stale_head` | Prepare a new code-review cycle |
 | Checks fail | non-authorizing code result | Fix checks and re-review |
 | Merge fails | merge status `FAILED` | Preserve approval evidence; reverify exact head/checks before retry |
 | Release authorization mismatch | `release_not_authorized` | Ask user to authorize exact current proposal |
-| Release partial failure | `RELEASE_FAILED` with sanitized proof | Explicit retry; do not close |
+| Release target partial failure | `RELEASE_FAILED` with per-target sanitized proof | Explicit retry of exact failed target(s); do not close |
 | Closure attempted before release | `invalid_transition` | Complete and verify release first |
 
 Errors persisted in state contain only a stable kind, stage, bounded sanitized
@@ -564,9 +646,9 @@ content, and task transcripts are excluded.
 - Message IDs and cycles impose per-feature ordering.
 - Review can process queued requests serially; results apply only to the latest
   pending matching cycle.
-- Only one development Goal may be active.
-- Release authorization binds one merge commit and cannot survive a changed
-  target.
+- Only one GoalRun may be ACTIVE; completed runs are immutable.
+- Release authorization binds one merge commit, typed target set, and artifact
+  digests and cannot survive a changed target or artifact.
 - Timestamps are evidence metadata, not ordering authority; cycles and exact
   snapshots determine ordering.
 
@@ -577,7 +659,7 @@ content, and task transcripts are excluded.
 - workflow identity and repository;
 - task bindings and bootstrap readiness;
 - feature stages and current cycles;
-- active Goal feature and queue;
+- active GoalRun and queue;
 - prepared/dispatched/accepted message states;
 - report, merge, release, and closure proof references;
 - last safe error kind and recovery hint.
@@ -608,18 +690,22 @@ skills.
 - Artifact existence, commit/path/digest binding.
 - Every valid state transition and representative invalid transitions.
 - Duplicate identical message acceptance and conflicting replay rejection.
-- Goal queue and single-active-Goal invariant.
+- GoalRun queue, single-active invariant, remediation creation, and terminal
+  immutability.
 - Review cycle and stale result rejection.
 - Exact-head merge constraints.
-- Release authorization/result binding and pre-release closure rejection.
+- Release authorization/result binding, exact typed target sets, partial
+  failure, and pre-release closure rejection.
 - Atomic state persistence and sanitized failures.
 
 ### Skill contract
 
 - Init declares and bootstraps exactly three tasks.
 - Requirements cannot design or implement.
-- Main loads the three implementation-side source skills.
-- Review loads both review-side source skills and never edits feature branches.
+- Main explicitly loads the three implementation-side source skills.
+- Review explicitly loads both review-side source skills and never edits
+  feature branches.
+- All five composition skills are explicit-only in packaged metadata.
 - Goal-mode start is gated by plan approval and Init authorization.
 - Release requires exact per-release authorization.
 - All role names, task keys, commands, schema names, and paths agree.
@@ -629,11 +715,12 @@ skills.
 - End-to-end happy path through closure using temporary Git repositories and
   simulated task/GitHub evidence.
 - Plan-fail/remediate/re-review loop.
-- Code-findings/remediate/re-review loop.
-- Concurrent approved features queue behind one Goal slot.
+- Code-findings/new-remediation-Goal/re-review loop.
+- Concurrent approved/remediation features queue behind one GoalRun slot.
 - Delivery failure and idempotent retry.
 - Merge/check/stale-head negative paths.
-- Release failure and explicit retry.
+- Partial multi-target release failure and explicit retry.
+- Identical review-record retry and conflicting existing-branch rejection.
 
 ### Manual proof
 
@@ -664,5 +751,7 @@ No blocking product or safety decision remains. The initial implementation uses:
 - version `0.1.0`;
 - repo marketplace name `macos-computer-use`;
 - manual per-release authorization only;
+- typed GitHub Release and PyPI targets with required artifact digests;
 - immutable review-record branches;
-- one active Main Goal with a durable queue.
+- one active GoalRun with a durable queue;
+- explicit-only invocation for the five composition skills.
