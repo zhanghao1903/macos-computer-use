@@ -5,7 +5,6 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_ROOT = REPOSITORY_ROOT / "plugins" / "codex-engineering-lifecycle"
 
@@ -25,7 +24,9 @@ class PluginLayoutTests(unittest.TestCase):
         entry = next(
             item for item in marketplace["plugins"] if item["name"] == manifest["name"]
         )
-        self.assertEqual(entry["source"]["path"], "./plugins/codex-engineering-lifecycle")
+        self.assertEqual(
+            entry["source"]["path"], "./plugins/codex-engineering-lifecycle"
+        )
         self.assertEqual(entry["policy"]["installation"], "AVAILABLE")
         self.assertEqual(entry["policy"]["authentication"], "ON_INSTALL")
         prompts = manifest["interface"]["defaultPrompt"]

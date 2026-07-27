@@ -12,6 +12,7 @@
 | `DEVELOPMENT_BLOCKED` | Wait for user/external recovery, then resume same blocked run |
 | `DEVELOPMENT_COMPLETE` | Prepare exact-head code review |
 | `CODE_CHANGES_REQUESTED` | Queue a new remediation GoalRun |
+| `MERGE_READY` | Under review-only, wait for an external merge owner and Review's observed proof |
 | `MERGED` | Prepare exact release proposal |
 | `RELEASE_AWAITING_AUTHORIZATION` | Wait for exact user authorization |
 | `RELEASE_AUTHORIZED` / `RELEASE_FAILED` | Publish or retry authorized targets |
@@ -27,6 +28,8 @@ All three artifacts must exist at one commit:
 
 The helper computes individual digests and a canonical composite digest.
 Review approval applies only to that commit and composite digest.
+Every plan or code review cycle after the first must include the exact latest
+result message ID; it may not skip or substitute prior review authority.
 
 ## GoalRun
 
@@ -75,6 +78,10 @@ PyPI target:
 
 The helper returns deterministic target IDs. The result must contain exactly
 one entry per target. One failure prevents RELEASED and CLOSED.
+After partial failure, a retry contains exactly the failed targets and retains
+earlier successful proof. Replaying the final successful submission returns the
+durable cumulative result as an idempotent duplicate. A replay of the complete
+cumulative result is also safe; any other successful subset is a conflict.
 
 ## External proof
 
@@ -82,3 +89,7 @@ Use authoritative GitHub/PyPI APIs or supported connectors. Do not paste tokens,
 signed temporary URLs, headers, or raw logs into state. Record canonical public
 URLs, commit/tag/version, artifact names/digests, timestamps, and sanitized
 errors only.
+
+GitHub release and asset URLs must belong to the authorized repository/tag.
+PyPI/TestPyPI project and artifact URLs must belong to the authorized normalized
+project/version and expected index hosts.

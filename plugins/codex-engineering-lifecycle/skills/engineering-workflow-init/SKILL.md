@@ -63,10 +63,34 @@ Use the repository name in exact titles:
 - `Engineering Main · <repository>`;
 - `Engineering Review · <repository>`.
 
+Before creating the first task, persist the recoverable Init ledger:
+
+```text
+workflowctl.py begin-init
+  --repo <repository-root>
+  --goal-mode-authorized
+  --merge-mode <review-only|merge-on-approve>
+  --merge-method <squash|merge|rebase>
+  [--delete-branch]
+```
+
 On first Init, create exactly those three project-scoped tasks, pin them, and
-record their returned IDs. On repeated Init, reuse exact healthy bindings. Do
-not create replacements merely because a task is idle. If one task is missing,
-repair only after proving the other bindings and repository identity match.
+immediately record each returned ID:
+
+```text
+workflowctl.py record-init-task
+  --repo <repository-root>
+  --role <requirements|main|review>
+  --created-task-id <id>
+```
+
+On repeated or interrupted Init, inspect `status` first and reuse every task ID
+already present in the pending ledger. Never recreate a recorded role. If task
+creation returned but its ledger write did not, list/read exact-title tasks,
+verify their repository/bootstrap message, and record that existing ID before
+creating anything. Do not create replacements merely because a task is idle.
+If one task is missing, repair only after proving the other bindings and
+repository identity match.
 
 Task creation is asynchronous. Wait for task availability without answering
 approval or user-input requests on another task's behalf.
@@ -88,6 +112,9 @@ python <plugin-root>/scripts/workflowctl.py init
 ```
 
 Copy the returned `workflowId` and canonical repository key exactly.
+Finalization must use exactly the three IDs and policy in the pending ledger.
+The helper repairs the recoverable `config.json`-written/`state.json`-missing
+crash window and reports `recovered: true`.
 
 ## Bootstrap roles
 
@@ -103,7 +130,9 @@ Send each task a short bootstrap message containing:
 - instruction to read durable status before acting;
 - instruction to acknowledge without beginning feature work.
 
-Require an acknowledgement that names the same workflow, task ID, and role.
+Each role skill has a bootstrap-only exception that permits this acknowledgement
+before global readiness; it permits no feature work. Require an acknowledgement
+that names the same workflow, task ID, and role.
 Record each with:
 
 ```text

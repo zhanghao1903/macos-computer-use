@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SOURCE_ROOT = REPOSITORY_ROOT / ".agents" / "skills"
 PACKAGED_ROOT = REPOSITORY_ROOT / "plugins" / "codex-engineering-lifecycle" / "skills"
@@ -46,9 +45,17 @@ class SourceSkillParityTests(unittest.TestCase):
                 )
 
     def test_existing_agent_metadata_has_only_explicit_policy_appended(self) -> None:
-        for name in ("feature-lifecycle", "technical-plan-write", "technical-plan-review"):
-            source = (SOURCE_ROOT / name / "agents" / "openai.yaml").read_text(encoding="utf-8")
-            packaged = (PACKAGED_ROOT / name / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        for name in (
+            "feature-lifecycle",
+            "technical-plan-write",
+            "technical-plan-review",
+        ):
+            source = (SOURCE_ROOT / name / "agents" / "openai.yaml").read_text(
+                encoding="utf-8"
+            )
+            packaged = (PACKAGED_ROOT / name / "agents" / "openai.yaml").read_text(
+                encoding="utf-8"
+            )
             self.assertEqual(
                 packaged,
                 source.rstrip() + "\n\npolicy:\n  allow_implicit_invocation: false\n",
@@ -57,7 +64,9 @@ class SourceSkillParityTests(unittest.TestCase):
     def test_missing_source_metadata_uses_bounded_packaging_overlay(self) -> None:
         for name in ("product-workflow-gate", "pr-review"):
             self.assertFalse((SOURCE_ROOT / name / "agents" / "openai.yaml").exists())
-            packaged = (PACKAGED_ROOT / name / "agents" / "openai.yaml").read_text(encoding="utf-8")
+            packaged = (PACKAGED_ROOT / name / "agents" / "openai.yaml").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("interface:", packaged)
             self.assertIn(f"${name}", packaged)
             self.assertRegex(

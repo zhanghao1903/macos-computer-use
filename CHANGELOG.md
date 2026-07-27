@@ -10,6 +10,19 @@
   typed GitHub Release/PyPI authorization, partial-failure retry, and auditable
   feature closure.
 
+### Fixed
+
+- Close Engineering Lifecycle review/retry safety gaps by making request
+  acceptance atomic, binding every re-review to the latest result, supporting
+  observed external merges under review-only, preserving deterministic message
+  and release-result replay, and tying release proof URLs to authorized GitHub
+  or PyPI destinations. Make Init task creation recoverable, unblock strict
+  bootstrap acknowledgements without allowing feature work, require pushed
+  current requirements snapshots, make Goal activation retry-safe, enforce
+  green READY checks, rebind persisted release/closure target sets, bind
+  successful release replay to exact recorded submissions, and reject
+  future-stage proof under earlier lifecycle stages.
+
 ### Docs
 
 - Record the `0.3.0` GitHub Release, production PyPI artifact digests,

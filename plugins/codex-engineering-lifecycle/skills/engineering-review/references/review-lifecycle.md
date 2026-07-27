@@ -53,6 +53,12 @@ Immediately before merge, refresh live:
 
 Any changed head invalidates approval.
 
+For `review-only`, deliver and apply `APPROVE` plus `READY` first. Review does
+not execute the merge. If a separately authorized merge owner later merges the
+exact head, re-read the live PR and return an observed `MERGED` result using the
+same request and report proof. Do not create a new review cycle merely to
+record that merge. Direct `MERGED` before READY fails closed.
+
 ## Result delivery
 
 Return JSON produced by `workflowctl` unchanged. The report proof binds:
@@ -63,3 +69,7 @@ Return JSON produced by `workflowctl` unchanged. The report proof binds:
 - SHA-256 for every report.
 
 Mark host-confirmed delivery. A retry reuses the same message/result proof.
+Re-preparing unchanged authority returns the originally stored payload and
+timestamp. Every cycle after the first must bind
+`previousResultMessageId` to the exact latest result; missing, stale, or
+unrelated IDs are rejected.

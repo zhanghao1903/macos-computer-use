@@ -150,10 +150,14 @@ sequenceDiagram
     Init->>Init: Verify trusted GitHub checkout and tools
     Init->>User: Disclose Goal mode and release/merge policies
     User-->>Init: Explicit policy choices
+    Init->>State: begin-init(recoverable empty task ledger)
     Init->>Req: Create or bind pinned task
+    Init->>State: record requirements task ID
     Init->>Main: Create or bind pinned task
+    Init->>State: record main task ID
     Init->>Review: Create or bind pinned task
-    Init->>State: init(config with all task IDs)
+    Init->>State: record review task ID
+    Init->>State: init(finalize exact ledger and config/state)
     State-->>Init: workflowId + validated config
     Init->>Req: Role bootstrap + workflow identity
     Init->>Main: Role bootstrap + workflow identity
@@ -164,10 +168,13 @@ sequenceDiagram
     Init-->>User: Initialized status and recovery path
 ```
 
-Init fails before persistence when any required capability cannot be proven.
-If persistence succeeds but a bootstrap acknowledgement fails, state records a
-recoverable incomplete bootstrap and repeated Init retries only the missing
-acknowledgement.
+Init writes `init-pending.json` before creating any task and records each
+returned ID immediately. Interrupted Init therefore resumes from recorded roles
+instead of recreating tasks. A config-written/state-missing crash window is
+reconstructed with the same workflow ID and task/policy binding. Each role has
+a bootstrap-only exception to emit strict `EngineeringRoleReady` JSON before
+global readiness; runtime rejects feature work until all three acknowledgements
+are durable.
 
 ## Feature state machine
 
@@ -188,7 +195,9 @@ stateDiagram-v2
     DEVELOPMENT_COMPLETE --> CODE_REVIEW_PENDING
     CODE_REVIEW_PENDING --> CODE_CHANGES_REQUESTED: Findings
     CODE_CHANGES_REQUESTED --> DEVELOPMENT_QUEUED: Queue new remediation Goal
-    CODE_REVIEW_PENDING --> MERGED: Approve + exact-head merge
+    CODE_REVIEW_PENDING --> MERGE_READY: Approve + READY (review-only)
+    MERGE_READY --> MERGED: Observe external exact-head merge
+    CODE_REVIEW_PENDING --> MERGED: Approve + exact-head auto-merge
     MERGED --> RELEASE_AWAITING_AUTHORIZATION
     RELEASE_AWAITING_AUTHORIZATION --> RELEASE_AUTHORIZED
     RELEASE_AUTHORIZED --> RELEASED: Publishing proof accepted
@@ -213,6 +222,11 @@ Stored at:
 ```text
 ${CODEX_HOME:-~/.codex}/engineering-lifecycle/projects/<repository-key>/config.json
 ```
+
+Before finalization, the same directory contains an exact-key
+`init-pending.json` with repository identity, workflow ID, policy, and the
+incrementally recorded task map. Finalization removes it only after both config
+and state validate.
 
 | Field | Type | Required | Default | Owner | Validation / compatibility |
 | --- | --- | --- | --- | --- | --- |
@@ -249,7 +263,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | `bootstrap` | object | yes | empty acknowledgements | Init | Exact role/task acknowledgements |
 | `features` | map | yes | `{}` | runtime | Keys equal validated feature IDs |
 | `developmentQueue` | string array | yes | `[]` | runtime | Unique feature IDs in approval order |
-| `activeGoal` | object/null | yes | `null` | Main | `{featureId, goalRunId}`; at most one and must reference an ACTIVE run |
+| `activeGoal` | object/null | yes | `null` | Main | `{featureId, goalRunId}`; at most one and must reference the single ACTIVE or BLOCKED run occupying the slot |
 | `dispatches` | map | yes | `{}` | runtime | Deterministic message ledgers |
 | `updatedAt` | RFC3339 UTC | yes | now | runtime | Strict `Z` timestamp |
 
@@ -264,7 +278,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | `requirements` | `ArtifactSnapshot` | conditional | none | Requirements | Required after confirmation |
 | `plan` | `PlanSnapshot` | conditional | none | Main | Required after plan preparation |
 | `planReviewCycle` | integer | yes | `0` | runtime | Increments per immutable request |
-| `goalRuns` | `GoalRun` array | yes | `[]` | Main | Ordered immutable run ledger; at most one ACTIVE run |
+| `goalRuns` | `GoalRun` array | yes | `[]` | Main | Ordered immutable run ledger; at most one ACTIVE/BLOCKED slot occupant |
 | `pullRequest` | `PullRequestSnapshot` | conditional | none | Main | Required before code review |
 | `codeReviewCycle` | integer | yes | `0` | runtime | Increments per exact head |
 | `merge` | `MergeProof` | conditional | none | Review | Required after merge |
@@ -280,11 +294,11 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | --- | --- | --- |
 | `ArtifactSnapshot` | `path`, `commitSha`, `sha256` | Repo-relative Markdown path, lowercase 40-hex commit, lowercase 64-hex digest; content must exist at commit and match digest |
 | `PlanSnapshot` | `requirements`, `design`, `implementationPlan`, `planCommitSha`, `compositeSha256` | All artifacts at one commit; composite digest over canonical ordered artifact metadata |
-| `GoalRun` | `goalRunId`, `purpose`, `reviewCycle`, `threadId`, `authorityMessageId`, `objectiveDigest`, `status`, `startedAt`, `completedAt?`, `blockedReason?`, `usage?` | Deterministic run ID; purpose is `INITIAL_IMPLEMENTATION` or `CODE_REMEDIATION`; thread equals Main; one ACTIVE run globally |
+| `GoalRun` | `goalRunId`, `purpose`, `reviewCycle`, `threadId`, `authorityMessageId`, `objectiveDigest`, `status`, `startedAt`, `completedAt?`, `blockedReason?`, `usage?` | Deterministic run ID; purpose is `INITIAL_IMPLEMENTATION` or `CODE_REMEDIATION`; thread equals Main; one ACTIVE or BLOCKED run occupies the global slot |
 | `PullRequestSnapshot` | `number`, `url`, `baseRef`, `baseSha`, `headRef`, `headSha` | Canonical repository PR URL and exact lowercase SHAs |
 | `ReviewReportProof` | `branch`, `path`, `commitSha`, `sha256`, `jsonPath?`, `jsonSha256?` | Branch uses `codex/review-records/`; report exists and matches digest |
 | `MergeProof` | `method`, `prUrl`, `approvedHeadSha`, `mergeCommitSha`, `mergedAt` | Exact approved head and canonical PR; method matches config |
-| `ReleaseRecord` | `authorization`, `result?` | Authorization and result schemas must bind the merge target and version/tag |
+| `ReleaseRecord` | `authorization`, `result?`, `lastSubmission?` | Authorization, cumulative result, and the exact last accepted submission must bind the merge target and version/tag |
 | `ClosureRecord` | `releaseTargets`, `releaseTag`, `releaseDigest`, `summary`, `closedAt` | Every authorized release target succeeded; bounded summary and strict timestamp |
 
 ## Routed contract envelope
@@ -317,7 +331,10 @@ Body fields:
 - `confirmation.evidence` (bounded, sanitized summary).
 
 The destination is Main. The requirements document must contain machine-readable
-confirmed metadata matching the payload.
+confirmed metadata matching the payload. Its path is exactly
+`docs/feature/<feature-slug>/requirements.md`, its branch is exactly
+`codex/<feature-slug>`, and the commit must be the authoritative `origin` branch
+tip.
 
 ### `TechnicalPlanReviewRequest`
 
@@ -326,7 +343,8 @@ Body fields:
 - `plan: PlanSnapshot`;
 - `reviewRecordBranch`;
 - `acceptanceCriteriaDigest`;
-- `previousResultMessageId` for re-review, otherwise absent.
+- `previousResultMessageId` for re-review, otherwise absent. Cycle 2+ requires
+  the exact latest plan result; cycle 1 rejects it.
 
 The destination is Review. `reviewRecordBranch` is deterministically:
 
@@ -356,7 +374,8 @@ Body fields:
 - `pullRequest: PullRequestSnapshot`;
 - `reviewRecordBranch`;
 - `mergePolicy` copied exactly from config;
-- `previousResultMessageId` for re-review, otherwise absent.
+- `previousResultMessageId` for re-review, otherwise absent. Cycle 2+ requires
+  the exact latest code result; cycle 1 rejects it.
 
 The review branch is:
 
@@ -377,9 +396,18 @@ Body fields:
 - `merge: {status, method?, url?, sha?, error?}`;
 - `summary`.
 
-`APPROVE` requires no blocking finding. `MERGED` additionally requires exact
-head, green required checks, configured merge-on-approve, canonical URL, and
-merge SHA. A stale head yields a non-authorizing result and a new cycle.
+`APPROVE` requires no blocking finding. `READY`, `MERGED`, and merge `FAILED`
+all require `APPROVE` plus green required checks. `READY` is valid only under
+review-only; merge `FAILED` is valid only after a merge-on-approve attempt.
+`NOT_REQUESTED` cannot accompany approval, and `STALE` requires a
+non-authorizing `COMMENT`. An automatic `MERGED` additionally requires exact
+head, configured merge-on-approve, canonical URL, and merge SHA.
+
+For `review-only`, the initial exact-head approval returns `READY` without
+merging. After a separately authorized merge owner acts, Review may return an
+observed `MERGED` proof for the same request/report only when the prior
+APPROVE/passing-checks/READY result is already applied. This records external
+fact without granting Review automatic merge authority.
 
 ### `GoalRun`
 
@@ -400,9 +428,11 @@ A feature has one initial implementation run and zero or more remediation runs.
 | `usage` | object | optional | Sanitized final token/time evidence returned by the Goal tool |
 
 `start-development` creates or reuses the deterministic PREPARED run, then
-records the platform-created Goal as ACTIVE. `complete-development` requires
-authoritative Goal status COMPLETE. A code-review changes result enqueues a new
-`CODE_REMEDIATION` run; it never mutates or resumes the completed initial run.
+records the platform-created Goal as ACTIVE. Replaying either prepare or
+activate after response loss returns the same run with `duplicate: true` and
+preserves timestamps. `complete-development` requires authoritative Goal status
+COMPLETE. A code-review changes result enqueues a new `CODE_REMEDIATION` run; it
+never mutates or resumes the completed initial run.
 
 ### `ReleaseAuthorization`
 
@@ -471,6 +501,20 @@ A published GitHub result additionally contains `releaseUrl` and
 `repository`, `projectName`, and `version`. Result target IDs must be an exact
 set match for authorization targets. The overall result is successful only
 when every target status is PUBLISHED and every artifact digest matches.
+Every state load re-normalizes the authorization and result, requires their
+target sets to match exactly, and revalidates destination URLs, target identity,
+artifacts, authorization ID, and proof digest. The runtime stores the exact last
+accepted submission beside the cumulative result. A retry after `RELEASED` is
+idempotent only when it exactly matches that last submission or the complete
+cumulative result; an arbitrary successful subset is a replay conflict.
+`RELEASE_FAILED` must contain a failed authorized target; `RELEASED` must
+contain every authorized target as PUBLISHED.
+
+Stage validation is bidirectional: proof required by a stage must be present,
+and proof from a future stage must be absent. Merge proof is legal only from
+`MERGED` onward, release proof only from `RELEASE_AUTHORIZED` onward, and closure
+proof only at `CLOSED`. A damaged state cannot be made authoritative merely by
+moving its stage backward.
 
 ### `ClosureRecord`
 
@@ -489,8 +533,9 @@ Fields:
 
 The record is stored in durable state and summarized in GitHub Release notes or
 another explicit F8 carrier. `releaseTargets` references every successful
-authorized target. Closure cannot be replayed against another feature and is
-rejected if any target is missing, failed, or digest-mismatched.
+authorized target and must equal the cumulative release-result target list
+exactly. Closure cannot be replayed against another feature and is rejected if
+any target is missing, foreign, failed, or digest-mismatched.
 
 ## End-to-end sequence
 
@@ -603,6 +648,8 @@ recoverable. Complete runs are immutable and never resumed.
 | Failure | Runtime result | Recovery |
 | --- | --- | --- |
 | Missing task/Goal/GitHub capability | Init fails before usable bootstrap | Enable capability and rerun Init |
+| Interrupted task creation | Pending Init ledger reports recorded/missing roles | Reuse recorded IDs; create only an unrecorded role |
+| Config written but state missing | `recoveryRequired` status | Finalize Init with the exact recorded IDs/policy |
 | Conflicting existing config | `config_conflict` | Inspect status; explicit reconfigure or use correct project |
 | Invalid/unconfirmed requirements | `requirements_unconfirmed` | Correct, commit, reconfirm, prepare again |
 | Artifact missing or digest mismatch | `snapshot_mismatch` | Push exact artifact commit and regenerate request |

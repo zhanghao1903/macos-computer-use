@@ -14,6 +14,12 @@ Use exact fields near the top of the requirements Markdown:
 
 The helper reads the committed document and requires all confirmed fields.
 Revisions after confirmation must return status to Draft until reconfirmed.
+The branch and path are deterministic:
+
+```text
+codex/<feature-slug>
+docs/feature/<feature-slug>/requirements.md
+```
 
 ## Content
 
@@ -36,6 +42,7 @@ Do not include technical design or an implementation plan.
 - workflow/repository and exact task route;
 - feature ID, title, branch;
 - document path, commit SHA, and SHA-256;
+- exact canonical `origin` branch tip at that commit;
 - confirmed user/timestamp/evidence;
 - deterministic message ID.
 
@@ -45,5 +52,6 @@ add, remove, or override authority.
 ## Retry
 
 An identical committed snapshot yields the same message ID and is safe to
-redeliver. Any changed path, commit, digest, confirmation, branch, route, or
-workflow requires a new message.
+redeliver. Re-preparation returns the first stored payload, including its
+original timestamp. Any changed path, commit, digest, confirmation, branch,
+route, or workflow requires a new message.

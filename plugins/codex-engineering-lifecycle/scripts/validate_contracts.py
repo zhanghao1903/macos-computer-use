@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Callable, Sequence
-
+from typing import Any
 
 CONTRACTS = {
     "requirements-handoff": ("requirements-handoff.schema.json", "RequirementsHandoff"),
@@ -22,7 +22,10 @@ CONTRACTS = {
     ),
     "code-review-request": ("code-review-request.schema.json", "CodeReviewRequest"),
     "code-review-result": ("code-review-result.schema.json", "CodeReviewResult"),
-    "release-authorization": ("release-authorization.schema.json", "ReleaseAuthorization"),
+    "release-authorization": (
+        "release-authorization.schema.json",
+        "ReleaseAuthorization",
+    ),
     "release-result": ("release-result.schema.json", "ReleaseResult"),
     "closure-record": ("closure-record.schema.json", "ClosureRecord"),
 }
@@ -35,7 +38,9 @@ def load_json(path: Path) -> Any:
 
 def load_workflowctl(script_dir: Path) -> Any:
     path = script_dir / "workflowctl.py"
-    spec = importlib.util.spec_from_file_location("codex_engineering_lifecycle_workflowctl", path)
+    spec = importlib.util.spec_from_file_location(
+        "codex_engineering_lifecycle_workflowctl", path
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot load {path}")
     module = importlib.util.module_from_spec(spec)
@@ -47,7 +52,7 @@ def jsonschema_validators(
     schemas: dict[str, Any],
 ) -> dict[str, Callable[[Any], None]] | None:
     try:
-        import jsonschema
+        import jsonschema  # type: ignore[import-untyped]
     except ImportError:
         return None
     validators: dict[str, Callable[[Any], None]] = {}
@@ -69,7 +74,7 @@ def fixture_contract(path: Path) -> str:
 def capture_validation(callback: Callable[[], None]) -> tuple[bool, str | None]:
     try:
         callback()
-    except Exception as exc:  # fixture evidence intentionally keeps validator class
+    except Exception as exc:  # noqa: BLE001 - validators intentionally expose different exception types
         summary = str(exc).splitlines()[0][:500]
         return False, f"{type(exc).__name__}: {summary}"
     return True, None
@@ -79,7 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--schemas", type=Path, default=plugin_root / "schemas")
-    parser.add_argument("--fixtures", type=Path, default=plugin_root / "tests" / "fixtures")
+    parser.add_argument(
+        "--fixtures", type=Path, default=plugin_root / "tests" / "fixtures"
+    )
     parser.add_argument("--file", type=Path, help="Validate one named fixture")
     parser.add_argument(
         "--require-jsonschema",
@@ -118,25 +125,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: list[dict[str, Any]] = []
     failures = 0
     for path in fixture_paths:
+        schema_valid: bool | None
+        schema_detail: str | None
         try:
             contract_key = fixture_contract(path)
             payload = load_json(path)
             runtime_name = CONTRACTS[contract_key][1]
             expected_valid = ".invalid." not in path.name
-            runtime_valid, runtime_detail = capture_validation(
-                lambda: workflowctl.validate_contract_payload(payload, runtime_name)
-            )
+
+            def validate_runtime(
+                payload_value: Any = payload,
+                contract_name: str = runtime_name,
+            ) -> None:
+                workflowctl.validate_contract_payload(payload_value, contract_name)
+
+            runtime_valid, runtime_detail = capture_validation(validate_runtime)
             if schema_validators is None:
                 schema_valid = None
                 schema_detail = "jsonschema is unavailable; runtime fallback only"
             else:
-                schema_valid, schema_detail = capture_validation(
-                    lambda: schema_validators[contract_key](payload)
-                )
+                schema_validator = schema_validators[contract_key]
+
+                def validate_schema(
+                    payload_value: Any = payload,
+                    validator: Callable[[Any], None] = schema_validator,
+                ) -> None:
+                    validator(payload_value)
+
+                schema_valid, schema_detail = capture_validation(validate_schema)
             passed = runtime_valid == expected_valid and (
                 schema_valid is None or schema_valid == expected_valid
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report malformed fixture evidence uniformly
             contract_key = "unknown"
             expected_valid = ".invalid." not in path.name
             runtime_valid = False
@@ -161,7 +181,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     output = {
         "ok": failures == 0,
-        "schemaEngine": "jsonschema+runtime" if schema_validators else "runtime-fallback",
+        "schemaEngine": "jsonschema+runtime"
+        if schema_validators
+        else "runtime-fallback",
         "fixtures": len(results),
         "failures": failures,
         "results": results,

@@ -72,7 +72,8 @@ Init explains the policy and asks for the two material choices:
 2. `review-only` or `merge-on-approve` and, for automatic merge, the allowed
    merge method.
 
-After confirmation, Init creates and pins exactly:
+After confirmation, Init first writes a recoverable pending ledger, then creates
+and pins exactly:
 
 ```text
 Requirements · <repository>
@@ -80,9 +81,12 @@ Engineering Main · <repository>
 Engineering Review · <repository>
 ```
 
-It binds their IDs to the canonical repository, bootstraps the three roles, and
-reports the workflow ID and local state location. Init is successful only after
-all three tasks acknowledge their exact role.
+Each returned task ID is recorded immediately, so an interrupted Init reuses
+already-created tasks instead of duplicating them. Finalization binds their IDs
+to the canonical repository, bootstraps the three roles, and reports the
+workflow ID and local state location. Each role may emit only its strict
+bootstrap acknowledgement before global readiness; feature work remains
+forbidden until all three acknowledgements are durable.
 
 Submit new feature requests to the Requirements task. Do not send a feature
 directly to Main or Review.
@@ -111,6 +115,12 @@ be active across the workflow, so multiple features remain deterministic.
 Review uses `codex/review-records/...` branches. They contain only review
 artifacts, are never force-pushed, and are retained as audit evidence.
 
+With `review-only`, Review first returns `APPROVE`/`READY` and does not merge.
+After a separately authorized human or merge owner merges the exact head,
+Review refreshes GitHub state and records the observed `MERGED` proof. With
+`merge-on-approve`, Review may perform and record the merge only when every
+configured gate passes.
+
 ## Release behavior
 
 Main presents the exact version, tag, merge commit, target types, artifact
@@ -124,6 +134,13 @@ One failed target keeps the feature open. A retry may contain only the failed
 targets from the same authorization; successful proof remains durable. A new
 proposal requires a new explicit authorization. Closure is rejected until
 every authorized target is published with matching artifact digests.
+Successful GitHub URLs are bound to the authorized repository/tag, and
+PyPI/TestPyPI URLs are bound to the normalized project/version and index.
+After success, a response-loss retry is accepted only when it exactly repeats
+the last accepted submission or the complete cumulative result. Other
+successful subsets are rejected so they cannot impersonate the last operation.
+State validation also rejects merge, release, or closure proof that belongs to
+a later stage than the feature currently declares.
 
 ## Update
 
@@ -170,8 +187,11 @@ ${CODEX_HOME:-~/.codex}/engineering-lifecycle/projects/<repository-key>/
 ```
 
 Repeated Init is idempotent only when repository, task IDs, and policies match.
-For incomplete bootstrap, resend only missing role messages. For malformed
-state, preserve the files and diagnose them; do not hand-edit or delete them.
+For interrupted task creation, `status` exposes the pending task IDs and missing
+roles; reuse them and record only proven existing tasks. A config-only crash
+window is finalized with the same IDs and workflow ID. For incomplete
+bootstrap, resend only missing role messages. For malformed state, preserve the
+files and diagnose them; do not hand-edit or delete them.
 See the Init skill's `setup-and-recovery.md` for detailed error handling.
 
 ## Development verification

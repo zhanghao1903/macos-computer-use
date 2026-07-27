@@ -18,6 +18,7 @@ The helper derives:
 
 ```text
 ${CODEX_HOME:-~/.codex}/engineering-lifecycle/projects/<repository-key>/
+├── init-pending.json  # only while Init is incomplete
 ├── config.json
 ├── state.json
 └── state.lock
@@ -46,9 +47,19 @@ Each role must reply with:
 
 Do not accept prose-only acknowledgement.
 
+The role task does not call `ack-bootstrap`. It returns the JSON to the Init
+task, which validates the exact values and records the acknowledgement. Global
+readiness remains false until all three acknowledgements are recorded.
+
 ## Recovery
 
 - `workflow_not_initialized`: rerun Init from the exact repository.
+- `init_not_started`: run `begin-init` before creating any tasks.
+- interrupted task creation: read `status`, reuse every task ID in the pending
+  ledger, and record only a proven existing missing role before creating one.
+- `init_recovery_required`: use the recorded IDs and policy to rerun final
+  `init`; a config-only crash window reconstructs empty state with the same
+  workflow ID.
 - `bootstrap_incomplete`: inspect status and resend only missing role bootstrap.
 - `task_role_mismatch`: stop; do not rewrite IDs silently.
 - `config_conflict`: compare canonical origin, common directory, policies, and

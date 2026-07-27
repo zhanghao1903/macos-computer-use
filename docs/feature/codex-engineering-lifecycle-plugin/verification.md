@@ -64,7 +64,15 @@ uv run --isolated --with pyyaml --with jsonschema python \
   -p 'test_*.py' -v
 ```
 
-Result: 24 tests passed.
+Initial F5 result: 24 tests passed.
+
+Post-review and forward-test remediation result: 28 tests passed, including
+recoverable incremental Init, bootstrap blocking, deterministic message/Goal
+replay, exact re-review authority, atomic acceptance rollback, pushed-current
+requirements, plan/code remediation loops, review-only
+READY/observed-MERGED, destination-bound full-target release proof, successful
+last-submission/cumulative-result release replay, arbitrary-subset rejection,
+inverse stage invariants, and corrupt-state rejection.
 
 Coverage includes:
 
@@ -88,23 +96,57 @@ uv run --isolated --with jsonschema python \
 
 Result: 16 fixtures, zero failures, `jsonschema+runtime`.
 
+### Python static and format gates
+
+Commands:
+
+```bash
+uv run --isolated --with ruff ruff check \
+  plugins/codex-engineering-lifecycle/scripts \
+  plugins/codex-engineering-lifecycle/tests
+
+uv run --isolated --with ruff ruff format --check \
+  plugins/codex-engineering-lifecycle/scripts \
+  plugins/codex-engineering-lifecycle/tests
+```
+
+Result: Pass; all checks passed and all eight Python files were already
+formatted on the final check.
+
+Strict type command:
+
+```bash
+uv run --isolated --with mypy --with jsonschema --with types-PyYAML mypy \
+  plugins/codex-engineering-lifecycle/scripts/workflowctl.py \
+  plugins/codex-engineering-lifecycle/scripts/validate_contracts.py
+```
+
+Result: Pass; no issues in both runtime scripts.
+
 ## End-to-end lifecycle proof
 
 The temporary-Git integration test proved:
 
-1. canonical GitHub repository binding;
-2. Init with distinct Requirements/Main/Review IDs;
-3. all role bootstrap acknowledgements;
-4. committed confirmed requirements handoff;
-5. committed technical-plan snapshot and independent Pass report;
-6. initial GoalRun prepare/activate/block/resume/complete;
-7. exact-head code-review request and immutable report branch;
-8. passing-check and matching-policy merge proof;
-9. exact two-target release authorization;
-10. GitHub Release success and PyPI failure;
-11. closure rejection while one target failed;
-12. retry containing only the failed PyPI target;
-13. cumulative all-target success and closure.
+1. canonical GitHub repository binding and recoverable incremental Init;
+2. distinct Requirements/Main/Review IDs and config-only crash recovery;
+3. bootstrap-only acknowledgements and pre-ready feature-work rejection;
+4. deterministic, pushed, current confirmed requirements handoff;
+5. technical-plan Fail, remediation, exact previous-result re-review, and Pass;
+6. initial GoalRun prepare/activate replay, block/resume, and completion;
+7. code REQUEST_CHANGES, new remediation GoalRun, exact new-head re-review;
+8. failing-check READY and review-only direct-MERGED rejection;
+9. applied READY, then observed external
+   matching-policy merge proof;
+10. exact two-target release authorization;
+11. GitHub Release success and PyPI failure;
+12. closure rejection while one target failed;
+13. retry containing only the failed PyPI target;
+14. cumulative all-target success and successful result replay;
+15. exact final-submission and cumulative-result replay, with arbitrary
+    successful subset rejection;
+16. missing authorized result target/ID, arbitrary closure target, and
+    future-proof/earlier-stage state corruption rejection;
+17. final closure.
 
 No production repository, PR, release, or package publication was mutated by
 this test.
@@ -119,6 +161,10 @@ this test.
 - Project dependency/API impact: none; temporary validators use isolated
   development dependencies.
 - Generated environments: no `.venv` retained.
+- Repository `scripts/release_preflight.py`: Pass. The sandbox prevented its
+  local Unix-socket smoke, and the existing opt-in external application and
+  TestPyPI/PyPI proofs remain explicitly unverified; this plugin does not
+  change those package surfaces.
 
 ## Known operational requirements
 

@@ -15,6 +15,13 @@ request.
 Run `workflowctl.py status --repo <root> --task-id <current-task-id>` and
 continue only as configured role `review` with ready bootstrap.
 
+Bootstrap has one narrow exception to the global-ready gate. When status proves
+this exact task is bound to `review`, its own bootstrap flag is false, and the
+message requests role acknowledgement, reply only with
+`{"type":"EngineeringRoleReady","workflowId":"<exact>","repositoryKey":"<exact>","taskId":"<exact>","role":"review"}`.
+Do not accept a review, call `ack-bootstrap`, or claim global readiness. If
+this role is already acknowledged but another role is not, wait.
+
 Persist the routed JSON outside the repository, validate it with
 `accept-plan-review` or `accept-code-review`, and refuse malformed, stale,
 misrouted, duplicate-conflicting, or wrong-repository authority.
@@ -96,6 +103,13 @@ time. Return `MERGED` proof to Main.
 If policy is review-only, return `READY` without merging. If any gate fails,
 return a non-authorizing or FAILED result with sanitized evidence; never weaken
 the gate.
+
+Under review-only, an authorized human or external merge owner may merge after
+the applied READY result. Review must not perform that merge. Afterward,
+refresh authoritative PR state and use the same accepted request/report proof
+to return an observed `MERGED` result. The helper accepts that proof only after
+an applied exact-head `APPROVE`/passing-checks/`READY` result for the same
+request. A direct review-only `MERGED` result is rejected.
 
 ## Prohibitions
 

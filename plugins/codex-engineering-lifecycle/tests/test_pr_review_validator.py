@@ -6,7 +6,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 SKILL_DIR = Path(__file__).resolve().parents[1] / "skills" / "pr-review"
 RESULT_PATH = SKILL_DIR / "examples" / "example-pr-review-result.json"
 PREVIOUS_PATH = SKILL_DIR / "examples" / "example-pr-review-previous-result.json"
@@ -20,7 +19,10 @@ VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
 
 
-@unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema development dependency is unavailable")
+@unittest.skipUnless(
+    importlib.util.find_spec("jsonschema"),
+    "jsonschema development dependency is unavailable",
+)
 class ValidateReviewResultTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -50,8 +52,7 @@ class ValidateReviewResultTests(unittest.TestCase):
         data["decision"].update(status="APPROVE", mergeable=True)
         data["review_context"]["approval_renewal"]["result"] = "GRANTED"
         self.assertTrue(
-            {"BLOCKER_DECISION_MISMATCH", "INVALID_APPROVAL"}
-            <= self.error_codes(data)
+            {"BLOCKER_DECISION_MISMATCH", "INVALID_APPROVAL"} <= self.error_codes(data)
         )
 
     def test_rejects_unclassified_delta(self) -> None:

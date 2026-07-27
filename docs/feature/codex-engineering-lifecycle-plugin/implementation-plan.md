@@ -81,8 +81,9 @@ mentions the skill name. Add only required `references/` or `assets/`.
 - Discover task-management, Goal, and GitHub capabilities.
 - Explain Goal, merge, review-record, release, and cleanup policies.
 - Obtain explicit Goal-mode and merge-policy choices.
-- Create or bind exactly three pinned tasks.
-- Call `workflowctl init`.
+- Call `begin-init`, create or bind exactly three pinned tasks, and call
+  `record-init-task` immediately after each returned ID.
+- Resume interrupted Init from the pending ledger, then call final `init`.
 - Send role bootstrap messages and require acknowledgements.
 - Report config/state location and recovery command.
 
@@ -91,7 +92,8 @@ mentions the skill name. Add only required `references/` or `assets/`.
 - Own natural-language intake and requirements revisions.
 - Write the tracked requirements document and expose confirmation metadata.
 - Wait for explicit user confirmation.
-- Commit and push the immutable snapshot.
+- Commit and push the immutable snapshot; require its deterministic branch/path
+  and exact authoritative remote branch tip.
 - Call `prepare-requirements`, deliver it to Main, and record delivery.
 - Refuse design, implementation, review, merge, release, and closure work.
 
@@ -202,12 +204,15 @@ must prove schema/runtime parity for all fixtures.
 
 ## Slice 5 — deterministic state runtime
 
-Implement `workflowctl.py` with no network calls and standard-library runtime
-dependencies.
+Implement `workflowctl.py` with standard-library runtime dependencies. It makes
+no direct HTTP calls; `prepare-requirements` uses read-only `git ls-remote` to
+prove the already-pushed authoritative branch tip.
 
 ### Commands
 
 ```text
+begin-init
+record-init-task
 init
 status
 ack-bootstrap
@@ -262,17 +267,26 @@ or tests show a clear module boundary. A future split must not change the CLI.
 ### State invariants
 
 - Config and state workflow IDs match.
+- Pending Init persists before task creation, records each task exactly once,
+  and repairs the config-only crash window without changing workflow identity.
 - Task IDs are pairwise distinct.
 - Every feature map key equals `featureId`.
 - Every feature stage has exactly the artifacts required by that stage.
 - `developmentQueue` contains unique approved/remediation feature entries.
-- `activeGoal` is null or identifies the only ACTIVE GoalRun.
+- `activeGoal` is null or identifies the only ACTIVE/BLOCKED GoalRun occupying
+  the global slot.
 - GoalRun IDs are deterministic; completed runs are immutable; remediation
-  uses a new run bound to the requesting code-review result.
+  uses a new run bound to the requesting code-review result; identical prepare
+  and activate replays preserve the existing run/timestamps.
 - Result cycles and request IDs match the latest pending request.
 - Merge proof matches the reviewed PR head and configured policy.
-- Release proof matches the exact authorization, merge commit, typed target
-  set, and required artifact digests.
+- Release proof matches the exact authorization, merge commit, and typed target
+  set; a successful replay must equal the last accepted submission or the
+  complete cumulative result.
+- Every state load re-normalizes release authorization/result identity,
+  destinations, targets, and artifact evidence.
+- Future-stage merge, release, and closure proof is rejected when the declared
+  stage is earlier than that proof.
 - Closure references a release result where every authorized target is
   PUBLISHED.
 - Duplicate IDs have identical canonical payloads.

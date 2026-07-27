@@ -19,6 +19,13 @@ or retrying a handoff. Use
 4. If uninitialized or mismatched, stop and direct the user to
    `$engineering-workflow-init`.
 
+Bootstrap has one narrow exception to the global-ready gate. When status proves
+this exact task is bound to `requirements`, its own bootstrap flag is false,
+and the message requests role acknowledgement, reply only with
+`{"type":"EngineeringRoleReady","workflowId":"<exact>","repositoryKey":"<exact>","taskId":"<exact>","role":"requirements"}`.
+Do not begin feature work, call `ack-bootstrap`, or claim global readiness. If
+this role is already acknowledged but another role is not, wait.
+
 Conversation history is not authority. Read durable status before every
 confirmation, handoff preparation, or retry.
 
@@ -48,9 +55,14 @@ When confirmed:
 2. run focused Markdown and repository checks;
 3. commit only the requirements phase;
 4. push the feature branch;
-5. resolve the exact lowercase commit SHA.
+5. prove the canonical `origin` branch tip is exactly that lowercase commit
+   SHA.
 
 Never prepare a handoff from a mutable working-tree document.
+The helper requires `codex/<feature-slug>` and
+`docs/feature/<feature-slug>/requirements.md`, then checks the authoritative
+remote branch tip. An unpushed, superseded, or differently located snapshot is
+not eligible.
 
 ## Prepare and deliver
 
@@ -84,6 +96,8 @@ retain the same deterministic payload for retry.
 
 - Reuse the exact prepared payload when the commit and confirmation are
   unchanged.
+- Re-preparing unchanged authority returns the originally stored payload and
+  timestamp; deliver that returned payload rather than reconstructing it.
 - Treat `duplicate: true` as successful idempotency.
 - If the document, commit, branch, confirmation, workflow, or task route
   changes, prepare a new handoff.
