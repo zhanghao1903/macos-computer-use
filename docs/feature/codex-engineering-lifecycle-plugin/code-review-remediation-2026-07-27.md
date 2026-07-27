@@ -170,6 +170,25 @@ to a different authorized successful subset, or duplicate a target while
 recomputing its digest. Both states fail validation. Exact failed-result replay
 returns without appending a duplicate history entry.
 
+## State v1 to v2 compatibility remediation
+
+Final regression review found `CEL-FWD-002`: requiring `submissions` while
+continuing to label local state as schema v1 would make a valid
+`1b915389...` RELEASE_FAILED/RELEASED/CLOSED state unloadable.
+
+Local workflow state now has an independent schema version (`2`); config and
+cross-task contracts remain version `1`. Every state load occurs under the
+state lock. A v1 state is deep-copied, its release history is reconstructed
+deterministically from authorization, cumulative result, and
+`lastSubmission`, fully validated as v2, and atomically persisted. A v2 state
+with missing history remains invalid and is never treated as a migration
+candidate.
+
+The integration test converts a real RELEASED state to the exact prior v1
+shape, loads it through the new runtime, proves atomic v2 persistence with two
+history entries, replays release proof, and continues to closure. It separately
+proves deleting history from v2 fails closed.
+
 ## Updated documentation
 
 Role skills and user/design docs now explain:

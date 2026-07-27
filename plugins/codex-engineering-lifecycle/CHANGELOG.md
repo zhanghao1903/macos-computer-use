@@ -36,3 +36,5 @@
   duplicate/shadow requirements metadata.
 - Bind release replay authority to ordered, reconstructable submission history
   with unique targets and history entries.
+- Migrate local workflow state v1 to v2 under lock, reconstructing legacy
+  release history before atomic persistence while keeping routed contracts v1.

@@ -154,8 +154,11 @@ codex plugin marketplace upgrade macos-computer-use
 codex plugin add codex-engineering-lifecycle@macos-computer-use
 ```
 
-State schema v1 is validated before mutation. An incompatible future state is
-rejected rather than silently downgraded.
+Local state schema v1 is migrated once, under the state lock, and atomically
+persisted as v2. This preserves pre-history release states by reconstructing a
+deterministic submission ledger. State v2 is then validated before every
+mutation; incompatible future state is rejected rather than silently
+downgraded.
 
 ## Uninstall
 

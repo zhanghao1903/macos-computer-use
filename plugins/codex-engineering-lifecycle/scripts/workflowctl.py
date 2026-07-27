@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 ROLES = ("requirements", "main", "review")
 MERGE_MODES = ("review-only", "merge-on-approve")
 MERGE_METHODS = ("squash", "merge", "rebase")
@@ -1065,7 +1066,7 @@ def validate_state(value: Any, config: Mapping[str, Any]) -> dict[str, Any]:
     )
     if (
         require_int(state["schemaVersion"], "state.schemaVersion", minimum=1)
-        != SCHEMA_VERSION
+        != STATE_SCHEMA_VERSION
     ):
         raise WorkflowError("unsupported_schema", "Unsupported state schema version")
     if state["workflowId"] != config["workflowId"]:
@@ -1159,13 +1160,108 @@ def validate_state(value: Any, config: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
+def migrate_state_v1(value: Any) -> tuple[dict[str, Any], bool]:
+    state = require_object(value, "state")
+    version = state.get("schemaVersion")
+    if not isinstance(version, int) or isinstance(version, bool) or version != 1:
+        return dict(state), False
+    migrated = require_object(json.loads(canonical_json(state)), "state")
+    features = migrated.get("features")
+    if isinstance(features, dict):
+        for feature_value in features.values():
+            if not isinstance(feature_value, dict):
+                continue
+            release = feature_value.get("release")
+            if (
+                not isinstance(release, dict)
+                or "result" not in release
+                or "lastSubmission" not in release
+                or "submissions" in release
+            ):
+                continue
+            result = release.get("result")
+            last_submission = release.get("lastSubmission")
+            authorization = release.get("authorization")
+            if (
+                not isinstance(result, dict)
+                or not isinstance(last_submission, dict)
+                or not isinstance(authorization, dict)
+                or not isinstance(result.get("targets"), list)
+                or not isinstance(last_submission.get("targets"), list)
+                or not isinstance(authorization.get("targets"), list)
+            ):
+                continue
+            result_targets = {
+                item.get("targetId"): item
+                for item in result["targets"]
+                if isinstance(item, dict)
+            }
+            last_ids = {
+                item.get("targetId")
+                for item in last_submission["targets"]
+                if isinstance(item, dict)
+            }
+            authorization_targets = {
+                item.get("targetId"): item
+                for item in authorization["targets"]
+                if isinstance(item, dict)
+            }
+            if last_ids == set(result_targets):
+                release["submissions"] = [last_submission]
+                continue
+            initial_targets: list[dict[str, Any]] = []
+            for target_id, result_item in result_targets.items():
+                if target_id in last_ids:
+                    target = authorization_targets.get(target_id)
+                    if not isinstance(target, dict):
+                        initial_targets = []
+                        break
+                    initial_targets.append(
+                        {
+                            "targetId": target_id,
+                            "kind": target.get("kind"),
+                            "status": "FAILED",
+                            "error": (
+                                "Migrated from state schema v1; prior failure "
+                                "detail is unavailable."
+                            ),
+                        }
+                    )
+                else:
+                    initial_targets.append(result_item)
+            if not initial_targets:
+                continue
+            initial_targets.sort(key=lambda item: str(item.get("targetId")))
+            initial_submission = {
+                "authorizationId": authorization.get("authorizationId"),
+                "targets": initial_targets,
+                "publishedAt": result.get("publishedAt"),
+            }
+            initial_submission["submissionDigest"] = digest(initial_submission)
+            release["submissions"] = [initial_submission, last_submission]
+    migrated["schemaVersion"] = STATE_SCHEMA_VERSION
+    migrated["updatedAt"] = utc_now()
+    return migrated, True
+
+
+def load_state_locked(
+    paths: Mapping[str, Path], config: Mapping[str, Any]
+) -> dict[str, Any]:
+    state, migrated = migrate_state_v1(load_json(paths["state"], "state"))
+    validated = validate_state(state, config)
+    if migrated:
+        atomic_write(paths["state"], validated)
+    return validated
+
+
 def load_context(
     repo_arg: str,
 ) -> tuple[dict[str, Any], dict[str, Path], dict[str, Any], dict[str, Any]]:
     repository = resolve_repository(repo_arg)
     paths = state_paths(repository)
     config = validate_config(load_json(paths["config"], "config"), repository)
-    state = validate_state(load_json(paths["state"], "state"), config)
+    with locked(paths["lock"]):
+        state = load_state_locked(paths, config)
     return repository, paths, config, state
 
 
@@ -2244,7 +2340,7 @@ def comparable_init(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def new_workflow_state(workflow_id: str, now: str) -> dict[str, Any]:
     return {
-        "schemaVersion": SCHEMA_VERSION,
+        "schemaVersion": STATE_SCHEMA_VERSION,
         "workflowId": workflow_id,
         "bootstrap": {role: False for role in ROLES},
         "features": {},
@@ -2272,7 +2368,7 @@ def command_begin_init(args: argparse.Namespace) -> dict[str, Any]:
                     "Workflow persistence is partial; run final Init with the recorded task IDs",
                 )
             config = validate_config(load_json(paths["config"], "config"), repository)
-            state = validate_state(load_json(paths["state"], "state"), config)
+            state = load_state_locked(paths, config)
             if config["policy"] != policy:
                 raise WorkflowError(
                     "config_conflict",
@@ -2427,7 +2523,7 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
                     "Existing workflow config differs from requested Init",
                 )
             if paths["state"].exists():
-                state = validate_state(load_json(paths["state"], "state"), config)
+                state = load_state_locked(paths, config)
                 recovered = False
                 duplicate = True
             else:

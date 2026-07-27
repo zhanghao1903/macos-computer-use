@@ -29,6 +29,8 @@ verified publication → closure.
 - Successful release replay must match the exact last submission or complete
   cumulative result; ordered immutable submission history reconstructs release
   proof, and state rejects proof from future lifecycle stages.
+- Legacy local state v1 migrates once under lock to state v2, reconstructing
+  release history without changing config or routed-contract schema v1.
 - Merge and release remain externally authorized operations.
 
 ## Verification

@@ -74,7 +74,9 @@ rejection, plan/code remediation loops, review-only
 READY/observed-MERGED, destination-bound full-target release proof, successful
 last-submission/cumulative-result release replay, arbitrary-subset rejection,
 ordered submission-history reconstruction, inverse stage invariants, and
-corrupt-state rejection.
+corrupt-state rejection. A prior state-v1 release shape is automatically
+migrated to v2 and remains resumable; the same missing-history shape under v2
+is rejected.
 
 Coverage includes:
 
@@ -152,7 +154,9 @@ The temporary-Git integration test proved:
 17. rewritten/duplicate submission history, missing authorized result
     target/ID, arbitrary closure target, and
     future-proof/earlier-stage state corruption rejection;
-18. final closure.
+18. locked, atomic state-v1 to state-v2 release-history migration followed by
+    release replay;
+19. final closure.
 
 No production repository, PR, release, or package publication was mutated by
 this test.

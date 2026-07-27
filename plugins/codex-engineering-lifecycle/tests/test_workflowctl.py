@@ -1222,6 +1222,25 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
         self.assertEqual(retry_result["stage"], "RELEASED")
         self.assertEqual(len(retry_result["result"]["targets"]), 2)
 
+        legacy_state = json.loads(state_path.read_bytes())
+        legacy_state["schemaVersion"] = 1
+        del legacy_state["features"][self.feature_id]["release"]["submissions"]
+        state_path.write_text(json.dumps(legacy_state), encoding="utf-8")
+        migrated_status = self.command(
+            "status",
+            "--task-id",
+            self.tasks["main"],
+        )
+        self.assertEqual(
+            migrated_status["features"][self.feature_id]["stage"], "RELEASED"
+        )
+        migrated_state = json.loads(state_path.read_bytes())
+        self.assertEqual(migrated_state["schemaVersion"], 2)
+        self.assertEqual(
+            len(migrated_state["features"][self.feature_id]["release"]["submissions"]),
+            2,
+        )
+
         released_state_bytes = state_path.read_bytes()
         released_state = json.loads(released_state_bytes)
         release_ledger = released_state["features"][self.feature_id]["release"]
@@ -1230,6 +1249,18 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
             release_ledger["lastSubmission"],
             release_ledger["submissions"][-1],
         )
+
+        missing_history_state = copy.deepcopy(released_state)
+        del missing_history_state["features"][self.feature_id]["release"]["submissions"]
+        state_path.write_text(json.dumps(missing_history_state), encoding="utf-8")
+        missing_history_status = self.command(
+            "status",
+            "--task-id",
+            self.tasks["main"],
+            expect=2,
+        )
+        self.assertEqual(missing_history_status["error"]["kind"], "invalid_state")
+        state_path.write_bytes(released_state_bytes)
 
         rewritten_submission_state = copy.deepcopy(released_state)
         rewritten_release = rewritten_submission_state["features"][self.feature_id][

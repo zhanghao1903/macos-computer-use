@@ -412,7 +412,8 @@ Forward-tests must not push, merge, publish, or modify production repositories.
 - After initialization: archive tasks and delete only the exact derived state
   directory after explicit confirmation.
 - Never auto-delete Git branches, PRs, review records, tags, releases, or state.
-- Schema v1 has no downgrade migration; an older plugin must refuse newer state.
+- State schema v1 automatically migrates once to v2 under the state lock. There
+  is no downgrade migration; an older plugin must refuse v2 state.
 
 ## Compatibility
 

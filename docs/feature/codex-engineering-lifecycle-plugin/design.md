@@ -258,7 +258,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 
 | Field | Type | Required | Default | Owner | Validation / compatibility |
 | --- | --- | --- | --- | --- | --- |
-| `schemaVersion` | integer | yes | `1` | runtime | Exact supported value |
+| `schemaVersion` | integer | yes | `2` | runtime | v1 is migrated once under the state lock; unknown/newer versions fail |
 | `workflowId` | UUID | yes | config value | runtime | Must match config |
 | `bootstrap` | object | yes | empty acknowledgements | Init | Exact role/task acknowledgements |
 | `features` | map | yes | `{}` | runtime | Keys equal validated feature IDs |
@@ -722,11 +722,14 @@ skills.
 
 ## Compatibility, rollout, and rollback
 
-- Plugin version starts at `0.1.0`; config/schema version starts at `1`.
+- Plugin version starts at `0.1.0`; config and routed-contract schemas start at
+  `1`; local workflow state starts at `2`.
 - The plugin uses a distinct root and task titles, so it can coexist with the
   lightweight plugin.
-- Schema v1 rejects unknown versions; future migrations must be explicit and
-  tested.
+- State schema v1 is deterministically migrated under the state lock and
+  atomically persisted as v2. The migration reconstructs release submission
+  history from the v1 cumulative result and last submission. Unknown/newer
+  versions fail; future migrations must be explicit and tested.
 - Rollout is opt-in through the repo-local marketplace and Init.
 - Uninstall removes plugin code only. Tasks and local state remain until the
   user separately archives/deletes them.

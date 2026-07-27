@@ -23,7 +23,9 @@
   successful release replay to exact recorded submissions, and reject
   future-stage proof under earlier lifecycle stages. Reject unauthorized Init
   before persistence, reject duplicate requirements metadata, and bind release
-  replay authority to ordered reconstructable submission history.
+  replay authority to ordered reconstructable submission history. Migrate
+  legacy local workflow state v1 to v2 under lock without changing routed
+  contract version 1.
 
 ### Docs
 
