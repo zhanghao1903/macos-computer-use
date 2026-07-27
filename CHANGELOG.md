@@ -21,7 +21,9 @@
   current requirements snapshots, make Goal activation retry-safe, enforce
   green READY checks, rebind persisted release/closure target sets, bind
   successful release replay to exact recorded submissions, and reject
-  future-stage proof under earlier lifecycle stages.
+  future-stage proof under earlier lifecycle stages. Reject unauthorized Init
+  before persistence, reject duplicate requirements metadata, and bind release
+  replay authority to ordered reconstructable submission history.
 
 ### Docs
 

@@ -32,3 +32,7 @@
 - Bind successful release replay to the exact last submission or complete
   cumulative result, and reject future-stage proof under an earlier stage.
 - Pass strict mypy validation for both workflow runtime scripts.
+- Reject missing Goal authorization before Init persistence and reject
+  duplicate/shadow requirements metadata.
+- Bind release replay authority to ordered, reconstructable submission history
+  with unique targets and history entries.

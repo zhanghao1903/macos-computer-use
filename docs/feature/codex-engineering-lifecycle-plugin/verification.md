@@ -69,10 +69,12 @@ Initial F5 result: 24 tests passed.
 Post-review and forward-test remediation result: 28 tests passed, including
 recoverable incremental Init, bootstrap blocking, deterministic message/Goal
 replay, exact re-review authority, atomic acceptance rollback, pushed-current
-requirements, plan/code remediation loops, review-only
+requirements, unauthorized pre-persistence Init rejection, shadow metadata
+rejection, plan/code remediation loops, review-only
 READY/observed-MERGED, destination-bound full-target release proof, successful
 last-submission/cumulative-result release replay, arbitrary-subset rejection,
-inverse stage invariants, and corrupt-state rejection.
+ordered submission-history reconstruction, inverse stage invariants, and
+corrupt-state rejection.
 
 Coverage includes:
 
@@ -128,25 +130,29 @@ Result: Pass; no issues in both runtime scripts.
 The temporary-Git integration test proved:
 
 1. canonical GitHub repository binding and recoverable incremental Init;
-2. distinct Requirements/Main/Review IDs and config-only crash recovery;
-3. bootstrap-only acknowledgements and pre-ready feature-work rejection;
-4. deterministic, pushed, current confirmed requirements handoff;
-5. technical-plan Fail, remediation, exact previous-result re-review, and Pass;
-6. initial GoalRun prepare/activate replay, block/resume, and completion;
-7. code REQUEST_CHANGES, new remediation GoalRun, exact new-head re-review;
-8. failing-check READY and review-only direct-MERGED rejection;
-9. applied READY, then observed external
+2. pre-persistence rejection without Goal authorization;
+3. distinct Requirements/Main/Review IDs and config-only crash recovery;
+4. bootstrap-only acknowledgements and pre-ready feature-work rejection;
+5. deterministic, pushed, current, unique-metadata confirmed requirements
+   handoff;
+6. technical-plan Fail, remediation, exact previous-result re-review, and Pass;
+7. initial GoalRun prepare/activate replay, block/resume, and completion;
+8. code REQUEST_CHANGES, new remediation GoalRun, exact new-head re-review;
+9. failing-check READY and review-only direct-MERGED rejection;
+10. applied READY, then observed external
    matching-policy merge proof;
-10. exact two-target release authorization;
-11. GitHub Release success and PyPI failure;
-12. closure rejection while one target failed;
-13. retry containing only the failed PyPI target;
-14. cumulative all-target success and successful result replay;
-15. exact final-submission and cumulative-result replay, with arbitrary
+11. exact two-target release authorization;
+12. GitHub Release success and PyPI failure;
+13. closure rejection while one target failed;
+14. retry containing only the failed PyPI target;
+15. cumulative all-target success reconstructed from two immutable submission
+    entries;
+16. exact final-submission and cumulative-result replay, with arbitrary
     successful subset rejection;
-16. missing authorized result target/ID, arbitrary closure target, and
+17. rewritten/duplicate submission history, missing authorized result
+    target/ID, arbitrary closure target, and
     future-proof/earlier-stage state corruption rejection;
-17. final closure.
+18. final closure.
 
 No production repository, PR, release, or package publication was mutated by
 this test.

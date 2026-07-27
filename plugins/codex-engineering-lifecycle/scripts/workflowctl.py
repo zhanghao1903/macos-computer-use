@@ -673,12 +673,13 @@ def validate_feature_record(
             feature["release"],
             f"{field}.release",
             {"authorization"},
-            {"result", "lastSubmission"},
+            {"result", "lastSubmission", "submissions"},
         )
-        if ("result" in release) != ("lastSubmission" in release):
+        proof_fields = ("result", "lastSubmission", "submissions")
+        if len({name in release for name in proof_fields}) != 1:
             raise WorkflowError(
                 "invalid_state",
-                f"{field}.release result and lastSubmission must appear together",
+                f"{field}.release result, lastSubmission, and submissions must appear together",
             )
         authorization = validate_release_authorization_shape(release["authorization"])
         if "authorizationId" not in authorization:
@@ -764,7 +765,9 @@ def validate_feature_record(
                 item["targetId"]: item for item in canonical_authorization["targets"]
             }
             result_ids = {item["targetId"] for item in result["targets"]}
-            if result_ids != set(target_map):
+            if result_ids != set(target_map) or len(result["targets"]) != len(
+                result_ids
+            ):
                 raise WorkflowError(
                     "invalid_state",
                     f"{field}.release result target set differs from authorization",
@@ -805,71 +808,72 @@ def validate_feature_record(
                     "invalid_state", f"{field}.release result is not canonical"
                 )
             release_result = canonical_result
-            last_submission = exact_keys(
+            last_submission = normalize_release_submission(
                 release["lastSubmission"],
                 f"{field}.release.lastSubmission",
-                {
-                    "authorizationId",
-                    "targets",
-                    "publishedAt",
-                    "submissionDigest",
-                },
+                canonical_authorization["authorizationId"],
+                target_map,
             )
-            if (
-                last_submission["authorizationId"]
-                != canonical_authorization["authorizationId"]
-                or not isinstance(last_submission["targets"], list)
-                or not last_submission["targets"]
-            ):
+            submissions_value = release["submissions"]
+            if not isinstance(submissions_value, list) or not submissions_value:
                 raise WorkflowError(
                     "invalid_state",
-                    f"{field}.release lastSubmission is misbound or empty",
+                    f"{field}.release submissions must be a non-empty history",
                 )
-            last_targets: list[dict[str, Any]] = []
-            for index, item_value in enumerate(last_submission["targets"]):
-                item = require_object(
-                    item_value,
-                    f"{field}.release.lastSubmission.targets[{index}]",
+            submissions = [
+                normalize_release_submission(
+                    item,
+                    f"{field}.release.submissions[{index}]",
+                    canonical_authorization["authorizationId"],
+                    target_map,
                 )
-                target_id = item.get("targetId")
-                if target_id not in target_map:
+                for index, item in enumerate(submissions_value)
+            ]
+            submission_digests = [item["submissionDigest"] for item in submissions]
+            if len(submission_digests) != len(set(submission_digests)):
+                raise WorkflowError(
+                    "invalid_state",
+                    f"{field}.release submission history contains a duplicate entry",
+                )
+            if submissions[-1] != last_submission:
+                raise WorkflowError(
+                    "invalid_state",
+                    f"{field}.release lastSubmission differs from submission history",
+                )
+            cumulative_by_id: dict[str, dict[str, Any]] = {}
+            for index, submission in enumerate(submissions):
+                submission_ids = {item["targetId"] for item in submission["targets"]}
+                if index == 0:
+                    expected_ids = set(target_map)
+                else:
+                    expected_ids = {
+                        target_id
+                        for target_id, item in cumulative_by_id.items()
+                        if item["status"] == "FAILED"
+                    }
+                if submission_ids != expected_ids:
                     raise WorkflowError(
                         "invalid_state",
-                        f"{field}.release lastSubmission contains an unknown target",
+                        f"{field}.release submission history does not retry the exact failed target set",
                     )
-                last_targets.append(
-                    normalize_target_result(
-                        item,
-                        f"{field}.release.lastSubmission.targets[{index}]",
-                        target_map[target_id],
-                    )
+                cumulative_by_id = {
+                    target_id: item
+                    for target_id, item in cumulative_by_id.items()
+                    if target_id not in submission_ids and item["status"] == "PUBLISHED"
+                }
+                cumulative_by_id.update(
+                    {item["targetId"]: item for item in submission["targets"]}
                 )
-            last_targets.sort(key=lambda item: item["targetId"])
-            result_by_id = {
-                item["targetId"]: item for item in canonical_result["targets"]
-            }
-            if any(result_by_id.get(item["targetId"]) != item for item in last_targets):
-                raise WorkflowError(
-                    "invalid_state",
-                    f"{field}.release lastSubmission differs from cumulative proof",
-                )
-            canonical_submission = {
-                "authorizationId": canonical_authorization["authorizationId"],
-                "targets": last_targets,
-                "publishedAt": require_timestamp(
-                    last_submission["publishedAt"],
-                    f"{field}.release.lastSubmission.publishedAt",
-                ),
-            }
-            canonical_submission["submissionDigest"] = digest(canonical_submission)
+            reconstructed = sorted(
+                cumulative_by_id.values(), key=lambda item: item["targetId"]
+            )
             if (
-                last_submission != canonical_submission
-                or canonical_submission["publishedAt"]
-                != canonical_result["publishedAt"]
+                reconstructed != canonical_result["targets"]
+                or last_submission["publishedAt"] != canonical_result["publishedAt"]
             ):
                 raise WorkflowError(
                     "invalid_state",
-                    f"{field}.release lastSubmission is not canonical",
+                    f"{field}.release cumulative result differs from submission history",
                 )
         if stage == "RELEASE_AUTHORIZED" and release_result is not None:
             raise WorkflowError(
@@ -1940,11 +1944,32 @@ def parse_requirements_metadata(content: bytes) -> dict[str, str]:
         raise WorkflowError(
             "invalid_requirements", "Requirements must be UTF-8 Markdown"
         ) from exc
-    fields: dict[str, str] = {}
-    for name in ("Status", "FeatureId", "Branch", "ConfirmedBy", "ConfirmedAt"):
-        match = re.search(rf"(?m)^-\s*{re.escape(name)}:\s*(.*?)\s*$", text)
+    names = ("Status", "FeatureId", "Branch", "ConfirmedBy", "ConfirmedAt")
+    matches: list[tuple[int, str, str]] = []
+    metadata_pattern = re.compile(
+        r"^-\s*(Status|FeatureId|Branch|ConfirmedBy|ConfirmedAt):\s*(.*?)\s*$"
+    )
+    for index, line in enumerate(text.splitlines()):
+        match = metadata_pattern.fullmatch(line)
         if match:
-            fields[name] = match.group(1).strip()
+            matches.append((index, match.group(1), match.group(2).strip()))
+    counts = {name: sum(item[1] == name for item in matches) for name in names}
+    if any(counts[name] != 1 for name in names):
+        raise WorkflowError(
+            "invalid_requirements",
+            "Requirements metadata fields must each appear exactly once",
+        )
+    line_numbers = [item[0] for item in matches]
+    if (
+        [item[1] for item in matches] != list(names)
+        or line_numbers != list(range(line_numbers[0], line_numbers[0] + len(names)))
+        or line_numbers[0] >= 40
+    ):
+        raise WorkflowError(
+            "invalid_requirements",
+            "Requirements metadata must be one ordered contiguous block near the top",
+        )
+    fields = {name: value for _, name, value in matches}
     if fields.get("Status") != "Confirmed":
         raise WorkflowError(
             "requirements_unconfirmed", "Requirements status must be Confirmed"
@@ -2232,6 +2257,12 @@ def new_workflow_state(workflow_id: str, now: str) -> dict[str, Any]:
 
 def command_begin_init(args: argparse.Namespace) -> dict[str, Any]:
     repository = resolve_repository(args.repo)
+    policy = init_policy(args)
+    if not policy["goalModeAuthorized"]:
+        raise WorkflowError(
+            "goal_not_authorized",
+            "Goal mode must be explicitly authorized before Init persistence",
+        )
     paths = state_paths(repository)
     with locked(paths["lock"]):
         if paths["config"].exists() or paths["state"].exists():
@@ -2242,7 +2273,7 @@ def command_begin_init(args: argparse.Namespace) -> dict[str, Any]:
                 )
             config = validate_config(load_json(paths["config"], "config"), repository)
             state = validate_state(load_json(paths["state"], "state"), config)
-            if config["policy"] != init_policy(args):
+            if config["policy"] != policy:
                 raise WorkflowError(
                     "config_conflict",
                     "Existing workflow policy differs from requested Init",
@@ -2263,7 +2294,7 @@ def command_begin_init(args: argparse.Namespace) -> dict[str, Any]:
             "workflowId": str(uuid.uuid4()),
             "repository": repository_binding(repository),
             "tasks": {},
-            "policy": init_policy(args),
+            "policy": policy,
             "createdAt": now,
             "updatedAt": now,
         }
@@ -2281,7 +2312,7 @@ def command_begin_init(args: argparse.Namespace) -> dict[str, Any]:
                 )
             duplicate = True
         else:
-            pending = proposed
+            pending = validate_init_pending(proposed, repository)
             atomic_write(paths["pending"], pending)
             duplicate = False
     return {
@@ -3884,6 +3915,61 @@ def normalize_target_result(
     return normalized
 
 
+def normalize_release_submission(
+    value: Any,
+    field: str,
+    authorization_id: str,
+    target_map: Mapping[str, dict[str, Any]],
+) -> dict[str, Any]:
+    submission = exact_keys(
+        value,
+        field,
+        {
+            "authorizationId",
+            "targets",
+            "publishedAt",
+            "submissionDigest",
+        },
+    )
+    if (
+        submission["authorizationId"] != authorization_id
+        or not isinstance(submission["targets"], list)
+        or not submission["targets"]
+    ):
+        raise WorkflowError("invalid_state", f"{field} is misbound or has no targets")
+    target_values = [
+        require_object(item, f"{field}.targets[{index}]")
+        for index, item in enumerate(submission["targets"])
+    ]
+    target_ids = [item.get("targetId") for item in target_values]
+    if any(target_id not in target_map for target_id in target_ids) or len(
+        target_ids
+    ) != len(set(target_ids)):
+        raise WorkflowError(
+            "invalid_state", f"{field} has unknown or duplicate targets"
+        )
+    targets = [
+        normalize_target_result(
+            item,
+            f"{field}.targets[{index}]",
+            target_map[item["targetId"]],
+        )
+        for index, item in enumerate(target_values)
+    ]
+    targets.sort(key=lambda item: item["targetId"])
+    canonical = {
+        "authorizationId": authorization_id,
+        "targets": targets,
+        "publishedAt": require_timestamp(
+            submission["publishedAt"], f"{field}.publishedAt"
+        ),
+    }
+    canonical["submissionDigest"] = digest(canonical)
+    if submission != canonical:
+        raise WorkflowError("invalid_state", f"{field} is not canonical")
+    return canonical
+
+
 def command_record_release_result(args: argparse.Namespace) -> dict[str, Any]:
     _, paths, config, _ = load_context(args.repo)
     require_role(config, args.task_id, "main")
@@ -3941,10 +4027,14 @@ def command_record_release_result(args: argparse.Namespace) -> dict[str, Any]:
             else set()
         )
         previous = feature.get("release", {}).get("result")
-        if not submitted_ids or not submitted_ids <= set(target_map):
+        if (
+            not submitted_ids
+            or not submitted_ids <= set(target_map)
+            or len(submitted_ids) != len(value["targets"])
+        ):
             raise WorkflowError(
                 "release_not_authorized",
-                "Release result contains an unauthorized target",
+                "Release result contains an unauthorized or duplicate target",
             )
         submitted_results = [
             normalize_target_result(
@@ -3997,6 +4087,24 @@ def command_record_release_result(args: argparse.Namespace) -> dict[str, Any]:
                 "result": previous,
                 "stage": "RELEASED",
             }
+        if (
+            feature["stage"] == "RELEASE_FAILED"
+            and previous
+            and feature["release"].get("lastSubmission") == submission
+        ):
+            if (
+                "proofDigest" in value
+                and value["proofDigest"] != previous["proofDigest"]
+            ):
+                raise WorkflowError(
+                    "invalid_payload", "proofDigest does not match stored result"
+                )
+            return {
+                "ok": True,
+                "duplicate": True,
+                "result": previous,
+                "stage": "RELEASE_FAILED",
+            }
         if feature["stage"] == "RELEASE_FAILED" and previous:
             previous_by_id = {item["targetId"]: item for item in previous["targets"]}
             expected_ids = {
@@ -4043,8 +4151,21 @@ def command_record_release_result(args: argparse.Namespace) -> dict[str, Any]:
             feature.get("release", {}).get("result") == normalized
             and feature.get("release", {}).get("lastSubmission") == submission
         )
+        if duplicate:
+            return {
+                "ok": True,
+                "duplicate": True,
+                "result": normalized,
+                "stage": feature["stage"],
+            }
+        submissions = feature["release"].get("submissions", [])
+        if not isinstance(submissions, list):
+            raise WorkflowError(
+                "invalid_state", "Release submission history is malformed"
+            )
         feature["release"]["result"] = normalized
         feature["release"]["lastSubmission"] = submission
+        feature["release"]["submissions"] = [*submissions, submission]
         if all(item["status"] == "PUBLISHED" for item in results):
             touch(feature, "RELEASED")
         else:

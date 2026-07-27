@@ -298,7 +298,7 @@ Stored beside config as `state.json` and written atomically under a file lock.
 | `PullRequestSnapshot` | `number`, `url`, `baseRef`, `baseSha`, `headRef`, `headSha` | Canonical repository PR URL and exact lowercase SHAs |
 | `ReviewReportProof` | `branch`, `path`, `commitSha`, `sha256`, `jsonPath?`, `jsonSha256?` | Branch uses `codex/review-records/`; report exists and matches digest |
 | `MergeProof` | `method`, `prUrl`, `approvedHeadSha`, `mergeCommitSha`, `mergedAt` | Exact approved head and canonical PR; method matches config |
-| `ReleaseRecord` | `authorization`, `result?`, `lastSubmission?` | Authorization, cumulative result, and the exact last accepted submission must bind the merge target and version/tag |
+| `ReleaseRecord` | `authorization`, `result?`, `lastSubmission?`, `submissions?` | Authorization, cumulative result, the exact last accepted submission, and ordered immutable submission history must bind the merge target and version/tag |
 | `ClosureRecord` | `releaseTargets`, `releaseTag`, `releaseDigest`, `summary`, `closedAt` | Every authorized release target succeeded; bounded summary and strict timestamp |
 
 ## Routed contract envelope
@@ -507,6 +507,11 @@ artifacts, authorization ID, and proof digest. The runtime stores the exact last
 accepted submission beside the cumulative result. A retry after `RELEASED` is
 idempotent only when it exactly matches that last submission or the complete
 cumulative result; an arbitrary successful subset is a replay conflict.
+Every accepted initial result and failed-target retry is appended to an ordered
+submission history. The first entry must cover every authorized target; each
+later entry must cover exactly the preceding failed target set; target IDs and
+submission digests are unique; folding the history must reconstruct the
+cumulative result; and `lastSubmission` must equal the final history entry.
 `RELEASE_FAILED` must contain a failed authorized target; `RELEASED` must
 contain every authorized target as PUBLISHED.
 

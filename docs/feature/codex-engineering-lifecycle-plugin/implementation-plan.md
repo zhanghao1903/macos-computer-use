@@ -269,6 +269,8 @@ or tests show a clear module boundary. A future split must not change the CLI.
 - Config and state workflow IDs match.
 - Pending Init persists before task creation, records each task exactly once,
   and repairs the config-only crash window without changing workflow identity.
+- Missing Goal-mode authorization is rejected before state-root/lock/pending
+  persistence.
 - Task IDs are pairwise distinct.
 - Every feature map key equals `featureId`.
 - Every feature stage has exactly the artifacts required by that stage.
@@ -283,6 +285,9 @@ or tests show a clear module boundary. A future split must not change the CLI.
 - Release proof matches the exact authorization, merge commit, and typed target
   set; a successful replay must equal the last accepted submission or the
   complete cumulative result.
+- Ordered release submission history starts with all targets, retries exactly
+  the preceding failed set, has unique target/digest entries, reconstructs the
+  cumulative result, and binds `lastSubmission` to its final entry.
 - Every state load re-normalizes release authorization/result identity,
   destinations, targets, and artifact evidence.
 - Future-stage merge, release, and closure proof is rejected when the declared

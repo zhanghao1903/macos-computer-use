@@ -82,6 +82,9 @@ After partial failure, a retry contains exactly the failed targets and retains
 earlier successful proof. Replaying the final successful submission returns the
 durable cumulative result as an idempotent duplicate. A replay of the complete
 cumulative result is also safe; any other successful subset is a conflict.
+The runtime appends each non-duplicate result to ordered submission history;
+the history must reconstruct cumulative proof and its final entry must equal
+`lastSubmission`.
 
 ## External proof
 

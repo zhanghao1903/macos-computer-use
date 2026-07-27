@@ -139,6 +139,9 @@ PyPI/TestPyPI URLs are bound to the normalized project/version and index.
 After success, a response-loss retry is accepted only when it exactly repeats
 the last accepted submission or the complete cumulative result. Other
 successful subsets are rejected so they cannot impersonate the last operation.
+The runtime retains an ordered submission history and reconstructs cumulative
+proof from it, so rewriting `lastSubmission` alone or inserting duplicate
+targets cannot change replay authority.
 State validation also rejects merge, release, or closure proof that belongs to
 a later stage than the feature currently declares.
 

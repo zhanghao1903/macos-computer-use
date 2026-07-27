@@ -12,6 +12,11 @@ Use exact fields near the top of the requirements Markdown:
 - ConfirmedAt: <strict RFC3339 UTC Z or empty while Draft>
 ```
 
+The five lines form one ordered, contiguous metadata block within the first
+40 lines. Each field appears exactly once in the entire document. Duplicate,
+reordered, separated, or later shadow metadata is malformed and cannot carry
+confirmation authority.
+
 The helper reads the committed document and requires all confirmed fields.
 Revisions after confirmation must return status to Draft until reconfirmed.
 The branch and path are deterministic:

@@ -189,6 +189,16 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
         return commit, digest
 
     def test_init_ledger_and_config_only_recovery(self) -> None:
+        unauthorized = self.command(
+            "begin-init",
+            "--merge-mode",
+            "review-only",
+            "--merge-method",
+            "squash",
+            expect=2,
+        )
+        self.assertEqual(unauthorized["error"]["kind"], "goal_not_authorized")
+        self.assertFalse(self.codex_home.exists())
         direct = self.command(
             "init",
             "--requirements-task-id",
@@ -264,7 +274,7 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
 
     def test_requirements_requires_deterministic_pushed_current_snapshot(self) -> None:
         first_commit = self.commit_feature_documents()
-        self.initialize()
+        initialized = self.initialize()
         self.ack_all()
         wrong_path = self.command(
             "prepare-requirements",
@@ -337,6 +347,51 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
             expect=2,
         )
         self.assertEqual(superseded["error"]["kind"], "snapshot_mismatch")
+
+        conflicting_content = (self.repo / requirements_path).read_text(
+            encoding="utf-8"
+        )
+        self.write(
+            requirements_path,
+            f"""{conflicting_content}
+- Status: Draft
+- FeatureId: conflicting-feature-abcdef012345
+- Branch: codex/conflicting-feature
+- ConfirmedBy:
+- ConfirmedAt:
+""",
+        )
+        self.git("add", requirements_path)
+        self.git("commit", "-m", "docs: add conflicting requirements metadata")
+        conflicting_commit = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", self.feature_branch)
+        state_path = Path(initialized["stateRoot"]) / "state.json"
+        before_conflict = json.loads(state_path.read_text(encoding="utf-8"))
+        conflicting = self.command(
+            "prepare-requirements",
+            "--task-id",
+            self.tasks["requirements"],
+            "--feature-id",
+            self.feature_id,
+            "--title",
+            "Sample feature",
+            "--branch",
+            self.feature_branch,
+            "--requirements-path",
+            requirements_path,
+            "--requirements-commit-sha",
+            conflicting_commit,
+            "--confirmation-evidence",
+            "The conflicting document must not be accepted.",
+            expect=2,
+        )
+        self.assertEqual(conflicting["error"]["kind"], "invalid_requirements")
+        after_conflict = self.command("status")
+        self.assertEqual(after_conflict["features"], {})
+        self.assertEqual(
+            json.loads(state_path.read_text(encoding="utf-8")),
+            before_conflict,
+        )
 
     def test_full_lifecycle_with_blocked_goal_and_partial_release_retry(self) -> None:
         plan_sha = self.commit_feature_documents()
@@ -1085,6 +1140,19 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
             str(first_release_file),
         )
         self.assertEqual(first_result["stage"], "RELEASE_FAILED")
+        replayed_failure = self.command(
+            "record-release-result",
+            "--task-id",
+            self.tasks["main"],
+            "--result-file",
+            str(first_release_file),
+        )
+        self.assertTrue(replayed_failure["duplicate"])
+        failed_state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(failed_state["features"][self.feature_id]["release"]["submissions"]),
+            1,
+        )
         close_error = self.command(
             "close-feature",
             "--task-id",
@@ -1155,6 +1223,70 @@ class WorkflowCtlIntegrationTest(unittest.TestCase):
         self.assertEqual(len(retry_result["result"]["targets"]), 2)
 
         released_state_bytes = state_path.read_bytes()
+        released_state = json.loads(released_state_bytes)
+        release_ledger = released_state["features"][self.feature_id]["release"]
+        self.assertEqual(len(release_ledger["submissions"]), 2)
+        self.assertEqual(
+            release_ledger["lastSubmission"],
+            release_ledger["submissions"][-1],
+        )
+
+        rewritten_submission_state = copy.deepcopy(released_state)
+        rewritten_release = rewritten_submission_state["features"][self.feature_id][
+            "release"
+        ]
+        github_proof = next(
+            item
+            for item in rewritten_release["result"]["targets"]
+            if item["kind"] == "GITHUB_RELEASE"
+        )
+        rewritten_submission = {
+            "authorizationId": rewritten_release["authorization"]["authorizationId"],
+            "targets": [github_proof],
+            "publishedAt": rewritten_release["result"]["publishedAt"],
+        }
+        rewritten_submission["submissionDigest"] = WORKFLOW_MODULE.digest(
+            rewritten_submission
+        )
+        rewritten_release["lastSubmission"] = rewritten_submission
+        rewritten_release["submissions"][-1] = rewritten_submission
+        state_path.write_text(json.dumps(rewritten_submission_state), encoding="utf-8")
+        rewritten_submission_status = self.command(
+            "status",
+            "--task-id",
+            self.tasks["main"],
+            expect=2,
+        )
+        self.assertEqual(rewritten_submission_status["error"]["kind"], "invalid_state")
+        state_path.write_bytes(released_state_bytes)
+
+        duplicate_target_state = copy.deepcopy(released_state)
+        duplicate_release = duplicate_target_state["features"][self.feature_id][
+            "release"
+        ]
+        duplicate_submission = copy.deepcopy(duplicate_release["lastSubmission"])
+        duplicate_submission["targets"].append(
+            copy.deepcopy(duplicate_submission["targets"][0])
+        )
+        duplicate_submission["submissionDigest"] = WORKFLOW_MODULE.digest(
+            {
+                key: value
+                for key, value in duplicate_submission.items()
+                if key != "submissionDigest"
+            }
+        )
+        duplicate_release["lastSubmission"] = duplicate_submission
+        duplicate_release["submissions"][-1] = duplicate_submission
+        state_path.write_text(json.dumps(duplicate_target_state), encoding="utf-8")
+        duplicate_target_status = self.command(
+            "status",
+            "--task-id",
+            self.tasks["main"],
+            expect=2,
+        )
+        self.assertEqual(duplicate_target_status["error"]["kind"], "invalid_state")
+        state_path.write_bytes(released_state_bytes)
+
         missing_target_state = json.loads(released_state_bytes)
         persisted_release = missing_target_state["features"][self.feature_id]["release"]
         persisted_release["result"]["targets"] = persisted_release["result"]["targets"][

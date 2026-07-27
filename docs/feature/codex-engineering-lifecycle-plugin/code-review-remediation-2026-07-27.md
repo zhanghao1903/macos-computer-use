@@ -146,6 +146,30 @@ final partial submission and full cumulative result as exact replays, and
 rejects `CLOSED` state rewritten to `RELEASED`,
 `RELEASE_AWAITING_AUTHORIZATION`, or `MERGED` while retaining future proof.
 
+## Final Init/Requirements and release-ledger remediation
+
+The exact-commit re-review found three further forward risks:
+
+- `IRR-001` (unauthorized Init persistence): `begin-init` now rejects missing
+  Goal-mode authorization before resolving any state path, acquiring the lock,
+  or writing pending state. The proposed pending record is fully validated
+  before its first write. The integration test proves the failure leaves
+  `CODEX_HOME` absent and a later authorized Init starts normally.
+- `IRR-002` (shadow requirements metadata): the parser now requires the five
+  authority fields exactly once, in order, contiguously, within the first
+  40 lines. Duplicate Confirmed/Draft blocks are rejected before feature or
+  dispatch mutation, even at the authoritative pushed branch tip.
+- `FWD-REL-003` (self-authorizing `lastSubmission`): release state now stores
+  ordered immutable submission history. The first entry covers all authorized
+  targets; each retry covers exactly the preceding failed target set; targets
+  and history digests are unique; folding the history must equal cumulative
+  proof; and the final entry must equal `lastSubmission`.
+
+New counterexamples rewrite both `lastSubmission` and its final history entry
+to a different authorized successful subset, or duplicate a target while
+recomputing its digest. Both states fail validation. Exact failed-result replay
+returns without appending a duplicate history entry.
+
 ## Updated documentation
 
 Role skills and user/design docs now explain:

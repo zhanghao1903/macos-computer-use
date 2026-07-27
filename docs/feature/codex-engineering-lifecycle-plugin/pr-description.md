@@ -27,7 +27,8 @@ verified publication → closure.
 - Release proof is bound to the exact repository, version, tag, artifacts, and
   targets; partial retries preserve prior success.
 - Successful release replay must match the exact last submission or complete
-  cumulative result, and state rejects proof from future lifecycle stages.
+  cumulative result; ordered immutable submission history reconstructs release
+  proof, and state rejects proof from future lifecycle stages.
 - Merge and release remain externally authorized operations.
 
 ## Verification
