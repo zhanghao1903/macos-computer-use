@@ -4,7 +4,7 @@
 - Branch: `codex/engineering-lifecycle-plugin`
 - Requirements: [requirements.md](requirements.md)
 - Design: [design.md](design.md)
-- Current phase: F3
+- Current phase: F5
 
 ## Scope
 

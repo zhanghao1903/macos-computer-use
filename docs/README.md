@@ -47,6 +47,13 @@ developers.
 - [Publishing](publishing.md): TestPyPI/PyPI workflow and trusted publisher
   proof.
 
+## Codex Workflow Plugins
+
+- [Codex Engineering Lifecycle](../plugins/codex-engineering-lifecycle/README.md):
+  install the GitHub-hosted repo-marketplace plugin and initialize three
+  repository-scoped tasks for requirements, plan/implementation, independent
+  review, merge, release, and closure.
+
 ## Feature Drafts
 
 Draft designs under [feature/](feature/) are not stable public API. Treat them

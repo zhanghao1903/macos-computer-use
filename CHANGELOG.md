@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Add the `codex-engineering-lifecycle` repo-marketplace plugin with three-task
+  Init, confirmed requirements, independent technical-plan and exact-head code
+  review, serialized Goal-mode implementation/remediation, policy-gated merge,
+  typed GitHub Release/PyPI authorization, partial-failure retry, and auditable
+  feature closure.
+
 ### Docs
 
 - Record the `0.3.0` GitHub Release, production PyPI artifact digests,

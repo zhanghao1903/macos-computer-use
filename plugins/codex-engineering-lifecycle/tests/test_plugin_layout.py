@@ -50,6 +50,8 @@ class PluginLayoutTests(unittest.TestCase):
             self.assertTrue((PLUGIN_ROOT / name).is_file(), name)
 
     def test_json_and_docs_have_no_scaffold_placeholders(self) -> None:
+        todo_marker = "[" + "TODO:"
+        scaffold_author = "Local " + "developer"
         for path in PLUGIN_ROOT.rglob("*"):
             if not path.is_file() or "__pycache__" in path.parts:
                 continue
@@ -57,8 +59,8 @@ class PluginLayoutTests(unittest.TestCase):
                 json.loads(path.read_text(encoding="utf-8"))
             if path.suffix in {".json", ".md", ".yaml", ".py", ".svg"}:
                 text = path.read_text(encoding="utf-8")
-                self.assertNotIn("[TODO:", text, str(path))
-                self.assertNotIn("Local developer", text, str(path))
+                self.assertNotIn(todo_marker, text, str(path))
+                self.assertNotIn(scaffold_author, text, str(path))
 
 
 if __name__ == "__main__":
