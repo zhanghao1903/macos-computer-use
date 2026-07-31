@@ -4,6 +4,11 @@
 
 ### Added
 
+- Add the `codex-claude-engineering-lifecycle` repo-marketplace plugin with
+  Codex Requirements/Main tasks, separate persistent Claude Frontend/Review
+  sessions, explicit model/budget/edit authorization, structured session-bound
+  transport, UNKNOWN recovery, frontend Git/path proof, exact-snapshot review,
+  and the existing merge/release/closure gates.
 - Add the `codex-engineering-lifecycle` repo-marketplace plugin with three-task
   Init, confirmed requirements, independent technical-plan and exact-head code
   review, serialized Goal-mode implementation/remediation, policy-gated merge,

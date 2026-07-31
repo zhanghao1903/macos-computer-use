@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "type": "ClaudePlanReviewOutput",
+  "messageId": "6666666666666666666666666666666666666666666666666666666666666666",
+  "requestDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+  "workflowId": "123e4567-e89b-42d3-a456-426614174000",
+  "repositoryKey": "example/project",
+  "featureId": "sample-feature-0123456789ab",
+  "cycle": 1,
+  "sessionId": "323e4567-e89b-42d3-a456-426614174000",
+  "decision": "PASS",
+  "reviewedSnapshot": {
+    "planCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "compositeSha256": "8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "counts": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0
+  },
+  "findings": [],
+  "verification": [
+    {
+      "name": "plan inspection",
+      "status": "PASS",
+      "evidence": "All mandatory plan gates were inspected."
+    }
+  ],
+  "reportMarkdown": "# Technical Plan Review\n\nDecision: PASS\n",
+  "summary": "The exact plan snapshot is implementation-ready."
+}

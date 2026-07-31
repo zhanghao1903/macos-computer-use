@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "type": "ClaudeRoleReady",
+  "messageId": "1111111111111111111111111111111111111111111111111111111111111111",
+  "requestDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "workflowId": "123e4567-e89b-42d3-a456-426614174000",
+  "repositoryKey": "example/project",
+  "sessionId": "223e4567-e89b-42d3-a456-426614174000",
+  "role": "frontend",
+  "status": "READY"
+}

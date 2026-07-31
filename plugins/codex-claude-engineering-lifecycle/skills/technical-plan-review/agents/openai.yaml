@@ -1,0 +1,7 @@
+interface:
+  display_name: "Technical Plan Review"
+  short_description: "Architect review for technical plans"
+  default_prompt: "Use $technical-plan-review to review this technical design and produce a decision report."
+
+policy:
+  allow_implicit_invocation: false

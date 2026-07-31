@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "type": "ClaudeFrontendOutput",
+  "messageId": "3333333333333333333333333333333333333333333333333333333333333333",
+  "requestDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+  "workflowId": "123e4567-e89b-42d3-a456-426614174000",
+  "repositoryKey": "example/project",
+  "featureId": "sample-feature-0123456789ab",
+  "cycle": 1,
+  "sessionId": "223e4567-e89b-42d3-a456-426614174000",
+  "status": "COMPLETED",
+  "startHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "endHeadSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "commitShas": [
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ],
+  "modifiedPaths": [
+    "frontend/app.tsx"
+  ],
+  "verification": [
+    {
+      "name": "frontend tests",
+      "status": "PASS",
+      "evidence": "The requested test command exited successfully."
+    }
+  ],
+  "summary": "Implemented and verified the frontend slice.",
+  "questions": [],
+  "error": null
+}

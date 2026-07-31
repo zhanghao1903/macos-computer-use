@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-claude-engineering-lifecycle/schemas/claude-code-review-output.schema.json",
+  "title": "ClaudeCodeReviewOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "type",
+    "messageId",
+    "requestDigest",
+    "workflowId",
+    "repositoryKey",
+    "featureId",
+    "cycle",
+    "sessionId",
+    "decision",
+    "reviewedSnapshot",
+    "counts",
+    "findings",
+    "verification",
+    "reportMarkdown",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "type": {
+      "const": "ClaudeCodeReviewOutput"
+    },
+    "messageId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requestDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "workflowId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "repositoryKey": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "featureId": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-[0-9a-f]{12}$"
+    },
+    "cycle": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "decision": {
+      "enum": [
+        "APPROVE",
+        "REQUEST_CHANGES",
+        "STALE"
+      ]
+    },
+    "reviewedSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pullRequestUrl",
+        "baseSha",
+        "headSha"
+      ],
+      "properties": {
+        "pullRequestUrl": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 500
+        },
+        "baseSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "counts": {
+      "$ref": "#/$defs/counts"
+    },
+    "findings": {
+      "$ref": "#/$defs/findings"
+    },
+    "verification": {
+      "$ref": "#/$defs/verification"
+    },
+    "reportMarkdown": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocker",
+        "major",
+        "minor"
+      ],
+      "properties": {
+        "blocker": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "severity",
+        "title",
+        "path",
+        "line",
+        "evidence",
+        "recommendation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "major",
+            "minor"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "path": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          ]
+        },
+        "line": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "SKIPPED"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      }
+    }
+  }
+}

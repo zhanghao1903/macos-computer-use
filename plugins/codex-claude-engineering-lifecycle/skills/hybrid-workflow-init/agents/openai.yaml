@@ -1,0 +1,7 @@
+interface:
+  display_name: "Hybrid Workflow Init"
+  short_description: "Initialize Codex and Claude lifecycle roles"
+  default_prompt: "Use $hybrid-workflow-init to initialize this repository."
+
+policy:
+  allow_implicit_invocation: false

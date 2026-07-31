@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "type": "TechnicalPlanReviewRequest",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "messageId": "c588ff9a12bd3168532d9dd6146b63a174fc68f47afacffa3a3799b620655603",
+  "featureId": "sample-feature-0123456789ab",
+  "repositoryKey": "example/project",
+  "routing": {
+    "sourceTaskId": "task-main",
+    "destinationTaskId": "task-review"
+  },
+  "cycle": 1,
+  "createdAt": "2026-07-27T12:00:00Z",
+  "body": {
+    "plan": {
+      "requirements": {
+        "path": "docs/feature/sample/requirements.md",
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "design": {
+        "path": "docs/feature/sample/design.md",
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "implementationPlan": {
+        "path": "docs/feature/sample/implementation-plan.md",
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "planCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "compositeSha256": "159bdda79d6eb632ec79a62ece6c3ac3131e10bf9b645f2b2504ceb3ac24a59f"
+    },
+    "reviewRecordBranch": "codex/review-records/sample-feature-0123456789ab/plan-1-aaaaaaaaaaaa",
+    "acceptanceCriteriaDigest": "4444444444444444444444444444444444444444444444444444444444444444"
+  }
+}

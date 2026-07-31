@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "featureId": "sample-feature-0123456789ab",
+  "mergeCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "version": "1.2.3",
+  "tag": "v1.2.3",
+  "targets": [
+    {
+      "kind": "GITHUB_RELEASE",
+      "repositoryKey": "example/project",
+      "tag": "v1.2.3",
+      "releaseName": "Version 1.2.3",
+      "artifacts": [
+        {
+          "name": "sample-1.2.3.zip",
+          "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      ]
+    }
+  ],
+  "authorizedBy": "user",
+  "authorizationEvidence": "Publish this exact target and artifact digest.",
+  "createdAt": "2026-07-27T12:00:00Z"
+}
