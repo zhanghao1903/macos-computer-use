@@ -63,7 +63,7 @@ class PluginLayoutTests(unittest.TestCase):
         self.assertIn("Do not review or approve", frontend)
         self.assertIn("allowed path prefixes", frontend)
         self.assertIn("Do not edit the feature branch, implement fixes", review)
-        self.assertIn("exact snapshot", review)
+        self.assertIn("exact reviewed snapshot", review)
         self.assertNotEqual(frontend, review)
 
     def test_json_and_docs_have_no_scaffold_placeholders(self) -> None:
