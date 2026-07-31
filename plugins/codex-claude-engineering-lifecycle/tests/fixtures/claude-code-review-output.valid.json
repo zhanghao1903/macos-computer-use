@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "type": "ClaudeCodeReviewOutput",
+  "messageId": "9999999999999999999999999999999999999999999999999999999999999999",
+  "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "workflowId": "123e4567-e89b-42d3-a456-426614174000",
+  "repositoryKey": "example/project",
+  "featureId": "sample-feature-0123456789ab",
+  "cycle": 1,
+  "sessionId": "323e4567-e89b-42d3-a456-426614174000",
+  "decision": "APPROVE",
+  "reviewedSnapshot": {
+    "pullRequestUrl": "https://github.com/example/project/pull/7",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "counts": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0
+  },
+  "findings": [],
+  "verification": [
+    {
+      "name": "exact-head review",
+      "status": "PASS",
+      "evidence": "The exact base/head snapshot was inspected."
+    }
+  ],
+  "reportMarkdown": "# Code Review\n\nDecision: APPROVE\n",
+  "summary": "The exact PR head is ready for merge gates."
+}

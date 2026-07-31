@@ -1,0 +1,16 @@
+{
+  "releaseResultId": "7777777777777777777777777777777777777777777777777777777777777777",
+  "requirementsMessageId": "8d5cfe5f673fd024c1f6a591385865ed0868dfe5db2ec62566006b1ed152f71a",
+  "planReviewResultMessageId": "cc5a31d17d1588614817a09001d4fff49b96b121e20328ffefb7e85cee36f904",
+  "codeReviewResultMessageId": "ea3fe035fd45fa5a80fa1d7345bbab29bd815d93689d370a139139bc72f341a7",
+  "mergeCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "releaseTargets": [
+    "8888888888888888888888888888888888888888888888888888888888888888"
+  ],
+  "scenariosSolved": [
+    "A confirmed feature completes the full engineering lifecycle."
+  ],
+  "followUps": [],
+  "closedAt": "2026-07-27T12:00:00Z",
+  "closureId": "bb2fb5ea941b299e201f7f482ab9176f09863e3d276f05d361ca02bac1e4d185"
+}

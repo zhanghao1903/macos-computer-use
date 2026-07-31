@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hybrid Engineering Main"
+  short_description: "Run Codex and Claude feature delivery"
+  default_prompt: "Use $hybrid-main to continue the authorized feature lifecycle."

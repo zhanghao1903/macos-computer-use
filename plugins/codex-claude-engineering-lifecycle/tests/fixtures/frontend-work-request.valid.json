@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "type": "FrontendWorkRequest",
+  "messageId": "3333333333333333333333333333333333333333333333333333333333333333",
+  "workflowId": "123e4567-e89b-42d3-a456-426614174000",
+  "repositoryKey": "example/project",
+  "featureId": "sample-feature-0123456789ab",
+  "cycle": 1,
+  "branch": "codex/sample-feature",
+  "startHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "planCommitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "planCompositeSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "objective": "Implement the approved frontend slice.",
+  "allowedPathPrefixes": [
+    "frontend"
+  ],
+  "acceptanceCriteria": [
+    "The approved frontend behavior is implemented and tested."
+  ],
+  "verificationCommands": [
+    "npm test"
+  ],
+  "previousResultMessageId": null
+}

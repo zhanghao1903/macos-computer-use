@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "type": "TechnicalPlanReviewResult",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "messageId": "cc5a31d17d1588614817a09001d4fff49b96b121e20328ffefb7e85cee36f904",
+  "featureId": "sample-feature-0123456789ab",
+  "repositoryKey": "example/project",
+  "routing": {
+    "sourceTaskId": "task-review",
+    "destinationTaskId": "task-main"
+  },
+  "cycle": 1,
+  "createdAt": "2026-07-27T12:00:00Z",
+  "body": {
+    "requestMessageId": "c588ff9a12bd3168532d9dd6146b63a174fc68f47afacffa3a3799b620655603",
+    "reviewedPlan": {
+      "planCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "compositeSha256": "159bdda79d6eb632ec79a62ece6c3ac3131e10bf9b645f2b2504ceb3ac24a59f"
+    },
+    "decision": "PASS",
+    "findings": {"blocker": 0, "major": 0, "minor": 1},
+    "report": {
+      "branch": "codex/review-records/sample-feature-0123456789ab/plan-1-aaaaaaaaaaaa",
+      "path": "docs/reviews/plan.md",
+      "commitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "summary": "Plan is implementable and review gates are explicit."
+  }
+}

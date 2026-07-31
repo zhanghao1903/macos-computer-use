@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "type": "RequirementsHandoff",
+  "workflowId": "123e4567-e89b-12d3-a456-426614174000",
+  "messageId": "8d5cfe5f673fd024c1f6a591385865ed0868dfe5db2ec62566006b1ed152f71a",
+  "featureId": "sample-feature-0123456789ab",
+  "repositoryKey": "example/project",
+  "routing": {
+    "sourceTaskId": "task-requirements",
+    "destinationTaskId": "task-main"
+  },
+  "cycle": 1,
+  "createdAt": "2026-07-27T12:00:00Z",
+  "body": {
+    "title": "Sample feature",
+    "branch": "codex/sample-feature",
+    "requirements": {
+      "path": "docs/feature/sample/requirements.md",
+      "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "confirmation": {
+      "status": "CONFIRMED",
+      "confirmedBy": "user",
+      "confirmedAt": "2026-07-27T12:00:00Z",
+      "evidence": "User confirmed the complete snapshot."
+    }
+  }
+}

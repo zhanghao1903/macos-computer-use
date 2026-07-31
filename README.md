@@ -27,6 +27,24 @@ network worker, or business workflow. Applications such as Plato should consume
 this package through a normal package dependency and map package results into
 their own task, confirmation, evidence, and audit systems.
 
+## Repository plugins
+
+This repository also publishes Git-installable Codex workflow plugins:
+
+- [`codex-engineering-lifecycle`](plugins/codex-engineering-lifecycle/README.md)
+  keeps requirements, implementation, and independent review in Codex.
+- [`codex-claude-engineering-lifecycle`](plugins/codex-claude-engineering-lifecycle/README.md)
+  keeps requirements and Main authority in Codex while assigning frontend
+  implementation and independent technical/code review to separate Claude
+  Code sessions.
+
+Install the hybrid plugin from this Git marketplace:
+
+```bash
+codex plugin marketplace add zhanghao1903/macos-computer-use --ref main
+codex plugin add codex-claude-engineering-lifecycle@macos-computer-use
+```
+
 ## Install
 
 From PyPI:

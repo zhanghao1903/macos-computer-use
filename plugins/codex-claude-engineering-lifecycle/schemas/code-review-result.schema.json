@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-claude-engineering-lifecycle/schemas/code-review-result.schema.json",
+  "title": "CodeReviewResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "type", "workflowId", "messageId", "featureId", "repositoryKey", "routing", "cycle", "createdAt", "body"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "type": {"const": "CodeReviewResult"},
+    "workflowId": {"type": "string", "format": "uuid"},
+    "messageId": {"$ref": "#/$defs/digest"},
+    "featureId": {"$ref": "#/$defs/featureId"},
+    "repositoryKey": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 300},
+    "routing": {"$ref": "#/$defs/routing"},
+    "cycle": {"type": "integer", "minimum": 1},
+    "createdAt": {"$ref": "#/$defs/timestamp"},
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestMessageId", "reviewedPullRequest", "decision", "findings", "report", "checks", "merge", "summary"],
+      "properties": {
+        "requestMessageId": {"$ref": "#/$defs/digest"},
+        "reviewedPullRequest": {"$ref": "#/$defs/pullRequest"},
+        "decision": {"enum": ["APPROVE", "COMMENT", "REQUEST_CHANGES"]},
+        "findings": {"$ref": "#/$defs/findings"},
+        "report": {"$ref": "#/$defs/report"},
+        "checks": {"$ref": "#/$defs/checks"},
+        "merge": {"$ref": "#/$defs/merge"},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 500}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"decision": {"const": "APPROVE"}}, "required": ["decision"]},
+          "then": {"properties": {"findings": {"properties": {"blocker": {"const": 0}}}}}
+        },
+        {
+          "if": {"properties": {"merge": {"properties": {"status": {"const": "MERGED"}}, "required": ["status"]}}, "required": ["merge"]},
+          "then": {
+            "properties": {
+              "decision": {"const": "APPROVE"},
+              "checks": {"properties": {"status": {"const": "PASSING"}}}
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "featureId": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-[0-9a-f]{12}$", "maxLength": 76},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceTaskId", "destinationTaskId"],
+      "properties": {
+        "sourceTaskId": {"type": "string", "minLength": 1, "maxLength": 200},
+        "destinationTaskId": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "url", "baseRef", "baseSha", "headRef", "headSha"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+        "baseRef": {"type": "string", "minLength": 1, "maxLength": 240},
+        "baseSha": {"$ref": "#/$defs/sha"},
+        "headRef": {"type": "string", "minLength": 1, "maxLength": 240},
+        "headSha": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker", "major", "minor"],
+      "properties": {
+        "blocker": {"type": "integer", "minimum": 0},
+        "major": {"type": "integer", "minimum": 0},
+        "minor": {"type": "integer", "minimum": 0}
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "path", "commitSha", "sha256"],
+      "dependentRequired": {"jsonPath": ["jsonSha256"], "jsonSha256": ["jsonPath"]},
+      "properties": {
+        "branch": {"type": "string", "pattern": "^codex/review-records/", "maxLength": 240},
+        "path": {"$ref": "#/$defs/path"},
+        "commitSha": {"$ref": "#/$defs/sha"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "jsonPath": {"$ref": "#/$defs/path"},
+        "jsonSha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checkedAt"],
+      "properties": {
+        "status": {"enum": ["PASSING", "FAILING", "PENDING", "UNAVAILABLE"]},
+        "checkedAt": {"$ref": "#/$defs/timestamp"},
+        "detailsUrl": {"type": "string", "format": "uri", "pattern": "^https://"}
+      }
+    },
+    "merge": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {"status": {"enum": ["READY", "NOT_REQUESTED", "STALE"]}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "error"],
+          "properties": {
+            "status": {"const": "FAILED"},
+            "error": {"type": "string", "minLength": 1, "maxLength": 300}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "method", "url", "sha", "mergedAt"],
+          "properties": {
+            "status": {"const": "MERGED"},
+            "method": {"enum": ["squash", "merge", "rebase"]},
+            "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+            "sha": {"$ref": "#/$defs/sha"},
+            "mergedAt": {"$ref": "#/$defs/timestamp"}
+          }
+        }
+      ]
+    }
+  }
+}

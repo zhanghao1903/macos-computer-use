@@ -1,0 +1,45 @@
+{
+  "name": "codex-claude-engineering-lifecycle",
+  "version": "0.1.0",
+  "description": "A four-role Codex and Claude workflow for confirmed requirements, Claude frontend delivery and independent review, merge, release, and feature closure.",
+  "author": {
+    "name": "zhanghao1903",
+    "url": "https://github.com/zhanghao1903"
+  },
+  "homepage": "https://github.com/zhanghao1903/macos-computer-use/tree/main/plugins/codex-claude-engineering-lifecycle",
+  "repository": "https://github.com/zhanghao1903/macos-computer-use",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude",
+    "cross-application",
+    "frontend",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex-Claude Engineering Lifecycle",
+    "shortDescription": "Codex delivery with Claude frontend and review.",
+    "longDescription": "Initialize Codex Requirements and Main tasks plus separate Claude Frontend and Review sessions, then deliver confirmed features through exact plan review, serialized implementation, exact-head code review, merge, explicit release authorization, and auditable closure.",
+    "developerName": "zhanghao1903",
+    "category": "Productivity",
+    "capabilities": [
+      "Cross-application workflow",
+      "Claude frontend implementation",
+      "Claude plan and code review",
+      "Release governance"
+    ],
+    "websiteURL": "https://github.com/zhanghao1903/macos-computer-use/tree/main/plugins/codex-claude-engineering-lifecycle",
+    "privacyPolicyURL": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-claude-engineering-lifecycle/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/zhanghao1903/macos-computer-use/blob/main/plugins/codex-claude-engineering-lifecycle/TERMS.md",
+    "defaultPrompt": [
+      "Use $hybrid-workflow-init to initialize this repository.",
+      "Use $hybrid-requirements to confirm my feature request.",
+      "Use $hybrid-main to continue the hybrid lifecycle."
+    ],
+    "brandColor": "#7C3AED",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg",
+    "logoDark": "./assets/logo-dark.svg"
+  }
+}

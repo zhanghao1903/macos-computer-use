@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hybrid Requirements"
+  short_description: "Confirm requirements for the hybrid workflow"
+  default_prompt: "Use $hybrid-requirements to turn my request into confirmed requirements."
